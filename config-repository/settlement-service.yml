@@ -1,0 +1,6 @@
+server:
+  port: 19097
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/settlement_db}

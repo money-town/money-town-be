@@ -1,0 +1,47 @@
+server:
+  port: 19091
+
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # 각 도메인 서비스 뼈대 생성 시 여기에 라우트를 추가
+          httpclient:
+            connect-timeout: 3000
+            response-timeout: 10s
+          globalcors:
+            add-to-simple-url-handler-mapping: true
+            cors-configurations:
+              '[/**]':
+                allowed-origin-patterns:
+                  - ${CORS_ALLOWED_ORIGIN_PATTERN:http://localhost:*}
+                allowed-methods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowed-headers:
+                  - "*"
+                exposed-headers:
+                  - Authorization
+                  - X-Request-Id
+                allow-credentials: true
+                max-age: 3600
+
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,gateway
+
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+    path: /swagger-ui.html

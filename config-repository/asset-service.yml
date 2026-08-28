@@ -1,0 +1,6 @@
+server:
+  port: 19095
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/asset_db}

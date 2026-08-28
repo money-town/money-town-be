@@ -1,0 +1,12 @@
+rootProject.name = 'money-town'
+
+include 'discovery-server'
+include 'config-server'
+include 'gateway-service'
+include 'common-module'
+include 'user-service'
+include 'wallet-service'
+include 'asset-service'
+include 'offering-service'
+include 'settlement-service'
+include 'analysis-service'

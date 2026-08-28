@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: Test
+        run: ./gradlew clean test
+
+      - name: Build boot jars
+        run: ./gradlew bootJar
+
+      - name: Validate Docker Compose
+        run: docker compose --env-file .env.example -f infrastructure/docker-compose.yml config --quiet
+
+      - name: Build Docker images
+        run: docker compose --env-file .env.example -f infrastructure/docker-compose.yml build
+
+      - name: Start full stack
+        run: docker compose --env-file .env.example -f infrastructure/docker-compose.yml up -d --wait --wait-timeout 300
+
+      - name: Smoke test infrastructure
+        run: |
+          # nginx -> gateway-service 프록시 체인 (라우트가 아직 없어 404가 정상 — 연결 자체만 확인)
+          curl -sS http://localhost:8002/ -o /dev/null -w "nginx -> gateway-service proxy: HTTP %{http_code}\n"
+
+          # Eureka에 인프라 서비스 + 도메인 서비스 6개가 전부 등록됐는지 확인
+          for svc in CONFIG-SERVER GATEWAY-SERVICE USER-SERVICE WALLET-SERVICE ASSET-SERVICE OFFERING-SERVICE SETTLEMENT-SERVICE ANALYSIS-SERVICE; do
+            curl -fsS -H 'Accept: application/json' "http://localhost:19090/eureka/apps/${svc}" -o /dev/null \
+              && echo "Eureka: ${svc} registered" \
+              || { echo "Eureka: ${svc} NOT registered"; exit 1; }
+          done
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example -f infrastructure/docker-compose.yml logs --no-color --tail=200
+
+      - name: Stop stack
+        if: always()
+        run: docker compose --env-file .env.example -f infrastructure/docker-compose.yml down -v --remove-orphans

@@ -1,0 +1,6 @@
+server:
+  port: 19092
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/user_db}
