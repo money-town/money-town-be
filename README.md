@@ -1,5 +1,8 @@
 # money-town
 
+[![CI](https://github.com/money-town/money-town-be/actions/workflows/ci.yml/badge.svg)](https://github.com/money-town/money-town-be/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/money-town/money-town-be/branch/main/graph/badge.svg)](https://codecov.io/gh/money-town/money-town-be)
+
 RWA(실물자산) 조각투자 및 배당 정산 플랫폼입니다. Spring Boot 기반 MSA로 구성하며, 선착순 청약의 동시성 제어,
 금융 거래 정합성, 대규모 배당 처리, 이상 청약 탐지(FDS), RAG 기반 AI 포트폴리오 추천을 핵심 과제로 다룹니다.
 서비스 간 동기 통신은 Feign Client, 비동기 후속 처리는 Kafka 이벤트를 사용합니다.
