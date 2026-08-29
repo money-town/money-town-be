@@ -1,0 +1,18 @@
+# 기본 소유자는 soyul9280입니다.
+# 담당자가 변경되면 서비스별 소유자를 추가하거나 교체합니다.
+
+*                              @soyul9280
+
+/.github/                      @soyul9280 @hanwoo7726
+/infrastructure/              @soyul9280 @hanwoo7726
+/discovery-server/             @soyul9280 @hanwoo7726
+/config-server/               @soyul9280 @nadaasw @poppq03 @ztoacej @TaeHeeKim98 @hanwoo7726
+/gateway-service/               @hanwoo7726
+/config-repository/           @soyul9280 @nadaasw @poppq03 @ztoacej @TaeHeeKim98 @hanwoo7726
+/common-module/               @soyul9280 @hanwoo7726
+/wallet-service/                 @poppq03 @hanwoo7726
+/asset-service/             @TaeHeeKim98 @hanwoo7726
+/user-service/                @hanwoo7726
+/offering-service/               @ztoacej @hanwoo7726
+/settlement-service/            @soyul9280 @hanwoo7726
+/analysis-service/     @nadaasw @hanwoo7726
