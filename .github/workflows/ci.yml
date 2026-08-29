@@ -29,6 +29,13 @@ jobs:
       - name: Test
         run: ./gradlew clean test
 
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          directory: .
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Build boot jars
         run: ./gradlew bootJar
 
