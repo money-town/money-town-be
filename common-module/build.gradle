@@ -9,11 +9,14 @@ jar {
 
 dependencies {
     compileOnly 'org.springframework:spring-web'
+    compileOnly 'org.springframework:spring-webmvc'
     compileOnly 'jakarta.servlet:jakarta.servlet-api'
     compileOnly 'com.fasterxml.jackson.core:jackson-annotations'
     compileOnly 'jakarta.persistence:jakarta.persistence-api'
+    compileOnly 'jakarta.validation:jakarta.validation-api'
     compileOnly 'org.springframework.data:spring-data-jpa'
     compileOnly 'io.github.openfeign:feign-core'
     compileOnly 'org.slf4j:slf4j-api'
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure'
+    compileOnly "com.querydsl:querydsl-jpa:${dependencyManagement.importedProperties['querydsl.version']}:jakarta"
 }

@@ -1,2 +1,4 @@
 com.moneykk.moneytown.common.exception.CommonExceptionAutoConfiguration
 com.moneykk.moneytown.common.config.JpaAuditingConfig
+com.moneykk.moneytown.common.config.QuerydslConfig
+com.moneykk.moneytown.common.web.CommonWebMvcAutoConfiguration
