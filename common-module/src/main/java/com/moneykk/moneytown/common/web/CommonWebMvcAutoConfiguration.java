@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.common.web;
 
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -10,6 +11,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.data.web.SortHandlerMethodArgumentResolver;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -19,31 +21,43 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @EnableConfigurationProperties(SpringDataWebProperties.class)
 public class CommonWebMvcAutoConfiguration implements WebMvcConfigurer {
 
-    private final PageSizeLimitArgumentResolver pageableResolver;
+    private final SpringDataWebProperties properties;
+    private final ObjectProvider<PageableHandlerMethodArgumentResolver> pageableResolvers;
 
-    public CommonWebMvcAutoConfiguration(SpringDataWebProperties properties) {
+    public CommonWebMvcAutoConfiguration(SpringDataWebProperties properties,
+                                          ObjectProvider<PageableHandlerMethodArgumentResolver> pageableResolvers) {
+        this.properties = properties;
+        this.pageableResolvers = pageableResolvers;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PageableHandlerMethodArgumentResolver.class)
+    public PageableHandlerMethodArgumentResolver pageableResolver() {
         SpringDataWebProperties.Pageable pageableProps = properties.getPageable();
 
-        PageSizeLimitArgumentResolver resolver = new PageSizeLimitArgumentResolver();
+        int maxPageSize = pageableProps.getMaxPageSize();
+        if (maxPageSize < 1) {
+            throw new IllegalStateException(
+                    "spring.data.web.pageable.max-page-size는 1 이상이어야 합니다: " + maxPageSize);
+        }
+
+        SortHandlerMethodArgumentResolver sortResolver = new SortHandlerMethodArgumentResolver();
+        sortResolver.setSortParameter(properties.getSort().getSortParameter());
+
+        PageSizeLimitArgumentResolver resolver = new PageSizeLimitArgumentResolver(sortResolver);
         resolver.setPageParameterName(pageableProps.getPageParameter());
         resolver.setSizeParameterName(pageableProps.getSizeParameter());
         resolver.setOneIndexedParameters(pageableProps.isOneIndexedParameters());
         resolver.setPrefix(pageableProps.getPrefix());
         resolver.setQualifierDelimiter(pageableProps.getQualifierDelimiter());
         resolver.setFallbackPageable(PageRequest.of(0, pageableProps.getDefaultPageSize()));
-        resolver.setMaxPageSize(pageableProps.getMaxPageSize());
+        resolver.setMaxPageSize(maxPageSize);
 
-        this.pageableResolver = resolver;
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(PageableHandlerMethodArgumentResolver.class)
-    public PageableHandlerMethodArgumentResolver pageableResolver() {
-        return pageableResolver;
+        return resolver;
     }
 
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
-        resolvers.add(pageableResolver);
+        resolvers.add(pageableResolvers.getObject());
     }
 }
