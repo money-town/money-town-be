@@ -22,14 +22,26 @@ public class PageSizeLimitArgumentResolver extends PageableHandlerMethodArgument
     @Override
     public Pageable resolveArgument(MethodParameter methodParameter, ModelAndViewContainer mavContainer,
                                      NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
+        String sizeParameterName = getParameterNameToUse(getSizeParameterName(), methodParameter);
+        String rawSize = webRequest.getParameter(sizeParameterName);
+
         Pageable pageable = super.resolveArgument(methodParameter, mavContainer, webRequest, binderFactory);
 
-        if (!ALLOWED_SIZES.contains(pageable.getPageSize())) {
+        boolean rawSizeRejected = rawSize != null && !isAllowedSize(rawSize);
+        if (rawSizeRejected || !ALLOWED_SIZES.contains(pageable.getPageSize())) {
             // 대체 크기가 상위 리졸버에 설정된 maxPageSize를 넘지 않도록 한다.
             int fallbackSize = Math.min(DEFAULT_SIZE, getMaxPageSize());
             return PageRequest.of(pageable.getPageNumber(), fallbackSize, pageable.getSort());
         }
 
         return pageable;
+    }
+
+    private boolean isAllowedSize(String rawSize) {
+        try {
+            return ALLOWED_SIZES.contains(Integer.parseInt(rawSize.trim()));
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 }
