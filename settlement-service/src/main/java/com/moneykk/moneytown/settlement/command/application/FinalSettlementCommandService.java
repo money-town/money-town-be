@@ -75,7 +75,7 @@ public class FinalSettlementCommandService {
         FinalSettlementBatch batch = finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
                 .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
 
-        if (batch.getStatus() != SettlementStatus.PARTIAL_FAILED) {
+        if (!isRetryable(batch.getStatus())) {
             throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_RETRYABLE);
         }
 
@@ -91,6 +91,10 @@ public class FinalSettlementCommandService {
         finalSettlementPayoutRepository.saveAll(retryablePayouts);
 
         return FinalSettlementRetryResponse.of(batch, retryablePayouts.size());
+    }
+
+    private boolean isRetryable(SettlementStatus status) {
+        return status == SettlementStatus.FAILED || status == SettlementStatus.PARTIAL_FAILED;
     }
 
     private List<FinalSettlementPayout> findRetryablePayouts(UUID finalSettlementBatchId, FinalSettlementRetryRequest request) {
