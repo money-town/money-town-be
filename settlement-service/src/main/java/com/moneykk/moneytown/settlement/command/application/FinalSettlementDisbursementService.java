@@ -1,8 +1,10 @@
 package com.moneykk.moneytown.settlement.command.application;
 
+import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositRequest;
+import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositResponse;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
@@ -34,9 +36,13 @@ public class FinalSettlementDisbursementService {
 
     private void attempt(UUID finalSettlementBatchId, FinalSettlementPayout payout) {
         try {
-            walletServiceClient.depositSettlement(new SettlementDepositRequest(
+            ApiResponse<SettlementDepositResponse> response = walletServiceClient.depositSettlement(new SettlementDepositRequest(
                     payout.getId().toString(), payout.getInvestorId(), finalSettlementBatchId, payout.getAmount()));
-            payoutWriter.markPaid(payout.getId());
+            if (response.success()) {
+                payoutWriter.markPaid(payout.getId());
+            } else {
+                payoutWriter.markFailedAttempt(payout.getId());
+            }
         } catch (FeignException e) {
             payoutWriter.markFailedAttempt(payout.getId());
         }
