@@ -7,6 +7,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -15,7 +16,9 @@ import java.util.UUID;
 
 @Getter
 @Entity
-@Table(name = "p_final_settlement_payouts")
+@Table(name = "p_final_settlement_payouts",
+        uniqueConstraints = @UniqueConstraint(name = "uk_final_settlement_payouts_batch_investor",
+                columnNames = {"final_settlement_batch_id", "investor_id"}))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class FinalSettlementPayout extends BaseUpdatableEntity {
 
@@ -51,7 +54,7 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
         this.investorId = investorId;
         this.quantity = quantity;
         this.amount = amount;
-        this.idempotencyKey = this.id.toString();
+        this.idempotencyKey = finalSettlementBatchId + ":" + investorId;
         this.status = PayoutStatus.QUEUED;
         this.retryCount = 0;
     }

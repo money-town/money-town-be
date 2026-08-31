@@ -7,6 +7,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,7 +17,9 @@ import java.util.UUID;
 
 @Getter
 @Entity
-@Table(name = "p_dividend_payouts")
+@Table(name = "p_dividend_payouts",
+        uniqueConstraints = @UniqueConstraint(name = "uk_dividend_payouts_batch_investor",
+                columnNames = {"settlement_batch_id", "investor_id"}))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DividendPayout extends BaseUpdatableEntity {
 
@@ -52,7 +55,7 @@ public class DividendPayout extends BaseUpdatableEntity {
         this.investorId = investorId;
         this.shareRatio = shareRatio;
         this.amount = amount;
-        this.idempotencyKey = this.id.toString();
+        this.idempotencyKey = settlementBatchId + ":" + investorId;
         this.status = PayoutStatus.QUEUED;
         this.retryCount = 0;
     }
