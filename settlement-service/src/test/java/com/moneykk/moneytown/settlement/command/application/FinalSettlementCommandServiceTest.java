@@ -239,6 +239,32 @@ class FinalSettlementCommandServiceTest {
         }
 
         @Test
+        @DisplayName("전체 지급이 DEAD_LETTER라 FAILED 상태인 회차도 재처리할 수 있다")
+        void requeuesAllDeadLetterPayoutsWhenBatchFullyFailed() {
+            FinalSettlementBatch batch = finalSettlementBatchWithStatus(SettlementStatus.FAILED);
+            when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+            FinalSettlementPayout deadLetterPayout = deadLetterPayout(batch.getId(), 900L, 900_000_000L);
+            when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(batch.getId(), PayoutStatus.DEAD_LETTER))
+                    .thenReturn(List.of(deadLetterPayout));
+
+            FinalSettlementRetryResponse response = finalSettlementCommandService.retryFinalSettlement(
+                    batch.getId(), new FinalSettlementRetryRequest(null));
+
+            assertThat(response.retriedCount()).isEqualTo(1);
+            assertThat(response.status()).isEqualTo(SettlementStatus.DISBURSING);
+
+            ArgumentCaptor<FinalSettlementBatch> batchCaptor = ArgumentCaptor.forClass(FinalSettlementBatch.class);
+            verify(finalSettlementBatchRepository).save(batchCaptor.capture());
+            assertThat(batchCaptor.getValue().getStatus()).isEqualTo(SettlementStatus.DISBURSING);
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<FinalSettlementPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
+            verify(finalSettlementPayoutRepository).saveAll(payoutsCaptor.capture());
+            assertThat(payoutsCaptor.getValue().get(0).getStatus()).isEqualTo(PayoutStatus.QUEUED);
+        }
+
+        @Test
         @DisplayName("finalSettlementPayoutIds 지정 시 해당 건만 선택적으로 재처리한다")
         void requeuesOnlySpecifiedPayoutsWhenIdsGiven() {
             FinalSettlementBatch batch = finalSettlementBatchWithStatus(SettlementStatus.PARTIAL_FAILED);
@@ -284,8 +310,8 @@ class FinalSettlementCommandServiceTest {
         }
 
         @Test
-        @DisplayName("PARTIAL_FAILED 상태가 아니면 예외")
-        void rejectsWhenBatchNotPartialFailed() {
+        @DisplayName("FAILED/PARTIAL_FAILED 상태가 아니면 예외")
+        void rejectsWhenBatchNeitherFailedNorPartialFailed() {
             FinalSettlementBatch batch = finalSettlementBatchWithStatus(SettlementStatus.CALCULATED);
             when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
 
