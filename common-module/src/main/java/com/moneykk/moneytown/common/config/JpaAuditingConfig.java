@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -23,9 +24,8 @@ public class JpaAuditingConfig {
     @Bean
     public AuditorAware<UUID> auditorProvider() {
         return () -> {
-            ServletRequestAttributes attributes =
-                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attributes == null) {
+            RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+            if (!(requestAttributes instanceof ServletRequestAttributes attributes)) {
                 return Optional.of(SYSTEM_USER_ID);
             }
 
