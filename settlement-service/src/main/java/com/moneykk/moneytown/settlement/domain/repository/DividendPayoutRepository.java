@@ -7,9 +7,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface DividendPayoutRepository extends JpaRepository<DividendPayout, UUID> {
+
+    Optional<DividendPayout> findByIdAndIsDeletedFalse(UUID id);
 
     List<DividendPayout> findBySettlementBatchIdAndStatusAndIsDeletedFalse(UUID settlementBatchId, PayoutStatus status);
 
