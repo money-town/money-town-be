@@ -4,7 +4,3 @@ server:
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/settlement_db}
-  flyway:
-    # V5는 CREATE INDEX CONCURRENTLY를 포함해 트랜잭션 안에서 실행할 수 없다.
-    # mixed=true로 두면 non-transactional 문장이 있는 마이그레이션 전체를 트랜잭션 없이 실행한다.
-    mixed: true
