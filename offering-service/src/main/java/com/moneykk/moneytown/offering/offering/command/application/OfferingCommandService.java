@@ -3,7 +3,12 @@ package com.moneykk.moneytown.offering.offering.command.application;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingRejectionRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
-import com.moneykk.moneytown.offering.offering.command.dto.response.*;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingApprovalResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingDeleteResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingRejectionResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import lombok.RequiredArgsConstructor;
@@ -30,12 +35,14 @@ public class OfferingCommandService {
         // TODO: Asset 상태가 APPROVED인지 검증
         // TODO: 삭제된 Asset인지 검증
         // TODO: Asset 소유자와 issuerId 일치 여부 검증
+        // TODO: Asset Service OpenFeign 연동 후 Asset.unitPrice로 교체
+        Long temporaryUnitPrice = 10_000L; // 임시값 제거 예정
 
         Offering offering = Offering.create(
                 request.assetId(),
                 issuerId,
                 request.title(),
-                request.pricePerUnit(),
+                temporaryUnitPrice,  // TODO: Asset Service OpenFeign 연동 후 Asset.unitPrice로 교체
                 request.totalQuantity(),
                 request.minSubscriptionQuantity(),
                 request.maxSubscriptionQuantity(),
@@ -149,7 +156,6 @@ public class OfferingCommandService {
 
         offering.update(
                 request.title(),
-                request.pricePerUnit(),
                 request.totalQuantity(),
                 request.minSubscriptionQuantity(),
                 request.maxSubscriptionQuantity(),

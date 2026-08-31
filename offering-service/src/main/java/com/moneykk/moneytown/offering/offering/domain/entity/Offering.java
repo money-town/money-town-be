@@ -13,7 +13,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -37,8 +36,8 @@ public class Offering extends BaseUpdatableEntity {
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 
-    @Column(name = "price_per_unit", nullable = false, precision = 19, scale = 2)
-    private BigDecimal pricePerUnit;
+    @Column(name = "price_per_unit", nullable = false)
+    private Long pricePerUnit;
 
     @Column(name = "total_quantity", nullable = false)
     private Long totalQuantity;
@@ -86,7 +85,7 @@ public class Offering extends BaseUpdatableEntity {
             UUID assetId,
             UUID issuerId,
             String title,
-            BigDecimal pricePerUnit,
+            Long pricePerUnit,
             Long totalQuantity,
             Long minSubscriptionQuantity,
             Long maxSubscriptionQuantity,
@@ -123,7 +122,7 @@ public class Offering extends BaseUpdatableEntity {
             UUID assetId,
             UUID issuerId,
             String title,
-            BigDecimal pricePerUnit,
+            Long pricePerUnit,
             Long totalQuantity,
             Long minSubscriptionQuantity,
             Long maxSubscriptionQuantity,
@@ -234,7 +233,6 @@ public class Offering extends BaseUpdatableEntity {
 
     public void update(
             String title,
-            BigDecimal pricePerUnit,
             Long totalQuantity,
             Long minSubscriptionQuantity,
             Long maxSubscriptionQuantity,
@@ -250,9 +248,6 @@ public class Offering extends BaseUpdatableEntity {
 
         String newTitle =
                 title != null ? title : this.title;
-
-        BigDecimal newPricePerUnit =
-                pricePerUnit != null ? pricePerUnit : this.pricePerUnit;
 
         Long newTotalQuantity =
                 totalQuantity != null ? totalQuantity : this.totalQuantity;
@@ -277,7 +272,7 @@ public class Offering extends BaseUpdatableEntity {
                 this.assetId,
                 this.issuerId,
                 newTitle,
-                newPricePerUnit,
+                this.pricePerUnit,
                 newTotalQuantity,
                 newMinSubscriptionQuantity,
                 newMaxSubscriptionQuantity,
@@ -286,7 +281,6 @@ public class Offering extends BaseUpdatableEntity {
         );
 
         this.title = newTitle;
-        this.pricePerUnit = newPricePerUnit;
         this.totalQuantity = newTotalQuantity;
         this.remainingQuantity = newTotalQuantity;
         this.minSubscriptionQuantity = newMinSubscriptionQuantity;
@@ -353,7 +347,7 @@ public class Offering extends BaseUpdatableEntity {
             UUID assetId,
             UUID issuerId,
             String title,
-            BigDecimal pricePerUnit,
+            Long pricePerUnit,
             Long totalQuantity,
             Long minSubscriptionQuantity,
             Long maxSubscriptionQuantity,
@@ -376,7 +370,7 @@ public class Offering extends BaseUpdatableEntity {
             throw new IllegalArgumentException("공모 상품명은 200자를 초과할 수 없습니다.");
         }
 
-        if (pricePerUnit == null || pricePerUnit.compareTo(BigDecimal.ZERO) <= 0) {
+        if (pricePerUnit == null || pricePerUnit <= 0) {
             throw new IllegalArgumentException("단위당 청약 가격은 0보다 커야 합니다.");
         }
 

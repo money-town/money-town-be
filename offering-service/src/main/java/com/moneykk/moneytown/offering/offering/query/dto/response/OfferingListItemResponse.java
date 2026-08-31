@@ -3,7 +3,6 @@ package com.moneykk.moneytown.offering.offering.query.dto.response;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -11,7 +10,7 @@ public record OfferingListItemResponse(
         UUID offeringId,
         UUID assetId,
         String title,
-        BigDecimal pricePerUnit,
+        Long pricePerUnit,
         Long totalQuantity,
         Long remainingQuantity,
         OfferingStatus offeringStatus,

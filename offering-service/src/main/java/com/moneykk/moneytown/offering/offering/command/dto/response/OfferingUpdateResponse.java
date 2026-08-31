@@ -3,14 +3,13 @@ package com.moneykk.moneytown.offering.offering.command.dto.response;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
 public record OfferingUpdateResponse(
         UUID offeringId,
         String title,
-        BigDecimal pricePerUnit,
+        Long pricePerUnit,
         Long totalQuantity,
         Long remainingQuantity,
         Long minSubscriptionQuantity,

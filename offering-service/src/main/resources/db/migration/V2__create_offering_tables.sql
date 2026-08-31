@@ -1,5 +1,3 @@
--- Offering Service schema baseline.
--- Add future schema changes as V2__, V3__ and later migrations.
 CREATE TABLE p_offerings (
                              offering_id UUID PRIMARY KEY,
                              asset_id UUID NOT NULL,
@@ -7,7 +5,7 @@ CREATE TABLE p_offerings (
 
                              title VARCHAR(200) NOT NULL,
 
-                             price_per_unit NUMERIC(19, 2) NOT NULL,
+                             price_per_unit BIGINT NOT NULL,
                              total_quantity BIGINT NOT NULL,
                              remaining_quantity BIGINT NOT NULL,
 
