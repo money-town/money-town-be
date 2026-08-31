@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -82,6 +83,23 @@ class DividendPayoutWriterTest {
         assertThat(queued.getStatus()).isEqualTo(PayoutStatus.PROCESSING);
         assertThat(retrying.getStatus()).isEqualTo(PayoutStatus.PROCESSING);
         verify(dividendPayoutRepository).saveAll(claimed);
+    }
+
+    @Test
+    @DisplayName("reclaimStalledProcessing: 기준 시각 이전에 멈춘 PROCESSING 건을 QUEUED로 되돌리되 retryCount는 보존한다")
+    void reclaimsStalledProcessing() {
+        DividendPayout stalled = retryingPayout(1);
+        ReflectionTestUtils.setField(stalled, "status", PayoutStatus.PROCESSING);
+        Instant staleBefore = Instant.now();
+        when(dividendPayoutRepository.findByStatusAndUpdatedAtBeforeAndIsDeletedFalse(PayoutStatus.PROCESSING, staleBefore))
+                .thenReturn(List.of(stalled));
+
+        int reclaimed = dividendPayoutWriter.reclaimStalledProcessing(staleBefore);
+
+        assertThat(reclaimed).isEqualTo(1);
+        assertThat(stalled.getStatus()).isEqualTo(PayoutStatus.QUEUED);
+        assertThat(stalled.getRetryCount()).isEqualTo(1);
+        verify(dividendPayoutRepository).saveAll(List.of(stalled));
     }
 
     @Test

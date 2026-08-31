@@ -144,4 +144,16 @@ class DividendDisbursementServiceTest {
         verify(walletServiceClient, never()).depositDividend(any());
         verify(payoutWriter, never()).claimPendingPayouts(any());
     }
+
+    @Test
+    @DisplayName("reclaimStalledProcessing: payoutWriter로 위임하고 결과를 그대로 반환한다")
+    void reclaimStalledProcessingDelegatesToPayoutWriter() {
+        Instant staleBefore = Instant.now();
+        when(payoutWriter.reclaimStalledProcessing(staleBefore)).thenReturn(2);
+
+        int reclaimed = dividendDisbursementService.reclaimStalledProcessing(staleBefore);
+
+        assertThat(reclaimed).isEqualTo(2);
+        verify(payoutWriter).reclaimStalledProcessing(staleBefore);
+    }
 }

@@ -85,6 +85,23 @@ class FinalSettlementPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("reclaimStalledProcessing: 기준 시각 이전에 멈춘 PROCESSING 건을 QUEUED로 되돌리되 retryCount는 보존한다")
+    void reclaimsStalledProcessing() {
+        FinalSettlementPayout stalled = retryingPayout(1);
+        ReflectionTestUtils.setField(stalled, "status", PayoutStatus.PROCESSING);
+        Instant staleBefore = Instant.now();
+        when(finalSettlementPayoutRepository.findByStatusAndUpdatedAtBeforeAndIsDeletedFalse(PayoutStatus.PROCESSING, staleBefore))
+                .thenReturn(List.of(stalled));
+
+        int reclaimed = finalSettlementPayoutWriter.reclaimStalledProcessing(staleBefore);
+
+        assertThat(reclaimed).isEqualTo(1);
+        assertThat(stalled.getStatus()).isEqualTo(PayoutStatus.QUEUED);
+        assertThat(stalled.getRetryCount()).isEqualTo(1);
+        verify(finalSettlementPayoutRepository).saveAll(List.of(stalled));
+    }
+
+    @Test
     @DisplayName("markPaid: 지급 건을 PAID로 전환하고 저장한다")
     void marksPaid() {
         FinalSettlementPayout payout = queuedPayout();

@@ -47,6 +47,7 @@ class DisbursementRetrySchedulerTest {
 
         disbursementRetryScheduler.retryStuckDividendPayouts();
 
+        verify(dividendDisbursementService).reclaimStalledProcessing(any());
         verify(dividendDisbursementService).disburseAsync(batchId1);
         verify(dividendDisbursementService).disburseAsync(batchId2);
     }
@@ -71,6 +72,7 @@ class DisbursementRetrySchedulerTest {
 
         disbursementRetryScheduler.retryStuckFinalSettlementPayouts();
 
+        verify(finalSettlementDisbursementService).reclaimStalledProcessing(any());
         verify(finalSettlementDisbursementService).disburseAsync(batchId1);
     }
 
