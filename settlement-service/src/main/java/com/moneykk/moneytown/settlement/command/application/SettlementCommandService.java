@@ -13,8 +13,8 @@ import com.moneykk.moneytown.settlement.domain.repository.HoldingSnapshotReposit
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.service.DividendDistributionCalculator;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
@@ -26,7 +26,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,6 +40,7 @@ public class SettlementCommandService {
     private final HoldingSnapshotRepository holdingSnapshotRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
     private final AssetServiceClient assetServiceClient;
+    private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @Transactional
     public SettlementBatchResponse openBatch(UUID assetId, UUID revenueId) {
@@ -160,32 +160,15 @@ public class SettlementCommandService {
         return previousCompletedBatch.map(SettlementBatch::getRemainderAmount).orElse(0L);
     }
 
-    // 커서 기반 페이지네이션 응답을 hasNext가 false가 될 때까지 반복 호출해 전체 items를 모은다.
     private HoldingsSnapshotResponse fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {
-        List<HoldingItem> allItems = new ArrayList<>();
-        Long totalHoldingQuantity = null;
-        String cursor = null;
-        boolean hasNext = true;
+        AssetHoldingsSnapshotFetcher.Aggregated aggregated = assetHoldingsSnapshotFetcher.fetchAll(assetId, recordDate);
 
-        while (hasNext) {
-            String requestCursor = cursor;
-            HoldingsSnapshotResponse page = FeignExceptionTranslator.call(
-                    () -> assetServiceClient.getHoldingsSnapshot(assetId, recordDate, requestCursor).data(),
-                    SettlementErrorCode.ASSET_HOLDINGS_NOT_FOUND);
-
-            if (page.items() != null) {
-                allItems.addAll(page.items());
-            }
-            totalHoldingQuantity = page.totalHoldingQuantity();
-            hasNext = page.hasNext();
-            cursor = page.nextCursor();
-        }
-
+        Long totalHoldingQuantity = aggregated.totalHoldingQuantity();
         if (totalHoldingQuantity == null || totalHoldingQuantity <= 0) {
             throw new BusinessException(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
         }
 
-        return new HoldingsSnapshotResponse(assetId, recordDate, totalHoldingQuantity, allItems, null, false);
+        return new HoldingsSnapshotResponse(assetId, recordDate, totalHoldingQuantity, aggregated.items(), null, false);
     }
 
     private HoldingSnapshot captureHoldingSnapshot(SettlementBatch batch, HoldingsSnapshotResponse holdingsSnapshot) {

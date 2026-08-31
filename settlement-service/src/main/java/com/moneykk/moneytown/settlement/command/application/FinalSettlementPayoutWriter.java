@@ -14,11 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * 배치/지급 건의 상태 변경을 각각 짧은 트랜잭션으로 커밋한다.
- * 지갑 서비스 원격 호출은 이 클래스가 아니라 {@link FinalSettlementDisbursementService}에서
- * 트랜잭션 밖에 수행하고, 그 결과만 이 클래스를 통해 저장한다.
- */
 @Component
 @RequiredArgsConstructor
 class FinalSettlementPayoutWriter {

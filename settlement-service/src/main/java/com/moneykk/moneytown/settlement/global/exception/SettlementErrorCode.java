@@ -22,7 +22,10 @@ public enum SettlementErrorCode implements ErrorCode {
     SETTLEMENT_BATCH_NOT_RETRYABLE(HttpStatus.CONFLICT, "SETTLEMENT_409_06", "실패(FAILED) 또는 부분 실패(PARTIAL_FAILED) 상태의 정산 회차만 재시도할 수 있습니다."),
     FINAL_SETTLEMENT_HOLDERS_NOT_FOUND(HttpStatus.CONFLICT, "SETTLEMENT_409_07", "최종 정산 시점(terminatedAt) 기준 보유자가 존재하지 않습니다."),
     FINAL_SETTLEMENT_BATCH_NOT_RETRYABLE(HttpStatus.CONFLICT, "SETTLEMENT_409_08", "실패(FAILED) 또는 부분 실패(PARTIAL_FAILED) 상태의 최종 정산 회차만 재시도할 수 있습니다."),
-    FINAL_SETTLEMENT_NO_RETRYABLE_PAYOUTS(HttpStatus.CONFLICT, "SETTLEMENT_409_09", "재처리 가능한 실패 건이 존재하지 않습니다.");
+    FINAL_SETTLEMENT_NO_RETRYABLE_PAYOUTS(HttpStatus.CONFLICT, "SETTLEMENT_409_09", "재처리 가능한 실패 건이 존재하지 않습니다."),
+
+    ASSET_HOLDINGS_PAGINATION_STALLED(HttpStatus.INTERNAL_SERVER_ERROR, "SETTLEMENT_500_01",
+            "자산 서비스의 보유지분 스냅샷 페이지네이션이 비정상적으로 종료되지 않습니다.");
 
     private final HttpStatus status;
     private final String code;
