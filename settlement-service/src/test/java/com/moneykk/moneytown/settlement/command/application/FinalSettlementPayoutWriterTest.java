@@ -67,6 +67,24 @@ class FinalSettlementPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("claimPendingPayouts: QUEUED/RETRYING 건을 PROCESSING으로 전환해 선점하고 반환한다")
+    void claimsPendingPayoutsAndMarksProcessing() {
+        UUID batchId = UUID.randomUUID();
+        FinalSettlementPayout queued = queuedPayout();
+        FinalSettlementPayout retrying = retryingPayout(1);
+        when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusInAndIsDeletedFalse(
+                batchId, List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING)))
+                .thenReturn(List.of(queued, retrying));
+
+        List<FinalSettlementPayout> claimed = finalSettlementPayoutWriter.claimPendingPayouts(batchId);
+
+        assertThat(claimed).containsExactly(queued, retrying);
+        assertThat(queued.getStatus()).isEqualTo(PayoutStatus.PROCESSING);
+        assertThat(retrying.getStatus()).isEqualTo(PayoutStatus.PROCESSING);
+        verify(finalSettlementPayoutRepository).saveAll(claimed);
+    }
+
+    @Test
     @DisplayName("markPaid: 지급 건을 PAID로 전환하고 저장한다")
     void marksPaid() {
         FinalSettlementPayout payout = queuedPayout();
@@ -111,6 +129,22 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(inProgress));
+
+        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CALCULATED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
+    @DisplayName("updateBatchStatus: PROCESSING 건이 남아있으면 배치 상태를 바꾸지 않는다")
+    void updateBatchStatus_skipsWhenAnyProcessing() {
+        FinalSettlementBatch batch = calculatedBatch();
+        FinalSettlementPayout processing = queuedPayout();
+        ReflectionTestUtils.setField(processing, "status", PayoutStatus.PROCESSING);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(processing));
 
         finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 

@@ -67,6 +67,24 @@ class DividendPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("claimPendingPayouts: QUEUED/RETRYING 건을 PROCESSING으로 전환해 선점하고 반환한다")
+    void claimsPendingPayoutsAndMarksProcessing() {
+        UUID batchId = UUID.randomUUID();
+        DividendPayout queued = queuedPayout();
+        DividendPayout retrying = retryingPayout(1);
+        when(dividendPayoutRepository.findBySettlementBatchIdAndStatusInAndIsDeletedFalse(
+                batchId, List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING)))
+                .thenReturn(List.of(queued, retrying));
+
+        List<DividendPayout> claimed = dividendPayoutWriter.claimPendingPayouts(batchId);
+
+        assertThat(claimed).containsExactly(queued, retrying);
+        assertThat(queued.getStatus()).isEqualTo(PayoutStatus.PROCESSING);
+        assertThat(retrying.getStatus()).isEqualTo(PayoutStatus.PROCESSING);
+        verify(dividendPayoutRepository).saveAll(claimed);
+    }
+
+    @Test
     @DisplayName("markPaid: 지급 건을 PAID로 전환하고 저장한다")
     void marksPaid() {
         DividendPayout payout = queuedPayout();
@@ -111,6 +129,22 @@ class DividendPayoutWriterTest {
         when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
         when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(inProgress));
+
+        dividendPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PENDING);
+        verify(settlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
+    @DisplayName("updateBatchStatus: PROCESSING 건이 남아있으면 배치 상태를 바꾸지 않는다")
+    void updateBatchStatus_skipsWhenAnyProcessing() {
+        SettlementBatch batch = openBatch();
+        DividendPayout processing = queuedPayout();
+        ReflectionTestUtils.setField(processing, "status", PayoutStatus.PROCESSING);
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(processing));
 
         dividendPayoutWriter.updateBatchStatus(batch.getId());
 

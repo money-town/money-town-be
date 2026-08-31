@@ -46,7 +46,7 @@ class DividendDisbursementServiceTest {
     void disbursesInOrderPerPayout() {
         UUID batchId = UUID.randomUUID();
         DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
         DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", payout.getAmount(), Instant.now(), null);
         when(walletServiceClient.depositDividend(any())).thenReturn(ApiResponse.success(response, null));
 
@@ -72,7 +72,7 @@ class DividendDisbursementServiceTest {
     void marksFailedAttemptWhenResponseSuccessIsFalse() {
         UUID batchId = UUID.randomUUID();
         DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
         when(walletServiceClient.depositDividend(any()))
                 .thenReturn(new ApiResponse<>(false, null, "지갑 처리 실패", "WALLET_500_01"));
 
@@ -87,8 +87,23 @@ class DividendDisbursementServiceTest {
     void marksFailedAttemptOnFeignException() {
         UUID batchId = UUID.randomUUID();
         DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
         when(walletServiceClient.depositDividend(any())).thenThrow(mock(FeignException.class));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(payoutWriter).markFailedAttempt(payout.getId());
+        verify(payoutWriter, never()).markPaid(any());
+        verify(payoutWriter).updateBatchStatus(batchId);
+    }
+
+    @Test
+    @DisplayName("FeignException이 아닌 예외가 나도 claim된 건이 PROCESSING에 갇히지 않도록 markFailedAttempt를 호출한다")
+    void marksFailedAttemptOnUnexpectedException() {
+        UUID batchId = UUID.randomUUID();
+        DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(walletServiceClient.depositDividend(any())).thenThrow(new RuntimeException("unexpected"));
 
         dividendDisbursementService.disburse(batchId);
 
@@ -103,7 +118,7 @@ class DividendDisbursementServiceTest {
         UUID batchId = UUID.randomUUID();
         DividendPayout failing = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
         DividendPayout succeeding = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(failing, succeeding));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(failing, succeeding));
         DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", succeeding.getAmount(), Instant.now(), null);
         when(walletServiceClient.depositDividend(any()))
                 .thenThrow(mock(FeignException.class))
@@ -127,6 +142,6 @@ class DividendDisbursementServiceTest {
                 .isSameAs(notFound);
 
         verify(walletServiceClient, never()).depositDividend(any());
-        verify(payoutWriter, never()).findPendingPayouts(any());
+        verify(payoutWriter, never()).claimPendingPayouts(any());
     }
 }

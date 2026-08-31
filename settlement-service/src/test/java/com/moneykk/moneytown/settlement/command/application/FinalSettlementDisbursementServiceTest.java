@@ -45,7 +45,7 @@ class FinalSettlementDisbursementServiceTest {
     void disbursesInOrderPerPayout() {
         UUID batchId = UUID.randomUUID();
         FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
         SettlementDepositResponse response = new SettlementDepositResponse(9013L, 55L, "SETTLEMENT", payout.getAmount(), Instant.now(), null);
         when(walletServiceClient.depositSettlement(any())).thenReturn(ApiResponse.success(response, null));
 
@@ -71,7 +71,7 @@ class FinalSettlementDisbursementServiceTest {
     void marksFailedAttemptWhenResponseSuccessIsFalse() {
         UUID batchId = UUID.randomUUID();
         FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
         when(walletServiceClient.depositSettlement(any()))
                 .thenReturn(new ApiResponse<>(false, null, "지갑 처리 실패", "WALLET_500_01"));
 
@@ -86,8 +86,23 @@ class FinalSettlementDisbursementServiceTest {
     void marksFailedAttemptOnFeignException() {
         UUID batchId = UUID.randomUUID();
         FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
         when(walletServiceClient.depositSettlement(any())).thenThrow(mock(FeignException.class));
+
+        finalSettlementDisbursementService.disburse(batchId);
+
+        verify(payoutWriter).markFailedAttempt(payout.getId());
+        verify(payoutWriter, never()).markPaid(any());
+        verify(payoutWriter).updateBatchStatus(batchId);
+    }
+
+    @Test
+    @DisplayName("FeignException이 아닌 예외가 나도 claim된 건이 PROCESSING에 갇히지 않도록 markFailedAttempt를 호출한다")
+    void marksFailedAttemptOnUnexpectedException() {
+        UUID batchId = UUID.randomUUID();
+        FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(walletServiceClient.depositSettlement(any())).thenThrow(new RuntimeException("unexpected"));
 
         finalSettlementDisbursementService.disburse(batchId);
 
@@ -102,7 +117,7 @@ class FinalSettlementDisbursementServiceTest {
         UUID batchId = UUID.randomUUID();
         FinalSettlementPayout failing = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
         FinalSettlementPayout succeeding = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
-        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(failing, succeeding));
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(failing, succeeding));
         SettlementDepositResponse response = new SettlementDepositResponse(9013L, 55L, "SETTLEMENT", succeeding.getAmount(), Instant.now(), null);
         when(walletServiceClient.depositSettlement(any()))
                 .thenThrow(mock(FeignException.class))
@@ -126,6 +141,6 @@ class FinalSettlementDisbursementServiceTest {
                 .isSameAs(notFound);
 
         verify(walletServiceClient, never()).depositSettlement(any());
-        verify(payoutWriter, never()).findPendingPayouts(any());
+        verify(payoutWriter, never()).claimPendingPayouts(any());
     }
 }
