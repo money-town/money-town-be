@@ -91,4 +91,54 @@ public class Revenue extends BaseEntity {
     @LastModifiedBy
     @Column(name = "updated_by")
     private UUID updatedBy;
+
+    public Revenue(UUID assetId, UUID userId, RevenueSourceType sourceType,
+                   String sourceReferenceId, RevenueType revenueType,
+                   BigDecimal grossAmount, BigDecimal expenseAmount, BigDecimal feeAmount,
+                   String currency, LocalDate periodStart, LocalDate periodEnd,
+                   Map<String, Object> rawPayload) {
+        if (grossAmount.signum() <= 0 || expenseAmount.signum() < 0 || feeAmount.signum() < 0) {
+            throw new IllegalArgumentException("수익과 비용 금액이 올바르지 않습니다.");
+        }
+        if (periodStart.isAfter(periodEnd)) {
+            throw new IllegalArgumentException("수익 기간 시작일은 종료일보다 늦을 수 없습니다.");
+        }
+        if (!"KRW".equals(currency)) {
+            throw new IllegalArgumentException("MVP에서는 KRW만 지원합니다.");
+        }
+        this.assetId = assetId;
+        this.userId = userId;
+        this.sourceType = sourceType;
+        this.sourceReferenceId = sourceReferenceId;
+        this.revenueType = revenueType;
+        this.grossAmount = grossAmount;
+        this.expenseAmount = expenseAmount;
+        this.feeAmount = feeAmount;
+        this.currency = currency;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+        this.rawPayload = new HashMap<>(rawPayload);
+        this.transferStatus = RevenueTransferStatus.READY;
+    }
+
+    public void markTransferred() {
+        this.transferStatus = RevenueTransferStatus.TRANSFERRED;
+        this.transferredAt = Instant.now();
+        this.failureReason = null;
+    }
+
+    public void markFailed(String failureReason) {
+        if (failureReason == null || failureReason.isBlank()) {
+            throw new IllegalArgumentException("전달 실패 사유가 필요합니다.");
+        }
+        this.transferStatus = RevenueTransferStatus.FAILED;
+        this.transferredAt = null;
+        this.failureReason = failureReason;
+    }
+
+    public void retry() {
+        this.transferStatus = RevenueTransferStatus.READY;
+        this.transferredAt = null;
+        this.failureReason = null;
+    }
 }

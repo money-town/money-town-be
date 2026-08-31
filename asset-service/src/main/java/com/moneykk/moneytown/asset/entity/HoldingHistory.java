@@ -29,7 +29,7 @@ public class HoldingHistory extends BaseEntity {
     @Column(name = "holding_id", nullable = false, updatable = false)
     private UUID holdingId;
 
-    @Column(name = "subscription_id", nullable = false, updatable = false)
+    @Column(name = "subscription_id", updatable = false)
     private UUID subscriptionId;
 
     @Enumerated(EnumType.STRING)
@@ -50,4 +50,27 @@ public class HoldingHistory extends BaseEntity {
 
     @Column(name = "reason", length = 500)
     private String reason;
+
+    public HoldingHistory(UUID holdingId, UUID subscriptionId, HoldingHistoryType historyType,
+                          long quantity, long balanceBefore, long balanceAfter,
+                          String idempotencyKey, String reason) {
+        if (quantity <= 0 || balanceBefore < 0 || balanceAfter < 0) {
+            throw new IllegalArgumentException("지분 변동 수량과 잔액이 올바르지 않습니다.");
+        }
+        if ((historyType == HoldingHistoryType.ALLOCATE || historyType == HoldingHistoryType.REVOKE)
+                && subscriptionId == null) {
+            throw new IllegalArgumentException("배정·회수 이력에는 청약 ID가 필요합니다.");
+        }
+        if (historyType != HoldingHistoryType.ALLOCATE && (reason == null || reason.isBlank())) {
+            throw new IllegalArgumentException("배정 외 지분 변동에는 사유가 필요합니다.");
+        }
+        this.holdingId = holdingId;
+        this.subscriptionId = subscriptionId;
+        this.historyType = historyType;
+        this.quantity = quantity;
+        this.balanceBefore = balanceBefore;
+        this.balanceAfter = balanceAfter;
+        this.idempotencyKey = idempotencyKey;
+        this.reason = reason;
+    }
 }

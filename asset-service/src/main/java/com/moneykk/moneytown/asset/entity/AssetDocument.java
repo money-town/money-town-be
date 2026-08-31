@@ -60,4 +60,26 @@ public class AssetDocument extends BaseEntity {
 
     @Column(name = "deleted_by")
     private UUID deletedBy;
+
+    public AssetDocument(UUID assetId, DocumentType documentType, int documentVersion,
+                         String originalFilename, String s3ObjectKey, String contentType,
+                         long fileSize, String fileHash) {
+        if (documentVersion <= 0 || fileSize <= 0) {
+            throw new IllegalArgumentException("문서 버전과 파일 크기는 0보다 커야 합니다.");
+        }
+        this.assetId = assetId;
+        this.documentType = documentType;
+        this.documentVersion = documentVersion;
+        this.originalFilename = originalFilename;
+        this.s3ObjectKey = s3ObjectKey;
+        this.contentType = contentType;
+        this.fileSize = fileSize;
+        this.fileHash = fileHash;
+    }
+
+    public void softDelete(UUID deletedBy) {
+        this.deleted = true;
+        this.deletedAt = Instant.now();
+        this.deletedBy = deletedBy;
+    }
 }
