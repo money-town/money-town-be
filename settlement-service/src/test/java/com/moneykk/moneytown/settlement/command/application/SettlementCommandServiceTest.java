@@ -299,8 +299,8 @@ class SettlementCommandServiceTest {
             verify(dividendPayoutRepository).saveAll(payoutsCaptor.capture());
             assertThat(payoutsCaptor.getValue()).hasSize(1);
             assertThat(payoutsCaptor.getValue().get(0).getStatus()).isEqualTo(PayoutStatus.QUEUED);
-            // retryCount는 워커가 실제로 지갑 호출을 재시도할 때 올라가는 값이라 retryBatch()는 건드리지 않는다.
-            assertThat(payoutsCaptor.getValue().get(0).getRetryCount()).isEqualTo(deadLetterPayout.getRetryCount());
+            // 재처리는 새로 3번의 시도 기회를 줘야 하므로 requeue()가 retryCount를 0으로 초기화한다.
+            assertThat(payoutsCaptor.getValue().get(0).getRetryCount()).isZero();
         }
 
         @Test
@@ -354,6 +354,7 @@ class SettlementCommandServiceTest {
         private DividendPayout deadLetterPayout(UUID batchId) {
             DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
             ReflectionTestUtils.setField(payout, "status", PayoutStatus.DEAD_LETTER);
+            ReflectionTestUtils.setField(payout, "retryCount", 3);
             return payout;
         }
     }

@@ -228,7 +228,8 @@ class FinalSettlementCommandServiceTest {
             assertThat(requeued.getStatus()).isEqualTo(PayoutStatus.QUEUED);
             // amount는 최초 계산 시점 값(quantity × unitPrice)을 재사용하며 재계산하지 않는다.
             assertThat(requeued.getAmount()).isEqualTo(900_000_000L);
-            assertThat(requeued.getRetryCount()).isEqualTo(deadLetterPayout.getRetryCount());
+            // 재처리는 새로 3번의 시도 기회를 줘야 하므로 requeue()가 retryCount를 0으로 초기화한다.
+            assertThat(requeued.getRetryCount()).isZero();
         }
 
         @Test
@@ -363,6 +364,7 @@ class FinalSettlementCommandServiceTest {
         private FinalSettlementPayout deadLetterPayout(UUID batchId, Long quantity, Long amount) {
             FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), quantity, amount);
             ReflectionTestUtils.setField(payout, "status", PayoutStatus.DEAD_LETTER);
+            ReflectionTestUtils.setField(payout, "retryCount", 3);
             return payout;
         }
     }
