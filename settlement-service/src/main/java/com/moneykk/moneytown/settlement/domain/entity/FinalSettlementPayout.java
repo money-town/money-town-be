@@ -63,6 +63,10 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
         return new FinalSettlementPayout(finalSettlementBatchId, investorId, quantity, amount);
     }
 
+    public void requeue() {
+        this.status = PayoutStatus.QUEUED;
+    }
+
     public void markPaid() {
         this.status = PayoutStatus.PAID;
     }

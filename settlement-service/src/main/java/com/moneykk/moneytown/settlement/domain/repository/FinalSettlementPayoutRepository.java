@@ -13,4 +13,10 @@ public interface FinalSettlementPayoutRepository extends JpaRepository<FinalSett
             UUID finalSettlementBatchId, List<PayoutStatus> statuses);
 
     List<FinalSettlementPayout> findByFinalSettlementBatchIdAndIsDeletedFalse(UUID finalSettlementBatchId);
+
+    List<FinalSettlementPayout> findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(
+            UUID finalSettlementBatchId, PayoutStatus status);
+
+    List<FinalSettlementPayout> findByFinalSettlementBatchIdAndIdInAndStatusAndIsDeletedFalse(
+            UUID finalSettlementBatchId, List<UUID> ids, PayoutStatus status);
 }

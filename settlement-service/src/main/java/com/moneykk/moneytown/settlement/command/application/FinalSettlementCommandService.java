@@ -3,9 +3,13 @@ package com.moneykk.moneytown.settlement.command.application;
 import com.moneykk.moneytown.common.client.FeignExceptionTranslator;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse;
+import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
+import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
 import com.moneykk.moneytown.settlement.command.dto.OpenFinalSettlementRequest;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
+import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
@@ -64,6 +68,39 @@ public class FinalSettlementCommandService {
         finalSettlementPayoutRepository.saveAll(payouts);
 
         return FinalSettlementBatchResponse.of(batch);
+    }
+
+    @Transactional
+    public FinalSettlementRetryResponse retryFinalSettlement(UUID finalSettlementBatchId, FinalSettlementRetryRequest request) {
+        FinalSettlementBatch batch = finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
+                .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
+
+        if (batch.getStatus() != SettlementStatus.PARTIAL_FAILED) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_RETRYABLE);
+        }
+
+        List<FinalSettlementPayout> retryablePayouts = findRetryablePayouts(finalSettlementBatchId, request);
+        if (retryablePayouts.isEmpty()) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_NO_RETRYABLE_PAYOUTS);
+        }
+
+        retryablePayouts.forEach(FinalSettlementPayout::requeue);
+        batch.markDisbursing();
+
+        finalSettlementBatchRepository.save(batch);
+        finalSettlementPayoutRepository.saveAll(retryablePayouts);
+
+        return FinalSettlementRetryResponse.of(batch, retryablePayouts.size());
+    }
+
+    private List<FinalSettlementPayout> findRetryablePayouts(UUID finalSettlementBatchId, FinalSettlementRetryRequest request) {
+        List<UUID> payoutIds = request.finalSettlementPayoutIds();
+        if (payoutIds == null || payoutIds.isEmpty()) {
+            return finalSettlementPayoutRepository
+                    .findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(finalSettlementBatchId, PayoutStatus.DEAD_LETTER);
+        }
+        return finalSettlementPayoutRepository
+                .findByFinalSettlementBatchIdAndIdInAndStatusAndIsDeletedFalse(finalSettlementBatchId, payoutIds, PayoutStatus.DEAD_LETTER);
     }
 
     private List<HoldingItem> fetchHolders(UUID assetId, LocalDate asOf) {
