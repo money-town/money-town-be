@@ -19,6 +19,8 @@ import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapsh
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,11 +73,32 @@ public class SettlementCommandService {
                 .map(allocation -> DividendPayout.queue(batch.getId(), allocation.investorId(), allocation.shareRatio(), allocation.amount()))
                 .toList();
 
-        settlementBatchRepository.save(batch);
+        saveNewBatch(batch);
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
 
         return SettlementBatchResponse.of(batch, payouts.size());
+    }
+
+    private void saveNewBatch(SettlementBatch batch) {
+        try {
+            settlementBatchRepository.saveAndFlush(batch);
+        } catch (DataIntegrityViolationException e) {
+            String constraintName = extractConstraintName(e);
+            if ("uk_settlement_batches_revenue_id".equals(constraintName)) {
+                throw new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
+            }
+            if ("uk_settlement_batches_asset_in_progress".equals(constraintName)) {
+                throw new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
+            }
+            throw e;
+        }
+    }
+
+    private String extractConstraintName(DataIntegrityViolationException e) {
+        return e.getCause() instanceof ConstraintViolationException constraintViolation
+                ? constraintViolation.getConstraintName()
+                : null;
     }
 
     @Transactional
