@@ -68,6 +68,21 @@ class DividendDisbursementServiceTest {
     }
 
     @Test
+    @DisplayName("지갑 응답이 success=false면 예외가 없어도 markPaid 대신 markFailedAttempt를 호출한다")
+    void marksFailedAttemptWhenResponseSuccessIsFalse() {
+        UUID batchId = UUID.randomUUID();
+        DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+        when(payoutWriter.findPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(walletServiceClient.depositDividend(any()))
+                .thenReturn(new ApiResponse<>(false, null, "지갑 처리 실패", "WALLET_500_01"));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(payoutWriter).markFailedAttempt(payout.getId());
+        verify(payoutWriter, never()).markPaid(any());
+    }
+
+    @Test
     @DisplayName("지갑 호출이 FeignException을 던지면 markPaid 대신 markFailedAttempt를 호출한다")
     void marksFailedAttemptOnFeignException() {
         UUID batchId = UUID.randomUUID();
