@@ -12,6 +12,8 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -49,7 +51,8 @@ public class AssetDocument extends BaseEntity {
     @Column(name = "file_size", nullable = false)
     private long fileSize;
 
-    @Column(name = "file_hash", nullable = false, columnDefinition = "CHAR(64)")
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "file_hash", nullable = false, length = 64)
     private String fileHash;
 
     @Column(name = "is_deleted", nullable = false)
