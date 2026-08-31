@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.asset.entity;
 
 import com.moneykk.moneytown.common.entity.BaseEntity;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -68,7 +70,7 @@ public class AssetDocument extends BaseEntity {
                          String originalFilename, String s3ObjectKey, String contentType,
                          long fileSize, String fileHash) {
         if (documentVersion <= 0 || fileSize <= 0) {
-            throw new IllegalArgumentException("문서 버전과 파일 크기는 0보다 커야 합니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_ASSET_DOCUMENT);
         }
         this.assetId = assetId;
         this.documentType = documentType;

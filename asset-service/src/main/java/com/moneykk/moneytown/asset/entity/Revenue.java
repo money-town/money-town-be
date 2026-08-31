@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.asset.entity;
 
 import com.moneykk.moneytown.common.entity.BaseEntity;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -98,13 +100,13 @@ public class Revenue extends BaseEntity {
                    String currency, LocalDate periodStart, LocalDate periodEnd,
                    Map<String, Object> rawPayload) {
         if (grossAmount.signum() <= 0 || expenseAmount.signum() < 0 || feeAmount.signum() < 0) {
-            throw new IllegalArgumentException("수익과 비용 금액이 올바르지 않습니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_REVENUE_AMOUNT);
         }
         if (periodStart.isAfter(periodEnd)) {
-            throw new IllegalArgumentException("수익 기간 시작일은 종료일보다 늦을 수 없습니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_REVENUE_PERIOD);
         }
         if (!"KRW".equals(currency)) {
-            throw new IllegalArgumentException("MVP에서는 KRW만 지원합니다.");
+            throw new BusinessException(AssetErrorCode.UNSUPPORTED_CURRENCY);
         }
         this.assetId = assetId;
         this.userId = userId;
@@ -129,7 +131,7 @@ public class Revenue extends BaseEntity {
 
     public void markFailed(String failureReason) {
         if (failureReason == null || failureReason.isBlank()) {
-            throw new IllegalArgumentException("전달 실패 사유가 필요합니다.");
+            throw new BusinessException(AssetErrorCode.REVENUE_FAILURE_REASON_REQUIRED);
         }
         this.transferStatus = RevenueTransferStatus.FAILED;
         this.transferredAt = null;

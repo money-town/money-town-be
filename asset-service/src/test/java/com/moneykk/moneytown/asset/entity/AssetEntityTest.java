@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.asset.entity;
 
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -20,14 +22,16 @@ class AssetEntityTest {
         holding.revoke(3);
 
         assertEquals(12, holding.getQuantity());
-        assertThrows(IllegalArgumentException.class, () -> holding.revoke(13));
+        BusinessException exception = assertThrows(BusinessException.class, () -> holding.revoke(13));
+        assertEquals(AssetErrorCode.INSUFFICIENT_HOLDING_QUANTITY, exception.getErrorCode());
     }
 
     @Test
     void allocationHistoryRequiresSubscriptionId() {
-        assertThrows(IllegalArgumentException.class, () -> new HoldingHistory(
+        BusinessException exception = assertThrows(BusinessException.class, () -> new HoldingHistory(
                 UUID.randomUUID(), null, HoldingHistoryType.ALLOCATE,
                 10, 0, 10, "allocate-1", null));
+        assertEquals(AssetErrorCode.SUBSCRIPTION_REQUIRED, exception.getErrorCode());
     }
 
     @Test

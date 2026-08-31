@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.asset.entity;
 
 import com.moneykk.moneytown.common.entity.BaseEntity;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -51,7 +53,7 @@ public class Holding extends BaseEntity {
 
     public Holding(UUID assetId, UUID userId, long quantity) {
         if (quantity < 0) {
-            throw new IllegalArgumentException("보유 수량은 0 이상이어야 합니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
         }
         this.assetId = assetId;
         this.userId = userId;
@@ -66,21 +68,21 @@ public class Holding extends BaseEntity {
     public void revoke(long quantity) {
         requirePositive(quantity);
         if (this.quantity < quantity) {
-            throw new IllegalArgumentException("보유 수량보다 많은 지분을 회수할 수 없습니다.");
+            throw new BusinessException(AssetErrorCode.INSUFFICIENT_HOLDING_QUANTITY);
         }
         this.quantity -= quantity;
     }
 
     public void adjust(long quantity) {
         if (quantity < 0) {
-            throw new IllegalArgumentException("보유 수량은 0 이상이어야 합니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
         }
         this.quantity = quantity;
     }
 
     private static void requirePositive(long quantity) {
         if (quantity <= 0) {
-            throw new IllegalArgumentException("변동 수량은 0보다 커야 합니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
         }
     }
 }

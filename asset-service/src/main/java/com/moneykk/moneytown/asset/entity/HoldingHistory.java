@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.asset.entity;
 
 import com.moneykk.moneytown.common.entity.BaseEntity;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -55,14 +57,14 @@ public class HoldingHistory extends BaseEntity {
                           long quantity, long balanceBefore, long balanceAfter,
                           String idempotencyKey, String reason) {
         if (quantity <= 0 || balanceBefore < 0 || balanceAfter < 0) {
-            throw new IllegalArgumentException("지분 변동 수량과 잔액이 올바르지 않습니다.");
+            throw new BusinessException(AssetErrorCode.INVALID_HOLDING_HISTORY);
         }
         if ((historyType == HoldingHistoryType.ALLOCATE || historyType == HoldingHistoryType.REVOKE)
                 && subscriptionId == null) {
-            throw new IllegalArgumentException("배정·회수 이력에는 청약 ID가 필요합니다.");
+            throw new BusinessException(AssetErrorCode.SUBSCRIPTION_REQUIRED);
         }
         if (historyType != HoldingHistoryType.ALLOCATE && (reason == null || reason.isBlank())) {
-            throw new IllegalArgumentException("배정 외 지분 변동에는 사유가 필요합니다.");
+            throw new BusinessException(AssetErrorCode.HOLDING_HISTORY_REASON_REQUIRED);
         }
         this.holdingId = holdingId;
         this.subscriptionId = subscriptionId;
