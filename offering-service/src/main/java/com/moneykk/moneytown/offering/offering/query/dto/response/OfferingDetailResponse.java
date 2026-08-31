@@ -28,6 +28,7 @@ public record OfferingDetailResponse(
         Instant updatedAt
 ) {
 
+    // TODO: 응답 조합 로직이 복잡해질 경우 Builder 패턴 적용 검토
     public static OfferingDetailResponse from(
             Offering offering,
             boolean includePrivateFields
