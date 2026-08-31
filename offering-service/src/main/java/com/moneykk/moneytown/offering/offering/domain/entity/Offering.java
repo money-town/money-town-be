@@ -142,6 +142,42 @@ public class Offering extends BaseUpdatableEntity {
                 endAt
         );
     }
+    /**
+     * TODO 추가 검증 - 심사요청 관련
+     * 자산 상태가 여전히 APPROVED인지
+     * 필수 첨부자료가 있는지
+     * 심사 요청 가능한 기간인지
+     * 기타 운영 검증
+     *
+     * */
+
+    public void requestReview() {
+        if (offeringStatus != OfferingStatus.DRAFT) {
+            // TODO: OfferingErrorCode 적용 후 O004로 변경
+            throw new IllegalStateException(
+                    "DRAFT 상태의 공모만 심사를 요청할 수 있습니다."
+            );
+        }
+
+        validateForReview();
+
+        this.offeringStatus = OfferingStatus.REVIEW_REQUESTED;
+        this.reviewRequestedAt = Instant.now();
+    }
+
+    private void validateForReview() {
+        validateCreate(
+                assetId,
+                issuerId,
+                title,
+                pricePerUnit,
+                totalQuantity,
+                minSubscriptionQuantity,
+                maxSubscriptionQuantity,
+                startAt,
+                endAt
+        );
+    }
 
     private static void validateCreate(
             UUID assetId,

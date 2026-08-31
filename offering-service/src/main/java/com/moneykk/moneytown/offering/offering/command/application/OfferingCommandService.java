@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.offering.command.application;
 
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import lombok.RequiredArgsConstructor;
@@ -44,5 +45,29 @@ public class OfferingCommandService {
         Offering savedOffering = offeringRepository.save(offering);
 
         return OfferingCreateResponse.from(savedOffering);
+    }
+
+
+    @Transactional
+    public OfferingReviewRequestResponse requestReview(
+            UUID offeringId,
+            UUID issuerId
+    ) {
+        Offering offering = offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException("공모를 찾을 수 없습니다.")
+                );
+
+        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
+        if (!offering.getIssuerId().equals(issuerId)) {
+            throw new IllegalArgumentException(
+                    "해당 공모에 대한 권한이 없습니다."
+            );
+        }
+
+        offering.requestReview();
+
+        return OfferingReviewRequestResponse.from(offering);
     }
 }
