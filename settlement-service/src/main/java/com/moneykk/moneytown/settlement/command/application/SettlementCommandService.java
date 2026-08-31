@@ -52,7 +52,8 @@ public class SettlementCommandService {
         LocalDate recordDate = revenue.recordDate();
 
         long distributableAmount = calculateDistributableAmount(revenue);
-        long carriedInAmount = findCarriedInAmount(assetId);
+        Optional<SettlementBatch> carryInSourceBatch = findCarryInSourceBatch(assetId);
+        long carriedInAmount = carryInSourceBatch.map(SettlementBatch::getRemainderAmount).orElse(0L);
         long totalAmount = distributableAmount + carriedInAmount;
         if (totalAmount <= 0) {
             throw new BusinessException(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
@@ -74,10 +75,18 @@ public class SettlementCommandService {
                 .toList();
 
         saveNewBatch(batch);
+        carryInSourceBatch.ifPresent(sourceBatch -> markCarriedOut(sourceBatch, batch.getId()));
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
 
         return SettlementBatchResponse.of(batch, payouts.size());
+    }
+
+    // 이월해준 잔여금이 다시 이월 후보로 조회되지 않도록, 새 배치가 저장된 직후 같은
+    // 트랜잭션 안에서 소스 배치에 이월 대상을 기록한다.
+    private void markCarriedOut(SettlementBatch sourceBatch, UUID targetBatchId) {
+        sourceBatch.markCarriedOut(targetBatchId);
+        settlementBatchRepository.save(sourceBatch);
     }
 
     private void saveNewBatch(SettlementBatch batch) {
@@ -177,10 +186,10 @@ public class SettlementCommandService {
         return distributable.setScale(0, RoundingMode.FLOOR).longValueExact();
     }
 
-    private long findCarriedInAmount(UUID assetId) {
-        Optional<SettlementBatch> previousCompletedBatch =
-                settlementBatchRepository.findFirstByAssetIdAndStatusAndIsDeletedFalseOrderByRecordDateDesc(assetId, SettlementStatus.COMPLETED);
-        return previousCompletedBatch.map(SettlementBatch::getRemainderAmount).orElse(0L);
+    private Optional<SettlementBatch> findCarryInSourceBatch(UUID assetId) {
+        return settlementBatchRepository
+                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+                        assetId, SettlementStatus.COMPLETED);
     }
 
     private HoldingsSnapshotResponse fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {

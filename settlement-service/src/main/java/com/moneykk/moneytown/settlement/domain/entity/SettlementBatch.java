@@ -46,6 +46,9 @@ public class SettlementBatch extends BaseUpdatableEntity {
     @Column(name = "remainder_amount", nullable = false)
     private Long remainderAmount;
 
+    @Column(name = "carried_out_to_batch_id")
+    private UUID carriedOutToBatchId;
+
     private SettlementBatch(UUID assetId, UUID revenueId, LocalDate recordDate,
                              Long distributableAmount, Long carriedInAmount) {
         this.id = UUID.randomUUID();
@@ -86,5 +89,10 @@ public class SettlementBatch extends BaseUpdatableEntity {
 
     public void markFailed() {
         this.status = SettlementStatus.FAILED;
+    }
+
+    // 이 배치의 remainderAmount가 targetBatchId로 이월되었음을 기록해, 이후 이월 대상 조회에 다시 후보가 되지 않도록 차단
+    public void markCarriedOut(UUID targetBatchId) {
+        this.carriedOutToBatchId = targetBatchId;
     }
 }

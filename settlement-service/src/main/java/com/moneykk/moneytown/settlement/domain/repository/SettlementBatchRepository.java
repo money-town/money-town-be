@@ -13,7 +13,8 @@ public interface SettlementBatchRepository extends JpaRepository<SettlementBatch
 
     boolean existsByAssetIdAndStatusNotAndIsDeletedFalse(UUID assetId, SettlementStatus status);
 
-    Optional<SettlementBatch> findFirstByAssetIdAndStatusAndIsDeletedFalseOrderByRecordDateDesc(UUID assetId, SettlementStatus status);
+    Optional<SettlementBatch> findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+            UUID assetId, SettlementStatus status);
 
     Optional<SettlementBatch> findByIdAndIsDeletedFalse(UUID id);
 }
