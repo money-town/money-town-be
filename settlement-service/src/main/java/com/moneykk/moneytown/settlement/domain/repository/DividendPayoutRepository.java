@@ -2,7 +2,9 @@ package com.moneykk.moneytown.settlement.domain.repository;
 
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +18,7 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
 
     List<DividendPayout> findBySettlementBatchIdAndStatusAndIsDeletedFalse(UUID settlementBatchId, PayoutStatus status);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<DividendPayout> findBySettlementBatchIdAndStatusInAndIsDeletedFalse(UUID settlementBatchId, List<PayoutStatus> statuses);
 
     List<DividendPayout> findBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId);

@@ -5,7 +5,6 @@ import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositResponse;
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -28,8 +27,8 @@ public class DividendDisbursementService {
     public void disburse(UUID settlementBatchId) {
         payoutWriter.markDisbursing(settlementBatchId);
 
-        List<DividendPayout> pendingPayouts = payoutWriter.findPendingPayouts(settlementBatchId);
-        pendingPayouts.forEach(payout -> attempt(settlementBatchId, payout));
+        List<DividendPayout> claimedPayouts = payoutWriter.claimPendingPayouts(settlementBatchId);
+        claimedPayouts.forEach(payout -> attempt(settlementBatchId, payout));
 
         payoutWriter.updateBatchStatus(settlementBatchId);
     }
@@ -43,7 +42,7 @@ public class DividendDisbursementService {
             } else {
                 payoutWriter.markFailedAttempt(payout.getId());
             }
-        } catch (FeignException e) {
+        } catch (Exception e) {
             payoutWriter.markFailedAttempt(payout.getId());
         }
     }

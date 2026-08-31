@@ -2,7 +2,9 @@ package com.moneykk.moneytown.settlement.domain.repository;
 
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +19,7 @@ public interface FinalSettlementPayoutRepository extends JpaRepository<FinalSett
     @Query("SELECT DISTINCT p.finalSettlementBatchId FROM FinalSettlementPayout p WHERE p.status IN :statuses AND p.isDeleted = false")
     List<UUID> findDistinctFinalSettlementBatchIdByStatusIn(@Param("statuses") List<PayoutStatus> statuses);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<FinalSettlementPayout> findByFinalSettlementBatchIdAndStatusInAndIsDeletedFalse(
             UUID finalSettlementBatchId, List<PayoutStatus> statuses);
 

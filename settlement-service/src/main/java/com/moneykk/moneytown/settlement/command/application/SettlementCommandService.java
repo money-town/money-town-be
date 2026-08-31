@@ -82,8 +82,6 @@ public class SettlementCommandService {
         return SettlementBatchResponse.of(batch, payouts.size());
     }
 
-    // 이월해준 잔여금이 다시 이월 후보로 조회되지 않도록, 새 배치가 저장된 직후 같은
-    // 트랜잭션 안에서 소스 배치에 이월 대상을 기록한다.
     private void markCarriedOut(SettlementBatch sourceBatch, UUID targetBatchId) {
         sourceBatch.markCarriedOut(targetBatchId);
         settlementBatchRepository.save(sourceBatch);

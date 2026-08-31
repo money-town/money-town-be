@@ -68,6 +68,10 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
         this.retryCount = 0;
     }
 
+    public void markProcessing() {
+        this.status = PayoutStatus.PROCESSING;
+    }
+
     public void markPaid() {
         this.status = PayoutStatus.PAID;
     }

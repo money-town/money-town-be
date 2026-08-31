@@ -19,7 +19,9 @@ import java.util.UUID;
 class FinalSettlementPayoutWriter {
 
     private static final int MAX_RETRY_COUNT = 3;
-    private static final List<PayoutStatus> PENDING_STATUSES = List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING);
+    private static final List<PayoutStatus> CLAIMABLE_STATUSES = List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING);
+    private static final List<PayoutStatus> IN_PROGRESS_STATUSES =
+            List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING, PayoutStatus.PROCESSING);
 
     private final FinalSettlementBatchRepository finalSettlementBatchRepository;
     private final FinalSettlementPayoutRepository finalSettlementPayoutRepository;
@@ -31,10 +33,13 @@ class FinalSettlementPayoutWriter {
         finalSettlementBatchRepository.save(batch);
     }
 
-    @Transactional(readOnly = true)
-    public List<FinalSettlementPayout> findPendingPayouts(UUID finalSettlementBatchId) {
-        return finalSettlementPayoutRepository
-                .findByFinalSettlementBatchIdAndStatusInAndIsDeletedFalse(finalSettlementBatchId, PENDING_STATUSES);
+    @Transactional
+    public List<FinalSettlementPayout> claimPendingPayouts(UUID finalSettlementBatchId) {
+        List<FinalSettlementPayout> claimed = finalSettlementPayoutRepository
+                .findByFinalSettlementBatchIdAndStatusInAndIsDeletedFalse(finalSettlementBatchId, CLAIMABLE_STATUSES);
+        claimed.forEach(FinalSettlementPayout::markProcessing);
+        finalSettlementPayoutRepository.saveAll(claimed);
+        return claimed;
     }
 
     @Transactional
@@ -63,7 +68,7 @@ class FinalSettlementPayoutWriter {
                 finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(finalSettlementBatchId);
 
         boolean anyInProgress = allPayouts.stream()
-                .anyMatch(payout -> PENDING_STATUSES.contains(payout.getStatus()));
+                .anyMatch(payout -> IN_PROGRESS_STATUSES.contains(payout.getStatus()));
         if (anyInProgress) {
             return;
         }

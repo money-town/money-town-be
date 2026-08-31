@@ -5,7 +5,6 @@ import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositResponse;
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -28,8 +27,8 @@ public class FinalSettlementDisbursementService {
     public void disburse(UUID finalSettlementBatchId) {
         payoutWriter.markDisbursing(finalSettlementBatchId);
 
-        List<FinalSettlementPayout> pendingPayouts = payoutWriter.findPendingPayouts(finalSettlementBatchId);
-        pendingPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
+        List<FinalSettlementPayout> claimedPayouts = payoutWriter.claimPendingPayouts(finalSettlementBatchId);
+        claimedPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
 
         payoutWriter.updateBatchStatus(finalSettlementBatchId);
     }
@@ -43,7 +42,7 @@ public class FinalSettlementDisbursementService {
             } else {
                 payoutWriter.markFailedAttempt(payout.getId());
             }
-        } catch (FeignException e) {
+        } catch (Exception e) {
             payoutWriter.markFailedAttempt(payout.getId());
         }
     }

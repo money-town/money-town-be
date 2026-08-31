@@ -19,7 +19,9 @@ import java.util.UUID;
 class DividendPayoutWriter {
 
     private static final int MAX_RETRY_COUNT = 3;
-    private static final List<PayoutStatus> PENDING_STATUSES = List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING);
+    private static final List<PayoutStatus> CLAIMABLE_STATUSES = List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING);
+    private static final List<PayoutStatus> IN_PROGRESS_STATUSES =
+            List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING, PayoutStatus.PROCESSING);
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
@@ -31,10 +33,13 @@ class DividendPayoutWriter {
         settlementBatchRepository.save(batch);
     }
 
-    @Transactional(readOnly = true)
-    public List<DividendPayout> findPendingPayouts(UUID settlementBatchId) {
-        return dividendPayoutRepository
-                .findBySettlementBatchIdAndStatusInAndIsDeletedFalse(settlementBatchId, PENDING_STATUSES);
+    @Transactional
+    public List<DividendPayout> claimPendingPayouts(UUID settlementBatchId) {
+        List<DividendPayout> claimed = dividendPayoutRepository
+                .findBySettlementBatchIdAndStatusInAndIsDeletedFalse(settlementBatchId, CLAIMABLE_STATUSES);
+        claimed.forEach(DividendPayout::markProcessing);
+        dividendPayoutRepository.saveAll(claimed);
+        return claimed;
     }
 
     @Transactional
@@ -62,7 +67,7 @@ class DividendPayoutWriter {
         List<DividendPayout> allPayouts = dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId);
 
         boolean anyInProgress = allPayouts.stream()
-                .anyMatch(payout -> PENDING_STATUSES.contains(payout.getStatus()));
+                .anyMatch(payout -> IN_PROGRESS_STATUSES.contains(payout.getStatus()));
         if (anyInProgress) {
             return;
         }
