@@ -17,6 +17,7 @@ import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -28,9 +29,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -95,7 +98,7 @@ class SettlementCommandServiceTest {
         assertThat(response.payoutCount()).isEqualTo(1);
 
         ArgumentCaptor<SettlementBatch> batchCaptor = ArgumentCaptor.forClass(SettlementBatch.class);
-        verify(settlementBatchRepository).save(batchCaptor.capture());
+        verify(settlementBatchRepository).saveAndFlush(batchCaptor.capture());
         assertThat(batchCaptor.getValue().getStatus()).isEqualTo(SettlementStatus.CALCULATED);
         assertThat(batchCaptor.getValue().getTotalAmount()).isEqualTo(10_000_000L);
 
@@ -143,6 +146,58 @@ class SettlementCommandServiceTest {
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
 
             verifyNoInteractions(assetServiceClient);
+        }
+
+        @Test
+        @DisplayName("동시 요청으로 같은 revenueId의 UNIQUE 제약을 위반하면 SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE로 변환한다")
+        void translatesRevenueUniqueViolationOnConcurrentInsert() {
+            stubHappyPathUpToInsert();
+            when(settlementBatchRepository.saveAndFlush(any()))
+                    .thenThrow(constraintViolation("uk_settlement_batches_revenue_id"));
+
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
+        }
+
+        @Test
+        @DisplayName("동시 요청으로 자산별 진행 중 배치 부분 고유 인덱스를 위반하면 SETTLEMENT_IN_PROGRESS_FOR_ASSET으로 변환한다")
+        void translatesAssetInProgressUniqueViolationOnConcurrentInsert() {
+            stubHappyPathUpToInsert();
+            when(settlementBatchRepository.saveAndFlush(any()))
+                    .thenThrow(constraintViolation("uk_settlement_batches_asset_in_progress"));
+
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
+        }
+
+        @Test
+        @DisplayName("알 수 없는 제약 위반이면 원래 예외를 그대로 전파한다")
+        void propagatesUnrecognizedConstraintViolation() {
+            stubHappyPathUpToInsert();
+            DataIntegrityViolationException unrecognized = constraintViolation("some_other_constraint");
+            when(settlementBatchRepository.saveAndFlush(any())).thenThrow(unrecognized);
+
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+                    .isSameAs(unrecognized);
+        }
+
+        private void stubHappyPathUpToInsert() {
+            stubNoExistingBatch();
+            stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
+                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+            stubNoPreviousCompletedBatch();
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
+                    .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
+        }
+
+        private DataIntegrityViolationException constraintViolation(String constraintName) {
+            ConstraintViolationException cause = new ConstraintViolationException(
+                    "duplicate key value violates unique constraint", new SQLException("duplicate key"), constraintName);
+            return new DataIntegrityViolationException("constraint violation", cause);
         }
     }
 
@@ -241,7 +296,7 @@ class SettlementCommandServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
 
-            verify(settlementBatchRepository, never()).save(any());
+            verify(settlementBatchRepository, never()).saveAndFlush(any());
         }
 
         @Test
