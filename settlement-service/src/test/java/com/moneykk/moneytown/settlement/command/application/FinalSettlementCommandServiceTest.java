@@ -1,7 +1,6 @@
 package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
-import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
@@ -13,9 +12,8 @@ import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
-import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -55,7 +53,7 @@ class FinalSettlementCommandServiceTest {
     @Mock
     private FinalSettlementPayoutRepository finalSettlementPayoutRepository;
     @Mock
-    private AssetServiceClient assetServiceClient;
+    private AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @InjectMocks
     private FinalSettlementCommandService finalSettlementCommandService;
@@ -65,8 +63,8 @@ class FinalSettlementCommandServiceTest {
     void opensFinalSettlementSuccessfully() {
         stubNoExistingBatch();
         UUID investorId = UUID.randomUUID();
-        HoldingsSnapshotResponse page = holdingsPage(List.of(new HoldingItem(UUID.randomUUID(), investorId, 900L)), null, false);
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, TERMINATED_DATE, null)).thenReturn(ApiResponse.success(page, null));
+        when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
+                .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), investorId, 900L))));
 
         FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request());
 
@@ -110,7 +108,7 @@ class FinalSettlementCommandServiceTest {
             assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
 
             verify(finalSettlementBatchRepository, never()).save(any());
-            verifyNoInteractions(assetServiceClient, finalSettlementPayoutRepository);
+            verifyNoInteractions(assetHoldingsSnapshotFetcher, finalSettlementPayoutRepository);
         }
     }
 
@@ -119,15 +117,14 @@ class FinalSettlementCommandServiceTest {
     class HoldingsSnapshotHandling {
 
         @Test
-        @DisplayName("여러 페이지로 나뉘어 오면 모두 모아서 반영한다")
-        void aggregatesAcrossPaginatedPages() {
+        @DisplayName("보유자가 여럿이면 모두 반영한다")
+        void includesEveryHolder() {
             stubNoExistingBatch();
             UUID investor1 = UUID.randomUUID();
             UUID investor2 = UUID.randomUUID();
-            HoldingsSnapshotResponse firstPage = holdingsPage(List.of(new HoldingItem(UUID.randomUUID(), investor1, 100L)), "cursor-1", true);
-            HoldingsSnapshotResponse secondPage = holdingsPage(List.of(new HoldingItem(UUID.randomUUID(), investor2, 200L)), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, TERMINATED_DATE, null)).thenReturn(ApiResponse.success(firstPage, null));
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, TERMINATED_DATE, "cursor-1")).thenReturn(ApiResponse.success(secondPage, null));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE)).thenReturn(aggregated(List.of(
+                    new HoldingItem(UUID.randomUUID(), investor1, 100L),
+                    new HoldingItem(UUID.randomUUID(), investor2, 200L))));
 
             FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request());
 
@@ -147,11 +144,10 @@ class FinalSettlementCommandServiceTest {
             stubNoExistingBatch();
             UUID investorWithHolding = UUID.randomUUID();
             UUID investorWithZeroHolding = UUID.randomUUID();
-            HoldingsSnapshotResponse page = holdingsPage(List.of(
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE)).thenReturn(aggregated(List.of(
                     new HoldingItem(UUID.randomUUID(), investorWithHolding, 900L),
                     new HoldingItem(UUID.randomUUID(), investorWithZeroHolding, 0L)
-            ), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, TERMINATED_DATE, null)).thenReturn(ApiResponse.success(page, null));
+            )));
 
             finalSettlementCommandService.openFinalSettlement(request());
 
@@ -172,8 +168,7 @@ class FinalSettlementCommandServiceTest {
         @DisplayName("terminatedAt 시점 보유자가 없으면 예외")
         void rejectsWhenNoHoldersExist() {
             stubNoExistingBatch();
-            HoldingsSnapshotResponse page = holdingsPage(List.of(), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, TERMINATED_DATE, null)).thenReturn(ApiResponse.success(page, null));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE)).thenReturn(aggregated(List.of()));
 
             assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(request()))
                     .isInstanceOf(BusinessException.class)
@@ -188,10 +183,8 @@ class FinalSettlementCommandServiceTest {
         @DisplayName("모든 항목의 보유수량이 0이면 보유자가 없는 것으로 취급해 예외")
         void rejectsWhenAllHoldingsAreZero() {
             stubNoExistingBatch();
-            HoldingsSnapshotResponse page = holdingsPage(List.of(
-                    new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 0L)
-            ), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, TERMINATED_DATE, null)).thenReturn(ApiResponse.success(page, null));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
+                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 0L))));
 
             assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(request()))
                     .isInstanceOf(BusinessException.class)
@@ -382,8 +375,8 @@ class FinalSettlementCommandServiceTest {
         return new OpenFinalSettlementRequest(ASSET_ID, TERMINATED_AT, UNIT_PRICE);
     }
 
-    private HoldingsSnapshotResponse holdingsPage(List<HoldingItem> items, String nextCursor, boolean hasNext) {
+    private AssetHoldingsSnapshotFetcher.Aggregated aggregated(List<HoldingItem> items) {
         long totalHoldingQuantity = items.stream().mapToLong(HoldingItem::quantity).sum();
-        return new HoldingsSnapshotResponse(ASSET_ID, TERMINATED_DATE, totalHoldingQuantity, items, nextCursor, hasNext);
+        return new AssetHoldingsSnapshotFetcher.Aggregated(items, totalHoldingQuantity);
     }
 }

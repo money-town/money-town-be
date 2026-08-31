@@ -12,9 +12,9 @@ import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutReposito
 import com.moneykk.moneytown.settlement.domain.repository.HoldingSnapshotRepository;
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -64,6 +64,8 @@ class SettlementCommandServiceTest {
     private DividendPayoutRepository dividendPayoutRepository;
     @Mock
     private AssetServiceClient assetServiceClient;
+    @Mock
+    private AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @InjectMocks
     private SettlementCommandService settlementCommandService;
@@ -78,8 +80,8 @@ class SettlementCommandServiceTest {
         stubNoPreviousCompletedBatch();
 
         UUID investorId = UUID.randomUUID();
-        HoldingsSnapshotResponse page = holdingsPage(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L)), null, false);
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, RECORD_DATE, null)).thenReturn(ApiResponse.success(page, null));
+        when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
+                .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L))));
 
         SettlementBatchResponse response = settlementCommandService.openBatch(ASSET_ID, REVENUE_ID);
 
@@ -210,8 +212,8 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.findFirstByAssetIdAndStatusAndIsDeletedFalseOrderByRecordDateDesc(ASSET_ID, SettlementStatus.COMPLETED))
                     .thenReturn(Optional.of(previousCompletedBatch));
 
-            HoldingsSnapshotResponse page = holdingsPage(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L)), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, RECORD_DATE, null)).thenReturn(ApiResponse.success(page, null));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
+                    .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
 
             SettlementBatchResponse response = settlementCommandService.openBatch(ASSET_ID, REVENUE_ID);
 
@@ -232,8 +234,7 @@ class SettlementCommandServiceTest {
                     OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
             stubNoPreviousCompletedBatch();
 
-            HoldingsSnapshotResponse page = holdingsPage(0L, List.of(), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, RECORD_DATE, null)).thenReturn(ApiResponse.success(page, null));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(0L, List.of()));
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
@@ -244,8 +245,8 @@ class SettlementCommandServiceTest {
         }
 
         @Test
-        @DisplayName("여러 페이지로 나뉘어 오면 모두 모아서 반영한다")
-        void aggregatesAcrossPaginatedPages() {
+        @DisplayName("보유자가 여럿이면 각각 payout으로 생성된다")
+        void createsPayoutForEachHolder() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(300), BigDecimal.ZERO, BigDecimal.ZERO,
                     OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
@@ -253,10 +254,9 @@ class SettlementCommandServiceTest {
 
             UUID investor1 = UUID.randomUUID();
             UUID investor2 = UUID.randomUUID();
-            HoldingsSnapshotResponse firstPage = holdingsPage(3L, List.of(new HoldingItem(UUID.randomUUID(), investor1, 1L)), "cursor-1", true);
-            HoldingsSnapshotResponse secondPage = holdingsPage(3L, List.of(new HoldingItem(UUID.randomUUID(), investor2, 2L)), null, false);
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, RECORD_DATE, null)).thenReturn(ApiResponse.success(firstPage, null));
-            when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, RECORD_DATE, "cursor-1")).thenReturn(ApiResponse.success(secondPage, null));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(3L, List.of(
+                    new HoldingItem(UUID.randomUUID(), investor1, 1L),
+                    new HoldingItem(UUID.randomUUID(), investor2, 2L))));
 
             SettlementBatchResponse response = settlementCommandService.openBatch(ASSET_ID, REVENUE_ID);
 
@@ -388,7 +388,7 @@ class SettlementCommandServiceTest {
                 gross, expense, fee, occurredAt, recordDate, transferStatus, occurredAt);
     }
 
-    private HoldingsSnapshotResponse holdingsPage(Long totalHoldingQuantity, List<HoldingItem> items, String nextCursor, boolean hasNext) {
-        return new HoldingsSnapshotResponse(ASSET_ID, RECORD_DATE, totalHoldingQuantity, items, nextCursor, hasNext);
+    private AssetHoldingsSnapshotFetcher.Aggregated aggregated(Long totalHoldingQuantity, List<HoldingItem> items) {
+        return new AssetHoldingsSnapshotFetcher.Aggregated(items, totalHoldingQuantity);
     }
 }
