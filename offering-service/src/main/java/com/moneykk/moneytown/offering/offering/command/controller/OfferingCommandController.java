@@ -18,7 +18,7 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/offerings")
+@RequestMapping("/api/v1/offerings")
 public class OfferingCommandController {
 
     private final OfferingCommandService offeringCommandService;
