@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface FinalSettlementBatchRepository extends JpaRepository<FinalSettlementBatch, UUID> {
 
     Optional<FinalSettlementBatch> findByAssetIdAndIsDeletedFalse(UUID assetId);
+
+    Optional<FinalSettlementBatch> findByIdAndIsDeletedFalse(UUID id);
 }

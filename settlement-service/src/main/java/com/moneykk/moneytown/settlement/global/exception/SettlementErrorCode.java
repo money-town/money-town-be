@@ -8,6 +8,7 @@ public enum SettlementErrorCode implements ErrorCode {
     ASSET_REVENUE_NOT_FOUND(HttpStatus.NOT_FOUND, "SETTLEMENT_404_01", "자산 서비스에서 수익 데이터를 찾을 수 없습니다."),
     ASSET_HOLDINGS_NOT_FOUND(HttpStatus.NOT_FOUND, "SETTLEMENT_404_02", "자산 서비스에서 보유지분 스냅샷을 조회할 수 없습니다."),
     SETTLEMENT_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "SETTLEMENT_404_03", "정산 회차를 찾을 수 없습니다."),
+    FINAL_SETTLEMENT_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "SETTLEMENT_404_04", "최종 정산 회차를 찾을 수 없습니다."),
 
     REVENUE_ASSET_MISMATCH(HttpStatus.BAD_REQUEST, "SETTLEMENT_400_01", "수익 데이터의 자산과 요청한 자산이 일치하지 않습니다."),
     REVENUE_PERIOD_INVALID(HttpStatus.BAD_REQUEST, "SETTLEMENT_400_02", "배당 기준일(recordDate)이 수익 발생 시각(occurredAt)보다 앞설 수 없습니다."),
