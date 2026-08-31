@@ -265,8 +265,8 @@ class SettlementCommandServiceTest {
             previousCompletedBatch.markCalculated(777L);
             ReflectionTestUtils.setField(previousCompletedBatch, "status", SettlementStatus.COMPLETED);
             when(settlementBatchRepository
-                    .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
-                            ASSET_ID, SettlementStatus.COMPLETED))
+                    .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndRemainderAmountGreaterThanAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+                            ASSET_ID, SettlementStatus.COMPLETED, 0L))
                     .thenReturn(Optional.of(previousCompletedBatch));
 
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
@@ -435,8 +435,8 @@ class SettlementCommandServiceTest {
 
     private void stubNoPreviousCompletedBatch() {
         when(settlementBatchRepository
-                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
-                        ASSET_ID, SettlementStatus.COMPLETED))
+                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndRemainderAmountGreaterThanAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+                        ASSET_ID, SettlementStatus.COMPLETED, 0L))
                 .thenReturn(Optional.empty());
     }
 
