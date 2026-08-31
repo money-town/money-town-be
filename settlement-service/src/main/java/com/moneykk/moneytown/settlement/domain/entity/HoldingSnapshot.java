@@ -9,7 +9,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Getter
@@ -29,7 +29,7 @@ public class HoldingSnapshot extends BaseEntity {
     private UUID assetId;
 
     @Column(name = "snapshot_at", nullable = false)
-    private Instant snapshotAt;
+    private LocalDate snapshotAt;
 
     @Column(name = "total_quantity", nullable = false)
     private Long totalQuantity;
@@ -40,7 +40,7 @@ public class HoldingSnapshot extends BaseEntity {
     @Column(name = "total_share_quantity")
     private Long totalShareQuantity;
 
-    private HoldingSnapshot(UUID settlementBatchId, UUID assetId, Instant snapshotAt,
+    private HoldingSnapshot(UUID settlementBatchId, UUID assetId, LocalDate snapshotAt,
                              Long totalQuantity, Integer totalHolders, Long totalShareQuantity) {
         this.id = UUID.randomUUID();
         this.settlementBatchId = settlementBatchId;
@@ -51,7 +51,7 @@ public class HoldingSnapshot extends BaseEntity {
         this.totalShareQuantity = totalShareQuantity;
     }
 
-    public static HoldingSnapshot capture(UUID settlementBatchId, UUID assetId, Instant snapshotAt,
+    public static HoldingSnapshot capture(UUID settlementBatchId, UUID assetId, LocalDate snapshotAt,
                                            Long totalQuantity, Integer totalHolders, Long totalShareQuantity) {
         return new HoldingSnapshot(settlementBatchId, assetId, snapshotAt, totalQuantity, totalHolders, totalShareQuantity);
     }

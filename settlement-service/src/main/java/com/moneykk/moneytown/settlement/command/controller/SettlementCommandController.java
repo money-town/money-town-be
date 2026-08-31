@@ -1,0 +1,32 @@
+package com.moneykk.moneytown.settlement.command.controller;
+
+import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
+import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v1")
+@RequiredArgsConstructor
+public class SettlementCommandController {
+
+    private final SettlementCommandService settlementCommandService;
+
+    //TODO: 인가 코드 추가
+    @PostMapping("/assets/{assetId}/dividends/{revenueId}/settle")
+    public ResponseEntity<ApiResponse<SettlementBatchResponse>> openSettlementBatch(
+            @PathVariable UUID assetId,
+            @PathVariable UUID revenueId) {
+        SettlementBatchResponse response = settlementCommandService.openBatch(assetId, revenueId);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(response, "정산 회차가 개시되었습니다."));
+    }
+}

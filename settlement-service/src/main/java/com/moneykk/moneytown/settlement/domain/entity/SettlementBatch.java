@@ -11,7 +11,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Getter
@@ -31,7 +31,7 @@ public class SettlementBatch extends BaseUpdatableEntity {
     private UUID revenueId;
 
     @Column(name = "record_date", nullable = false)
-    private Instant recordDate;
+    private LocalDate recordDate;
 
     @Column(name = "total_amount", nullable = false)
     private Long totalAmount;
@@ -46,7 +46,7 @@ public class SettlementBatch extends BaseUpdatableEntity {
     @Column(name = "remainder_amount", nullable = false)
     private Long remainderAmount;
 
-    private SettlementBatch(UUID assetId, UUID revenueId, Instant recordDate,
+    private SettlementBatch(UUID assetId, UUID revenueId, LocalDate recordDate,
                              Long distributableAmount, Long carriedInAmount) {
         this.id = UUID.randomUUID();
         this.assetId = assetId;
@@ -58,8 +58,17 @@ public class SettlementBatch extends BaseUpdatableEntity {
         this.status = SettlementStatus.PENDING;
     }
 
-    public static SettlementBatch open(UUID assetId, UUID revenueId, Instant recordDate,
+    public static SettlementBatch open(UUID assetId, UUID revenueId, LocalDate recordDate,
                                         Long distributableAmount, Long carriedInAmount) {
         return new SettlementBatch(assetId, revenueId, recordDate, distributableAmount, carriedInAmount);
+    }
+
+    public void markSnapshotTaken() {
+        this.status = SettlementStatus.SNAPSHOT_TAKEN;
+    }
+
+    public void markCalculated(Long remainderAmount) {
+        this.remainderAmount = remainderAmount;
+        this.status = SettlementStatus.CALCULATED;
     }
 }
