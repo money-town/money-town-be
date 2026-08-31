@@ -99,10 +99,11 @@ public class Revenue extends BaseEntity {
                    BigDecimal grossAmount, BigDecimal expenseAmount, BigDecimal feeAmount,
                    String currency, LocalDate periodStart, LocalDate periodEnd,
                    Map<String, Object> rawPayload) {
-        if (grossAmount.signum() <= 0 || expenseAmount.signum() < 0 || feeAmount.signum() < 0) {
+        if (grossAmount == null || expenseAmount == null || feeAmount == null
+                || grossAmount.signum() <= 0 || expenseAmount.signum() < 0 || feeAmount.signum() < 0) {
             throw new BusinessException(AssetErrorCode.INVALID_REVENUE_AMOUNT);
         }
-        if (periodStart.isAfter(periodEnd)) {
+        if (periodStart == null || periodEnd == null || periodStart.isAfter(periodEnd)) {
             throw new BusinessException(AssetErrorCode.INVALID_REVENUE_PERIOD);
         }
         if (!"KRW".equals(currency)) {
@@ -119,7 +120,7 @@ public class Revenue extends BaseEntity {
         this.currency = currency;
         this.periodStart = periodStart;
         this.periodEnd = periodEnd;
-        this.rawPayload = new HashMap<>(rawPayload);
+        this.rawPayload = rawPayload == null ? new HashMap<>() : new HashMap<>(rawPayload);
         this.transferStatus = RevenueTransferStatus.READY;
     }
 

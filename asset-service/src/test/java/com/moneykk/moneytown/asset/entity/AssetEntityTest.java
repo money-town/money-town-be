@@ -48,4 +48,26 @@ class AssetEntityTest {
         revenue.retry();
         assertEquals(RevenueTransferStatus.READY, revenue.getTransferStatus());
     }
+
+    @Test
+    void nullRevenueAmountReturnsDomainError() {
+        BusinessException exception = assertThrows(BusinessException.class, () -> revenue(null, LocalDate.now()));
+
+        assertEquals(AssetErrorCode.INVALID_REVENUE_AMOUNT, exception.getErrorCode());
+    }
+
+    @Test
+    void nullRevenuePeriodReturnsDomainError() {
+        BusinessException exception = assertThrows(BusinessException.class, () -> revenue(BigDecimal.TEN, null));
+
+        assertEquals(AssetErrorCode.INVALID_REVENUE_PERIOD, exception.getErrorCode());
+    }
+
+    private Revenue revenue(BigDecimal grossAmount, LocalDate periodStart) {
+        return new Revenue(
+                UUID.randomUUID(), UUID.randomUUID(), RevenueSourceType.PROPERTY_MANAGER,
+                "source-1", RevenueType.RENTAL_INCOME,
+                grossAmount, BigDecimal.ZERO, BigDecimal.ZERO,
+                "KRW", periodStart, LocalDate.now(), null);
+    }
 }
