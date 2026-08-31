@@ -1,0 +1,48 @@
+package com.moneykk.moneytown.offering.offering.command.application;
+
+import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
+import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class OfferingCommandService {
+
+    private final OfferingRepository offeringRepository;
+
+    @Transactional
+    public OfferingCreateResponse create(
+            UUID issuerId,
+            OfferingCreateRequest request
+    ) {
+        // TODO: User Service 연동 정책 확정 후 ACTIVE 사용자 검증 여부 결정
+
+        // TODO: Asset Service OpenFeign 연동 후 자산 존재 여부 검증
+        // TODO: Asset 상태가 APPROVED인지 검증
+        // TODO: 삭제된 Asset인지 검증
+        // TODO: Asset 소유자와 issuerId 일치 여부 검증
+
+        Offering offering = Offering.create(
+                request.assetId(),
+                issuerId,
+                request.title(),
+                request.pricePerUnit(),
+                request.totalQuantity(),
+                request.minSubscriptionQuantity(),
+                request.maxSubscriptionQuantity(),
+                request.startAt(),
+                request.endAt()
+        );
+
+        Offering savedOffering = offeringRepository.save(offering);
+
+        return OfferingCreateResponse.from(savedOffering);
+    }
+}
