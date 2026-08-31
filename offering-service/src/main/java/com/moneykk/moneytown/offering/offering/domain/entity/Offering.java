@@ -159,6 +159,7 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         validateForReview();
+        validateOfferingPeriodNotExpired();
 
         this.offeringStatus = OfferingStatus.REVIEW_REQUESTED;
         this.reviewRequestedAt = Instant.now();
@@ -183,6 +184,7 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         validateForApproval();
+        validateOfferingPeriodNotExpired();
 
         this.offeringStatus = OfferingStatus.SCHEDULED;
         this.reviewedAt = Instant.now();
@@ -307,6 +309,14 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         softDelete(deletedBy);
+    }
+
+    private void validateOfferingPeriodNotExpired() {
+        if (!endAt.isAfter(Instant.now())) {
+            throw new IllegalStateException(
+                    "이미 종료된 모집 기간의 공모는 처리할 수 없습니다."
+            );
+        }
     }
 
     private void validateForApproval() {
