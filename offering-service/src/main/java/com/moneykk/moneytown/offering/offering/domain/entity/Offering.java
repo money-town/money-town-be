@@ -193,6 +193,45 @@ public class Offering extends BaseUpdatableEntity {
         this.rejectionReason = null;
     }
 
+    /**
+     * 심사 요청된 공모를 반려한다.
+     */
+    public void reject(
+            UUID reviewerId,
+            String rejectionReason
+    ) {
+        // TODO: OfferingErrorCode 적용 후 O008로 변경
+        if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
+            throw new IllegalStateException(
+                    "반려할 수 없는 공모 상태입니다."
+            );
+        }
+
+        // TODO: OfferingErrorCode 적용 후 O007로 변경
+        if (rejectionReason == null || rejectionReason.isBlank()) {
+            throw new IllegalArgumentException(
+                    "반려 사유를 입력해주세요."
+            );
+        }
+
+        if (rejectionReason.length() > 500) {
+            throw new IllegalArgumentException(
+                    "반려 사유는 500자를 초과할 수 없습니다."
+            );
+        }
+
+        if (reviewerId == null) {
+            throw new IllegalArgumentException(
+                    "심사 처리자 ID는 필수입니다."
+            );
+        }
+
+        this.offeringStatus = OfferingStatus.REJECTED;
+        this.rejectionReason = rejectionReason.trim();
+        this.reviewedAt = Instant.now();
+        this.reviewedBy = reviewerId;
+    }
+
     public void update(
             String title,
             BigDecimal pricePerUnit,
