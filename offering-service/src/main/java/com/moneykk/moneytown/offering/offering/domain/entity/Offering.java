@@ -193,6 +193,69 @@ public class Offering extends BaseUpdatableEntity {
         this.rejectionReason = null;
     }
 
+    public void update(
+            String title,
+            BigDecimal pricePerUnit,
+            Long totalQuantity,
+            Long minSubscriptionQuantity,
+            Long maxSubscriptionQuantity,
+            Instant startAt,
+            Instant endAt
+    ) {
+        // TODO: OfferingErrorCode 적용 후 O014로 변경
+        if (offeringStatus != OfferingStatus.DRAFT) {
+            throw new IllegalStateException(
+                    "DRAFT 상태의 공모만 수정할 수 있습니다."
+            );
+        }
+
+        String newTitle =
+                title != null ? title : this.title;
+
+        BigDecimal newPricePerUnit =
+                pricePerUnit != null ? pricePerUnit : this.pricePerUnit;
+
+        Long newTotalQuantity =
+                totalQuantity != null ? totalQuantity : this.totalQuantity;
+
+        Long newMinSubscriptionQuantity =
+                minSubscriptionQuantity != null
+                        ? minSubscriptionQuantity
+                        : this.minSubscriptionQuantity;
+
+        Long newMaxSubscriptionQuantity =
+                maxSubscriptionQuantity != null
+                        ? maxSubscriptionQuantity
+                        : this.maxSubscriptionQuantity;
+
+        Instant newStartAt =
+                startAt != null ? startAt : this.startAt;
+
+        Instant newEndAt =
+                endAt != null ? endAt : this.endAt;
+
+        validateCreate(
+                this.assetId,
+                this.issuerId,
+                newTitle,
+                newPricePerUnit,
+                newTotalQuantity,
+                newMinSubscriptionQuantity,
+                newMaxSubscriptionQuantity,
+                newStartAt,
+                newEndAt
+        );
+
+        this.title = newTitle;
+        this.pricePerUnit = newPricePerUnit;
+        this.totalQuantity = newTotalQuantity;
+        this.remainingQuantity = newTotalQuantity;
+        this.minSubscriptionQuantity = newMinSubscriptionQuantity;
+        this.maxSubscriptionQuantity = newMaxSubscriptionQuantity;
+        this.startAt = newStartAt;
+        this.endAt = newEndAt;
+    }
+
     private void validateForApproval() {
         validateCreate(
                 assetId,

@@ -3,9 +3,11 @@ package com.moneykk.moneytown.offering.offering.command.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.offering.offering.command.application.OfferingCommandService;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
+import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingApprovalResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -82,6 +84,33 @@ public class OfferingCommandController {
                 ApiResponse.success(
                         response,
                         "공모 승인이 완료되었습니다."
+                )
+        );
+    }
+
+    /**
+     * 공모 상품 수정
+     */
+    // TODO: Gateway/서비스 인가 정책 확정 후 권한 전달 방식 재검토
+    @PatchMapping("/{offeringId}")
+    public ResponseEntity<ApiResponse<OfferingUpdateResponse>> updateOffering(
+            @PathVariable UUID offeringId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
+            @RequestBody OfferingUpdateRequest request
+    ) {
+        OfferingUpdateResponse response =
+                offeringCommandService.updateOffering(
+                        offeringId,
+                        userId,
+                        role,
+                        request
+                );
+
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        response,
+                        "공모 상품 수정이 완료되었습니다."
                 )
         );
     }
