@@ -186,8 +186,8 @@ public class SettlementCommandService {
 
     private Optional<SettlementBatch> findCarryInSourceBatch(UUID assetId) {
         return settlementBatchRepository
-                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
-                        assetId, SettlementStatus.COMPLETED);
+                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndRemainderAmountGreaterThanAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+                        assetId, SettlementStatus.COMPLETED, 0L);
     }
 
     private HoldingsSnapshotResponse fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {
