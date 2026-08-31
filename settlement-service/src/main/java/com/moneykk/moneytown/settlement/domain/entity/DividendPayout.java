@@ -67,4 +67,20 @@ public class DividendPayout extends BaseUpdatableEntity {
     public void requeue() {
         this.status = PayoutStatus.QUEUED;
     }
+
+    public void markPaid() {
+        this.status = PayoutStatus.PAID;
+    }
+
+    public void incrementRetryCount() {
+        this.retryCount++;
+    }
+
+    public void markRetrying() {
+        this.status = PayoutStatus.RETRYING;
+    }
+
+    public void markDeadLetter() {
+        this.status = PayoutStatus.DEAD_LETTER;
+    }
 }
