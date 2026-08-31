@@ -54,7 +54,7 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
         this.investorId = investorId;
         this.quantity = quantity;
         this.amount = amount;
-        this.idempotencyKey = finalSettlementBatchId + ":" + investorId;
+        this.idempotencyKey = this.id.toString();
         this.status = PayoutStatus.QUEUED;
         this.retryCount = 0;
     }
