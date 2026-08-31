@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,6 +41,15 @@ class FinalSettlementPayoutWriter {
         claimed.forEach(FinalSettlementPayout::markProcessing);
         finalSettlementPayoutRepository.saveAll(claimed);
         return claimed;
+    }
+
+    @Transactional
+    public int reclaimStalledProcessing(Instant staleBefore) {
+        List<FinalSettlementPayout> stalled = finalSettlementPayoutRepository
+                .findByStatusAndUpdatedAtBeforeAndIsDeletedFalse(PayoutStatus.PROCESSING, staleBefore);
+        stalled.forEach(FinalSettlementPayout::revertStalledProcessing);
+        finalSettlementPayoutRepository.saveAll(stalled);
+        return stalled.size();
     }
 
     @Transactional

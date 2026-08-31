@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,6 +41,15 @@ class DividendPayoutWriter {
         claimed.forEach(DividendPayout::markProcessing);
         dividendPayoutRepository.saveAll(claimed);
         return claimed;
+    }
+
+    @Transactional
+    public int reclaimStalledProcessing(Instant staleBefore) {
+        List<DividendPayout> stalled = dividendPayoutRepository
+                .findByStatusAndUpdatedAtBeforeAndIsDeletedFalse(PayoutStatus.PROCESSING, staleBefore);
+        stalled.forEach(DividendPayout::revertStalledProcessing);
+        dividendPayoutRepository.saveAll(stalled);
+        return stalled.size();
     }
 
     @Transactional

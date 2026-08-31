@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,6 +32,10 @@ public class FinalSettlementDisbursementService {
         claimedPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
 
         payoutWriter.updateBatchStatus(finalSettlementBatchId);
+    }
+
+    public int reclaimStalledProcessing(Instant staleBefore) {
+        return payoutWriter.reclaimStalledProcessing(staleBefore);
     }
 
     private void attempt(UUID finalSettlementBatchId, FinalSettlementPayout payout) {

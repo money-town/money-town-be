@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,8 @@ import java.util.UUID;
 public interface FinalSettlementPayoutRepository extends JpaRepository<FinalSettlementPayout, UUID> {
 
     Optional<FinalSettlementPayout> findByIdAndIsDeletedFalse(UUID id);
+
+    List<FinalSettlementPayout> findByStatusAndUpdatedAtBeforeAndIsDeletedFalse(PayoutStatus status, Instant threshold);
 
     @Query("SELECT DISTINCT p.finalSettlementBatchId FROM FinalSettlementPayout p WHERE p.status IN :statuses AND p.isDeleted = false")
     List<UUID> findDistinctFinalSettlementBatchIdByStatusIn(@Param("statuses") List<PayoutStatus> statuses);

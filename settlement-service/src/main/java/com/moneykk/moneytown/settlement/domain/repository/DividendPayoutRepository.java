@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,8 @@ import java.util.UUID;
 public interface DividendPayoutRepository extends JpaRepository<DividendPayout, UUID> {
 
     Optional<DividendPayout> findByIdAndIsDeletedFalse(UUID id);
+
+    List<DividendPayout> findByStatusAndUpdatedAtBeforeAndIsDeletedFalse(PayoutStatus status, Instant threshold);
 
     List<DividendPayout> findBySettlementBatchIdAndStatusAndIsDeletedFalse(UUID settlementBatchId, PayoutStatus status);
 
