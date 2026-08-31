@@ -5,6 +5,7 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.HoldingSnapshot;
+import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
@@ -267,6 +268,93 @@ class SettlementCommandServiceTest {
             assertThat(payoutsCaptor.getValue())
                     .extracting(DividendPayout::getInvestorId)
                     .containsExactlyInAnyOrder(investor1, investor2);
+        }
+    }
+
+    @Nested
+    @DisplayName("정산 회차 재시도")
+    class RetryBatch {
+
+        @Test
+        @DisplayName("실패 건을 QUEUED로 되돌리고 배치 상태를 DISBURSING으로 전환한다")
+        void requeuesDeadLetterPayoutsAndMarksDisbursing() {
+            SettlementBatch batch = batchWithStatus(SettlementStatus.FAILED);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+            DividendPayout deadLetterPayout = deadLetterPayout(batch.getId());
+            when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batch.getId(), PayoutStatus.DEAD_LETTER))
+                    .thenReturn(List.of(deadLetterPayout));
+
+            SettlementBatchResponse response = settlementCommandService.retryBatch(batch.getId());
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.DISBURSING);
+            assertThat(response.payoutCount()).isEqualTo(1);
+
+            ArgumentCaptor<SettlementBatch> batchCaptor = ArgumentCaptor.forClass(SettlementBatch.class);
+            verify(settlementBatchRepository).save(batchCaptor.capture());
+            assertThat(batchCaptor.getValue().getStatus()).isEqualTo(SettlementStatus.DISBURSING);
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<DividendPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
+            verify(dividendPayoutRepository).saveAll(payoutsCaptor.capture());
+            assertThat(payoutsCaptor.getValue()).hasSize(1);
+            assertThat(payoutsCaptor.getValue().get(0).getStatus()).isEqualTo(PayoutStatus.QUEUED);
+            // retryCount는 워커가 실제로 지갑 호출을 재시도할 때 올라가는 값이라 retryBatch()는 건드리지 않는다.
+            assertThat(payoutsCaptor.getValue().get(0).getRetryCount()).isEqualTo(deadLetterPayout.getRetryCount());
+        }
+
+        @Test
+        @DisplayName("PARTIAL_FAILED 상태의 배치도 재시도할 수 있다")
+        void allowsRetryWhenPartiallyFailed() {
+            SettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+            when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batch.getId(), PayoutStatus.DEAD_LETTER))
+                    .thenReturn(List.of());
+
+            SettlementBatchResponse response = settlementCommandService.retryBatch(batch.getId());
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.DISBURSING);
+            assertThat(response.payoutCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 정산 회차면 예외")
+        void rejectsWhenBatchNotFound() {
+            UUID unknownBatchId = UUID.randomUUID();
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(unknownBatchId)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> settlementCommandService.retryBatch(unknownBatchId))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
+
+            verifyNoInteractions(dividendPayoutRepository);
+        }
+
+        @Test
+        @DisplayName("FAILED/PARTIAL_FAILED 상태가 아니면 예외")
+        void rejectsWhenBatchNotRetryable() {
+            SettlementBatch batch = batchWithStatus(SettlementStatus.CALCULATED);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+            assertThatThrownBy(() -> settlementCommandService.retryBatch(batch.getId()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_RETRYABLE);
+
+            verifyNoInteractions(dividendPayoutRepository);
+        }
+
+        private SettlementBatch batchWithStatus(SettlementStatus status) {
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, UUID.randomUUID(), RECORD_DATE, 1_000_000L, 0L);
+            ReflectionTestUtils.setField(batch, "status", status);
+            return batch;
+        }
+
+        private DividendPayout deadLetterPayout(UUID batchId) {
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+            ReflectionTestUtils.setField(payout, "status", PayoutStatus.DEAD_LETTER);
+            return payout;
         }
     }
 
