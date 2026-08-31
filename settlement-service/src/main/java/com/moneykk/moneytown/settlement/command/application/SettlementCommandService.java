@@ -5,6 +5,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.HoldingSnapshot;
+import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
@@ -75,6 +76,31 @@ public class SettlementCommandService {
         dividendPayoutRepository.saveAll(payouts);
 
         return SettlementBatchResponse.of(batch, payouts.size());
+    }
+
+    @Transactional
+    public SettlementBatchResponse retryBatch(UUID settlementBatchId) {
+        SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
+                .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
+
+        if (!isRetryable(batch.getStatus())) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_RETRYABLE);
+        }
+
+        List<DividendPayout> deadLetterPayouts = dividendPayoutRepository
+                .findBySettlementBatchIdAndStatusAndIsDeletedFalse(settlementBatchId, PayoutStatus.DEAD_LETTER);
+        deadLetterPayouts.forEach(DividendPayout::requeue);
+
+        batch.markDisbursing();
+
+        settlementBatchRepository.save(batch);
+        dividendPayoutRepository.saveAll(deadLetterPayouts);
+
+        return SettlementBatchResponse.of(batch, deadLetterPayouts.size());
+    }
+
+    private boolean isRetryable(SettlementStatus status) {
+        return status == SettlementStatus.FAILED || status == SettlementStatus.PARTIAL_FAILED;
     }
 
     private void guardAgainstDuplicateOrConcurrentBatch(UUID assetId, UUID revenueId) {

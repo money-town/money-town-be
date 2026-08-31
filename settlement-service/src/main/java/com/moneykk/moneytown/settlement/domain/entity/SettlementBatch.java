@@ -71,4 +71,8 @@ public class SettlementBatch extends BaseUpdatableEntity {
         this.remainderAmount = remainderAmount;
         this.status = SettlementStatus.CALCULATED;
     }
+
+    public void markDisbursing() {
+        this.status = SettlementStatus.DISBURSING;
+    }
 }

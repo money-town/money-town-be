@@ -29,4 +29,12 @@ public class SettlementCommandController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "정산 회차가 개시되었습니다."));
     }
+
+    //TODO: 인가 코드 추가
+    @PostMapping("/settlements/{settlementBatchId}/retry")
+    public ResponseEntity<ApiResponse<SettlementBatchResponse>> retrySettlementBatch(
+            @PathVariable UUID settlementBatchId) {
+        SettlementBatchResponse response = settlementCommandService.retryBatch(settlementBatchId);
+        return ResponseEntity.ok(ApiResponse.success(response, "정산 회차 재시도가 접수되었습니다."));
+    }
 }

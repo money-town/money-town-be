@@ -63,4 +63,8 @@ public class DividendPayout extends BaseUpdatableEntity {
     public static DividendPayout queue(UUID settlementBatchId, UUID investorId, BigDecimal shareRatio, Long amount) {
         return new DividendPayout(settlementBatchId, investorId, shareRatio, amount);
     }
+
+    public void requeue() {
+        this.status = PayoutStatus.QUEUED;
+    }
 }
