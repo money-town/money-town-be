@@ -52,4 +52,8 @@ public class FinalSettlementBatch extends BaseUpdatableEntity {
     public static FinalSettlementBatch open(UUID assetId, Instant terminatedAt, Long unitPrice, Long totalAmount) {
         return new FinalSettlementBatch(assetId, terminatedAt, unitPrice, totalAmount);
     }
+
+    public void markCalculated() {
+        this.status = SettlementStatus.CALCULATED;
+    }
 }

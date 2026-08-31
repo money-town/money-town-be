@@ -18,7 +18,8 @@ public enum SettlementErrorCode implements ErrorCode {
     SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE(HttpStatus.CONFLICT, "SETTLEMENT_409_03", "이미 해당 수익 건으로 개시된 정산 회차가 존재합니다."),
     SETTLEMENT_IN_PROGRESS_FOR_ASSET(HttpStatus.CONFLICT, "SETTLEMENT_409_04", "해당 자산은 이미 진행 중인 정산 회차가 있어 순차적으로 처리해야 합니다."),
     HOLDING_SNAPSHOT_INVALID(HttpStatus.CONFLICT, "SETTLEMENT_409_05", "보유지분 스냅샷의 전체 발행 지분 수량이 올바르지 않습니다."),
-    SETTLEMENT_BATCH_NOT_RETRYABLE(HttpStatus.CONFLICT, "SETTLEMENT_409_06", "실패(FAILED) 또는 부분 실패(PARTIAL_FAILED) 상태의 정산 회차만 재시도할 수 있습니다.");
+    SETTLEMENT_BATCH_NOT_RETRYABLE(HttpStatus.CONFLICT, "SETTLEMENT_409_06", "실패(FAILED) 또는 부분 실패(PARTIAL_FAILED) 상태의 정산 회차만 재시도할 수 있습니다."),
+    FINAL_SETTLEMENT_HOLDERS_NOT_FOUND(HttpStatus.CONFLICT, "SETTLEMENT_409_07", "최종 정산 시점(terminatedAt) 기준 보유자가 존재하지 않습니다.");
 
     private final HttpStatus status;
     private final String code;
