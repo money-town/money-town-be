@@ -253,7 +253,7 @@ class SettlementCommandServiceTest {
         }
 
         @Test
-        @DisplayName("직전 완료 회차의 잔여금이 이번 회차 총액에 이월된다")
+        @DisplayName("직전 완료 회차의 잔여금이 이번 회차 총액에 이월되고, 소스 배치는 이월 대상으로 마킹된다")
         void carriesInPreviousRemainder() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
@@ -264,7 +264,9 @@ class SettlementCommandServiceTest {
             previousCompletedBatch.markSnapshotTaken();
             previousCompletedBatch.markCalculated(777L);
             ReflectionTestUtils.setField(previousCompletedBatch, "status", SettlementStatus.COMPLETED);
-            when(settlementBatchRepository.findFirstByAssetIdAndStatusAndIsDeletedFalseOrderByRecordDateDesc(ASSET_ID, SettlementStatus.COMPLETED))
+            when(settlementBatchRepository
+                    .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+                            ASSET_ID, SettlementStatus.COMPLETED))
                     .thenReturn(Optional.of(previousCompletedBatch));
 
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
@@ -274,6 +276,8 @@ class SettlementCommandServiceTest {
 
             assertThat(response.carriedInAmount()).isEqualTo(777L);
             assertThat(response.totalAmount()).isEqualTo(1_000_777L);
+            assertThat(previousCompletedBatch.getCarriedOutToBatchId()).isEqualTo(response.settlementBatchId());
+            verify(settlementBatchRepository).save(previousCompletedBatch);
         }
     }
 
@@ -430,7 +434,9 @@ class SettlementCommandServiceTest {
     }
 
     private void stubNoPreviousCompletedBatch() {
-        when(settlementBatchRepository.findFirstByAssetIdAndStatusAndIsDeletedFalseOrderByRecordDateDesc(ASSET_ID, SettlementStatus.COMPLETED))
+        when(settlementBatchRepository
+                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
+                        ASSET_ID, SettlementStatus.COMPLETED))
                 .thenReturn(Optional.empty());
     }
 
