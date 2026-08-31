@@ -1,0 +1,90 @@
+package com.moneykk.moneytown.asset.entity;
+
+import com.moneykk.moneytown.common.entity.BaseEntity;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.time.Instant;
+import java.util.UUID;
+
+@Getter
+@Entity
+@Table(name = "p_asset_documents")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class AssetDocument extends BaseEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "document_id", nullable = false, updatable = false)
+    private UUID id;
+
+    @Column(name = "asset_id", nullable = false, updatable = false)
+    private UUID assetId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "document_type", nullable = false, length = 30)
+    private DocumentType documentType;
+
+    @Column(name = "document_version", nullable = false)
+    private int documentVersion;
+
+    @Column(name = "original_filename", nullable = false, length = 255)
+    private String originalFilename;
+
+    @Column(name = "s3_object_key", nullable = false, length = 500)
+    private String s3ObjectKey;
+
+    @Column(name = "content_type", nullable = false, length = 100)
+    private String contentType;
+
+    @Column(name = "file_size", nullable = false)
+    private long fileSize;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "file_hash", nullable = false, length = 64)
+    private String fileHash;
+
+    @Column(name = "is_deleted", nullable = false)
+    private boolean deleted;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @Column(name = "deleted_by")
+    private UUID deletedBy;
+
+    public AssetDocument(UUID assetId, DocumentType documentType, int documentVersion,
+                         String originalFilename, String s3ObjectKey, String contentType,
+                         long fileSize, String fileHash) {
+        if (documentVersion <= 0 || fileSize <= 0) {
+            throw new BusinessException(AssetErrorCode.INVALID_ASSET_DOCUMENT);
+        }
+        this.assetId = assetId;
+        this.documentType = documentType;
+        this.documentVersion = documentVersion;
+        this.originalFilename = originalFilename;
+        this.s3ObjectKey = s3ObjectKey;
+        this.contentType = contentType;
+        this.fileSize = fileSize;
+        this.fileHash = fileHash;
+    }
+
+    public void softDelete(UUID deletedBy) {
+        this.deleted = true;
+        this.deletedAt = Instant.now();
+        this.deletedBy = deletedBy;
+    }
+}
