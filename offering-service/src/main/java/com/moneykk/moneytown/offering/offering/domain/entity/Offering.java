@@ -256,6 +256,26 @@ public class Offering extends BaseUpdatableEntity {
         this.endAt = newEndAt;
     }
 
+    /**
+     * 작성 중인 공모를 논리 삭제한다.
+     */
+    public void delete(UUID deletedBy) {
+        // TODO: OfferingErrorCode 적용 후 O015로 변경
+        if (offeringStatus != OfferingStatus.DRAFT) {
+            throw new IllegalStateException(
+                    "현재 상태에서는 공모 상품을 삭제할 수 없습니다."
+            );
+        }
+
+        if (deletedBy == null) {
+            throw new IllegalArgumentException(
+                    "삭제 처리자 ID는 필수입니다."
+            );
+        }
+
+        softDelete(deletedBy);
+    }
+
     private void validateForApproval() {
         validateCreate(
                 assetId,

@@ -2,10 +2,7 @@ package com.moneykk.moneytown.offering.offering.command.application;
 
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
-import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingApprovalResponse;
-import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
-import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
-import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.*;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import lombok.RequiredArgsConstructor;
@@ -133,5 +130,39 @@ public class OfferingCommandService {
         );
 
         return OfferingUpdateResponse.from(offering);
+    }
+
+    @Transactional
+    public OfferingDeleteResponse deleteOffering(
+            UUID offeringId,
+            UUID userId,
+            String role
+    ) {
+        Offering offering = offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "공모를 찾을 수 없습니다."
+                        )
+                );
+
+        boolean owner = offering.getIssuerId().equals(userId);
+        boolean admin = "ADMIN".equalsIgnoreCase(role);
+
+        // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
+        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
+        if (!owner && !admin) {
+            throw new IllegalArgumentException(
+                    "해당 공모를 삭제할 권한이 없습니다."
+            );
+        }
+
+        // TODO: Subscription Service 연동 계약 확정 후 청약 이력 존재 여부 검증
+        // 청약 이력이 존재하는 경우 O018
+        // "청약 이력이 존재하는 공모는 삭제할 수 없습니다."
+
+        offering.delete(userId);
+
+        return OfferingDeleteResponse.from(offering);
     }
 }
