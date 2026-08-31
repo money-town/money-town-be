@@ -165,6 +165,54 @@ public class Offering extends BaseUpdatableEntity {
         this.reviewRequestedAt = Instant.now();
     }
 
+    /**
+     * 심사 요청된 공모를 승인한다.
+     */
+    public void approve(UUID reviewerId) {
+        // TODO: OfferingErrorCode 적용 후 O006으로 변경
+        if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
+            throw new IllegalStateException(
+                    "REVIEW_REQUESTED 상태의 공모만 승인할 수 있습니다."
+            );
+        }
+
+        // TODO: OfferingErrorCode 적용 후 O001로 변경
+        if (reviewerId == null) {
+            throw new IllegalArgumentException(
+                    "승인 처리자 ID는 필수입니다."
+            );
+        }
+
+        validateForApproval();
+
+        this.offeringStatus = OfferingStatus.SCHEDULED;
+        this.reviewedAt = Instant.now();
+        this.reviewedBy = reviewerId;
+
+        // 이전 반려 정보가 존재할 가능성에 대비해 승인 시 초기화
+        this.rejectionReason = null;
+    }
+
+    private void validateForApproval() {
+        validateCreate(
+                assetId,
+                issuerId,
+                title,
+                pricePerUnit,
+                totalQuantity,
+                minSubscriptionQuantity,
+                maxSubscriptionQuantity,
+                startAt,
+                endAt
+        );
+
+        if (!totalQuantity.equals(remainingQuantity)) {
+            throw new IllegalArgumentException(
+                    "승인 전 잔여 모집 수량은 총 모집 수량과 동일해야 합니다."
+            );
+        }
+    }
+
     private void validateForReview() {
         validateCreate(
                 assetId,

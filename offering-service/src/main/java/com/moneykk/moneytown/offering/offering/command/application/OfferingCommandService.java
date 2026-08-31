@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.offering.offering.command.application;
 
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingApprovalResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
@@ -69,5 +70,27 @@ public class OfferingCommandService {
         offering.requestReview();
 
         return OfferingReviewRequestResponse.from(offering);
+    }
+
+    @Transactional
+    public OfferingApprovalResponse approveOffering(
+            UUID offeringId,
+            UUID reviewerId
+    ) {
+        Offering offering = offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "공모를 찾을 수 없습니다."
+                        )
+                );
+
+        // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
+        // TODO: OfferingException / OfferingErrorCode 적용 후
+        // O003(공모 없음), O005(승인 권한 없음), O006(승인 불가 상태) 적용
+
+        offering.approve(reviewerId);
+
+        return OfferingApprovalResponse.from(offering);
     }
 }
