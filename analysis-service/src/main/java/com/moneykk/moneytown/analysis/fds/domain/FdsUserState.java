@@ -56,7 +56,7 @@ public class FdsUserState extends BaseUpdatableEntity {
     }
 
     public void unblock(){
-        if(this.status == UserStatus.NORMAL){
+        if(this.status != UserStatus.BLOCKED){
             throw new BusinessException(AnalysisErrorCode.FDS_ALREADY_NORMAL);
         }
         this.status = UserStatus.NORMAL;
