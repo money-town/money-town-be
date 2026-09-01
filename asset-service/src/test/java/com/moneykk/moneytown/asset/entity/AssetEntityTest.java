@@ -3,6 +3,7 @@ package com.moneykk.moneytown.asset.entity;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -13,6 +14,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AssetEntityTest {
+
+    @Test
+    void assetCannotAllocateMoreThanRemainingShares() {
+        Asset asset = new Asset(
+                UUID.randomUUID(), "테스트 부동산", AssetType.REAL_ESTATE, "테스트 자산",
+                100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L, 100L
+        );
+        ReflectionTestUtils.setField(asset, "status", AssetStatus.APPROVED);
+
+        asset.allocateShares(80);
+
+        assertEquals(80, asset.getAllocatedQuantity());
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> asset.allocateShares(21)
+        );
+        assertEquals(AssetErrorCode.SHARE_QUANTITY_EXCEEDED, exception.getErrorCode());
+    }
 
     @Test
     void holdingQuantityCannotBecomeNegative() {
