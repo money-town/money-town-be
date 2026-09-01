@@ -29,23 +29,19 @@ public class SubscriptionCommandController {
      */
     // TODO: Gateway 인증/인가 정책 확정 후
     // INVESTOR 권한 및 사용자 정보 전달 방식 재검토
-    // TODO: Idempotency-Key 처리 구현 후 필수 검증 연결
     @PostMapping
     public ResponseEntity<ApiResponse<SubscriptionCreateResponse>> createSubscription(
             @PathVariable UUID offeringId,
             @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader(
-                    value = "Idempotency-Key",
-                    required = false
-            ) UUID idempotencyKey,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubscriptionCreateRequest request
     ) {
-        // TODO: Idempotency 구현 시 required = true로 변경하고
-        // SubscriptionCommandService에 idempotencyKey 전달
+
         SubscriptionCreateResponse response =
                 subscriptionCommandService.create(
                         offeringId,
                         userId,
+                        idempotencyKey,
                         request
                 );
 
