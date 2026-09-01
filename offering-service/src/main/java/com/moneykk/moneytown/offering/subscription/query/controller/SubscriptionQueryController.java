@@ -5,15 +5,12 @@ import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.query.application.SubscriptionQueryService;
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
+import com.moneykk.moneytown.offering.subscription.query.dto.response.SubscriptionDetailResponse;
 import com.moneykk.moneytown.offering.subscription.query.dto.response.SubscriptionListItemResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -62,6 +59,27 @@ public class SubscriptionQueryController {
                 ApiResponse.success(
                         response,
                         message
+                )
+        );
+    }
+
+    @GetMapping("/{subscriptionId}")
+    public ResponseEntity<ApiResponse<SubscriptionDetailResponse>> getSubscriptionDetail(
+            @PathVariable UUID subscriptionId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role
+    ) {
+        SubscriptionDetailResponse response =
+                subscriptionQueryService.getSubscriptionDetail(
+                        subscriptionId,
+                        userId,
+                        role
+                );
+
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        response,
+                        "청약 상세 조회가 완료되었습니다."
                 )
         );
     }

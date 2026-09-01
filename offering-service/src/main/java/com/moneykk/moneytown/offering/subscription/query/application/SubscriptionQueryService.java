@@ -2,7 +2,9 @@ package com.moneykk.moneytown.offering.subscription.query.application;
 
 import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
+import com.moneykk.moneytown.offering.subscription.query.dto.response.SubscriptionDetailResponse;
 import com.moneykk.moneytown.offering.subscription.query.dto.response.SubscriptionListItemResponse;
 import com.moneykk.moneytown.offering.subscription.query.repository.SubscriptionQueryRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,12 +23,15 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class SubscriptionQueryService {
 
+    private final SubscriptionQueryRepository subscriptionQueryRepository;
+    private final SubscriptionRepository subscriptionRepository;
+
+
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
             "createdAt",
             "updatedAt"
     );
 
-    private final SubscriptionQueryRepository subscriptionQueryRepository;
 
     /**
      * 로그인한 투자자의 청약 목록을 검색한다.
@@ -51,6 +56,63 @@ public class SubscriptionQueryService {
                 SubscriptionListItemResponse::from
         );
     }
+
+    /**
+     * 특정 청약의 상세 정보를 조회한다.
+     *
+     * INVESTOR는 본인의 청약만 조회할 수 있으며,
+     * ADMIN은 전체 청약을 조회할 수 있다.
+     */
+    public SubscriptionDetailResponse getSubscriptionDetail(
+            UUID subscriptionId,
+            UUID userId,
+            String role
+    ) {
+        Subscription subscription = subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId)
+                .orElseThrow(() ->
+                        // TODO: SubscriptionErrorCode 적용 후 S010으로 변경
+                        new IllegalArgumentException(
+                                "청약을 찾을 수 없습니다."
+                        )
+                );
+
+        validateDetailAccess(
+                subscription,
+                userId,
+                role
+        );
+
+        return SubscriptionDetailResponse.from(subscription);
+    }
+
+    /**
+     * 청약 상세 조회 권한을 검증한다.
+     *
+     * ADMIN은 전체 청약을 조회할 수 있고,
+     * INVESTOR는 본인의 청약만 조회할 수 있다.
+     */
+    private void validateDetailAccess(
+            Subscription subscription,
+            UUID userId,
+            String role
+    ) {
+        boolean admin =
+                role != null
+                        && "ADMIN".equalsIgnoreCase(role);
+
+        boolean owner =
+                userId != null
+                        && subscription.getUserId().equals(userId);
+
+        if (!admin && !owner) {
+            // TODO: SubscriptionErrorCode 적용 후 S009로 변경
+            throw new IllegalArgumentException(
+                    "해당 청약을 조회할 권한이 없습니다."
+            );
+        }
+    }
+
 
     /**
      * 청약 검색 기간의 유효성을 검증한다.
