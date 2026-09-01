@@ -7,6 +7,41 @@ spring:
       server:
         webflux:
           # 각 도메인 서비스 뼈대 생성 시 여기에 라우트를 추가
+          routes:
+            - id: user-service-route
+              uri: lb://user-service
+              predicates:
+                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**
+              filters:
+                - StripPrefix=2
+
+            - id: wallet-service-route
+              uri: lb://wallet-service
+              predicates:
+                - Path=/api/v1/wallets/**
+              filters:
+                - StripPrefix=2
+
+            - id: asset-service-route
+              uri: lb://asset-service
+              predicates:
+                - Path=/api/v1/assets/**,/api/v1/holdings/**
+              filters:
+                - StripPrefix=2
+
+            - id: offering-service-route
+              uri: lb://offering-service
+              predicates:
+                - Path=/api/v1/offerings/**,/api/v1/subscriptions/**
+              filters:
+                - StripPrefix=2
+
+            - id: settlement-service-route
+              uri: lb://settlement-service
+              predicates:
+                - Path=/api/v1/settlements/**,/api/v1/distributions/**
+              filters:
+                - StripPrefix=2
           httpclient:
             connect-timeout: 3000
             response-timeout: 10s
@@ -27,7 +62,7 @@ spring:
                   - "*"
                 exposed-headers:
                   - Authorization
-                  - X-Request-Id
+                  - X-Correlation-Id
                 allow-credentials: true
                 max-age: 3600
 
@@ -45,3 +80,8 @@ springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:true}
     path: /swagger-ui.html
+
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    issuer: ${JWT_ISSUER:money-town-user-service}
