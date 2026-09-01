@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.common.config;
 
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Optional;
 import java.util.UUID;
@@ -11,6 +12,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import static com.moneykk.moneytown.common.security.AuthHeaderConstants.USER_ID;
 
 @AutoConfiguration
 @ConditionalOnClass(EnableJpaAuditing.class)
@@ -30,7 +32,7 @@ public class JpaAuditingConfig {
             }
 
             HttpServletRequest request = attributes.getRequest();
-            String userId = request.getHeader("X-User-Id");
+            String userId =  request.getHeader(AuthHeaderConstants.USER_ID);;
             if (userId == null || userId.isBlank()) {
                 return Optional.of(SYSTEM_USER_ID);
             }
