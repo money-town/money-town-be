@@ -27,7 +27,7 @@ public class FdsRedisCounter {
 
         List<Long> r = redisTemplate.execute(
                 COUNT_SCRIPT,
-                List.of("fds:req:" + userId, "fds:offering:" + userId),
+               List.of("fds:req:{" + userId + "}", "fds:offering:{" + userId + "}"),
                 String.valueOf(System.currentTimeMillis()),
                 requestId.toString(),
                 assetId.toString(),
