@@ -21,22 +21,21 @@ import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 // TODO: ERROR/EXCEPTION - CODE 처리
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class SubscriptionCommandService {
 
     private static final String SUBSCRIPTION_RESOURCE_TYPE = "SUBSCRIPTION";
 
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
+
+    private final SubscriptionIdempotencyService subscriptionIdempotencyService;
+    private final SubscriptionTransactionService subscriptionTransactionService;
 
     private final IdempotencyRequestRepository idempotencyRequestRepository;
     private final SubscriptionRequestHasher subscriptionRequestHasher;
@@ -45,16 +44,14 @@ public class SubscriptionCommandService {
     private final AnalysisServiceClient analysisServiceClient;
     private final UserServiceClient userServiceClient;
 
-    @Transactional
     public SubscriptionCreateResponse create(
             UUID offeringId,
             UUID userId,
             String idempotencyKey,
             SubscriptionCreateRequest request
     ) {
-        // TODO: User Service OpenFeign 연동 후
-        // INVESTOR / accountStatus ACTIVE / kycStatus VERIFIED 검증
-
+        // TODO: User Service 실제 API merge 후 Path / Response 계약 최종 확인
+        // TODO: SubscriptionErrorCode 적용
         // TODO: SubscriptionReserved Outbox 저장 추가
 
         validateIdempotencyKey(idempotencyKey);
@@ -75,7 +72,7 @@ public class SubscriptionCommandService {
          * ON CONFLICT DO NOTHING을 이용하여
          * 동시에 동일 요청이 들어오더라도 중복 실행을 방지한다.
          */
-        int inserted = idempotencyRequestRepository.tryInsert(
+        int inserted = subscriptionIdempotencyService.tryBegin(
                 UUID.randomUUID(),
                 userId,
                 operation.name(),
@@ -97,119 +94,95 @@ public class SubscriptionCommandService {
             );
         }
 
-        validateUserEligibility(userId);
-
         /*
-         * 여기부터는 최초로 Idempotency-Key를 선점한 요청만 실행한다.
-         */
-
-        Offering offering = offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
-                        )
-                );
-
-        /*
-         * 신규 멱등 요청에 대해서만 Pre-FDS 검사를 수행한다.
+         * 여기부터는 최초로 Idempotency-Key를 선점한 신규 요청만 실행한다.
          *
-         * requestId는 개별 Pre-FDS HTTP 요청을 식별하기 위한 UUID이며,
-         * Idempotency-Key와는 별도로 생성한다.
+         * User Service / FDS와의 외부 HTTP 통신은
+         * DB Write Transaction 밖에서 수행한다.
          */
-        UUID fdsRequestId = UUID.randomUUID();
+        try {
+            /*
+             * 최신 사용자 상태를 조회하여 청약 자격을 검증한다.
+             *
+             * accountStatus == ACTIVE
+             * kycStatus == VERIFIED
+             */
+            validateUserEligibility(userId);
 
-        validatePreFds(
-                fdsRequestId,
-                userId,
-                offering.getAssetId()
-        );
+            /*
+             * 청약 대상 공모를 조회한다.
+             *
+             * 이 시점에는 DB Write Transaction을 시작하지 않는다.
+             */
+            Offering offering = offeringRepository
+                    .findByOfferingIdAndIsDeletedFalse(offeringId)
+                    .orElseThrow(() ->
+                            new IllegalArgumentException(
+                                    "공모를 찾을 수 없습니다."
+                            )
+                    );
 
-
-        validateSubscriptionQuantity(
-                offering,
-                request.quantity()
-        );
-
-        validateDuplicateSubscription(
-                offeringId,
-                userId
-        );
-
-        /*
-         * 조건부 UPDATE를 통해 잔여 수량을 원자적으로 확보한다.
-         *
-         * 성공: 1
-         * 실패: 0
-         */
-        int updatedRows = offeringRepository.reserveQuantity(
-                offeringId,
-                request.quantity(),
-                userId
-        );
-
-        if (updatedRows == 0) {
-            // TODO: SubscriptionErrorCode 적용 후
-            // S004(수량 부족) / S005(청약 불가 상태) 구분
-            throw new IllegalStateException(
-                    "현재 청약 가능한 공모가 아니거나 청약 가능한 수량이 부족합니다."
+            /*
+             * 공모의 최소·최대 청약 수량을 검증한다.
+             *
+             * DB 값을 변경하지 않는 검증이므로
+             * Transaction Service 진입 전에 수행한다.
+             */
+            validateSubscriptionQuantity(
+                    offering,
+                    request.quantity()
             );
+
+            /*
+             * 신규 청약 요청에 대해서만 Pre-FDS 검사를 수행한다.
+             *
+             * requestId는 개별 Pre-FDS HTTP 요청 식별자이며
+             * Idempotency-Key와 별도로 생성한다.
+             */
+            validatePreFds(
+                    UUID.randomUUID(),
+                    userId,
+                    offering.getAssetId()
+            );
+
+            /*
+             * 실제 DB 변경이 필요한 구간만 별도 Transaction Service에서 수행한다.
+             *
+             * - 중복 청약 확인
+             * - remainingQuantity 조건부 UPDATE
+             * - Subscription PROCESSING 생성
+             * - Idempotency COMPLETED 처리
+             * - 추후 SubscriptionReserved Outbox 저장
+             */
+            return subscriptionTransactionService.createSubscription(
+                    offering.getOfferingId(),
+                    userId,
+                    idempotencyKey,
+                    request.quantity(),
+                    offering.getPricePerUnit()
+            );
+
+        } catch (RuntimeException e) {
+
+            /*
+             * tryBegin()은 REQUIRES_NEW Transaction으로 이미 COMMIT되었으므로
+             * 이후 사용자 검증 / FDS / 청약 처리에서 실패하면
+             * 해당 멱등 요청을 FAILED 상태로 기록한다.
+             *
+             * TODO:
+             * 실제 SubscriptionErrorCode 적용 시
+             * S002 / S017 / S018 등에 따라 responseCode를 구분한다.
+             */
+            subscriptionIdempotencyService.fail(
+                    userId,
+                    operation.name(),
+                    idempotencyKey,
+                    HttpStatus.INTERNAL_SERVER_ERROR.value()
+            );
+
+            throw e;
         }
 
-        /*
-         * TODO: reservationExpiresAt 정책 확정 후
-         * application.yml 또는 정책 클래스로 분리
-         */
-        Instant reservationExpiresAt =
-                Instant.now().plus(10, ChronoUnit.MINUTES);
-
-        /*
-         * pricePerUnit은 클라이언트 입력값이 아니라
-         * Offering에 저장된 가격 Snapshot을 사용한다.
-         */
-        Subscription subscription = Subscription.create(
-                offeringId,
-                userId,
-                request.quantity(),
-                offering.getPricePerUnit(),
-                reservationExpiresAt
-        );
-
-        Subscription savedSubscription =
-                subscriptionRepository.save(subscription);
-
-        /*
-         * 청약 생성이 정상적으로 완료되었으므로
-         * Idempotency 요청을 COMPLETED 상태로 전환한다.
-         *
-         * resourceId에는 생성된 subscriptionId를 저장하여
-         * 동일 요청 재호출 시 기존 청약 결과를 반환할 수 있도록 한다.
-         */
-        int completed = idempotencyRequestRepository.complete(
-                userId,
-                operation.name(),
-                idempotencyKey,
-                savedSubscription.getSubscriptionId(),
-                HttpStatus.ACCEPTED.value()
-        );
-
-        if (completed != 1) {
-            throw new IllegalStateException(
-                    "멱등 요청 완료 처리에 실패했습니다."
-            );
-        }
-
-        /*
-         * TODO: Outbox Pattern 적용
-         *
-         * Subscription 저장
-         * + Idempotency COMPLETED
-         * + SubscriptionReserved Outbox 저장
-         *
-         * 을 동일 Local Transaction에서 처리한다.
-         */
-
-        return SubscriptionCreateResponse.from(savedSubscription);
     }
 
     /**
@@ -470,28 +443,6 @@ public class SubscriptionCommandService {
         }
     }
 
-
-    /**
-     * 동일 사용자가 동일 공모에 이미 청약했는지 확인한다.
-     */
-    private void validateDuplicateSubscription(
-            UUID offeringId,
-            UUID userId
-    ) {
-        boolean exists =
-                subscriptionRepository
-                        .existsByOfferingIdAndUserIdAndIsDeletedFalse(
-                                offeringId,
-                                userId
-                        );
-
-        if (exists) {
-            // TODO: SubscriptionErrorCode 적용 후 S003으로 변경
-            throw new IllegalStateException(
-                    "이미 청약한 공모입니다."
-            );
-        }
-    }
 
     /**
      * 공모별 최소·최대 청약 수량 범위를 검증한다.
