@@ -20,4 +20,11 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from Wallet w where w.userId = :userId")
     Optional<Wallet> findByUserIdForUpdate(@Param("userId") UUID userId);
+
+    // 보상 처리(RELEASE/REFUND)처럼 WalletHold.walletId로 지갑을 먼저 찾아야 하는 흐름에서 씀.
+    // JpaRepository가 기본 제공하는 findById()는 락이 걸리지 않는다.
+    // 잔액을 바꿀 거면 이걸 사용 해야함.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select w from Wallet w where w.id = :walletId")
+    Optional<Wallet> findByIdForUpdate(@Param("walletId") Long walletId);
 }
