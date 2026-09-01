@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.asset.entity;
 
 import com.moneykk.moneytown.common.entity.BaseUpdatableEntity;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -92,5 +94,24 @@ public class Asset extends BaseUpdatableEntity {
         this.totalShareQuantity = totalShareQuantity;
         this.allocatedQuantity = 0;
         this.status = AssetStatus.DRAFT;
+    }
+
+    /** 지분 배정 */
+    public void allocateShares(long quantity) {
+        if (quantity <= 0) {
+            throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
+        }
+
+        if (status != AssetStatus.APPROVED) {
+            throw new BusinessException(AssetErrorCode.ASSET_NOT_AVAILABLE);
+        }
+
+        long remainingQuantity = totalShareQuantity - allocatedQuantity;
+
+        if (quantity > remainingQuantity) {
+            throw new BusinessException(AssetErrorCode.SHARE_QUANTITY_EXCEEDED);
+        }
+
+        allocatedQuantity += quantity;
     }
 }
