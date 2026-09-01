@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class PageResponseTest {
     @Test
-    @DisplayName("Page 객체를 PageResponse로 변환한다")
+    @DisplayName("Page 객체의 데이터를 변환하여 PageResponse로 생성한다")
     void convertPageToPageResponse() {
         // given
         Page<String> page = new PageImpl<>(
@@ -23,10 +23,13 @@ class PageResponseTest {
         );
 
         // when
-        PageResponse<String> response = PageResponse.from(page);
+        PageResponse<String> response = PageResponse.from(
+                page,
+                String::toLowerCase
+        );
 
         // then
-        assertThat(response.content()).containsExactly("A", "B");
+        assertThat(response.content()).containsExactly("a", "b");
         assertThat(response.page()).isEqualTo(1);
         assertThat(response.size()).isEqualTo(2);
         assertThat(response.totalElements()).isEqualTo(5);
