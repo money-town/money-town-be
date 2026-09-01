@@ -13,8 +13,11 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Idempotency
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.domain.service.SubscriptionRequestHasher;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.AnalysisServiceClient;
+import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.PreFdsCheckRequest;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.PreFdsCheckResponse;
+import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -38,7 +41,9 @@ public class SubscriptionCommandService {
     private final IdempotencyRequestRepository idempotencyRequestRepository;
     private final SubscriptionRequestHasher subscriptionRequestHasher;
 
+    // openFeignClient
     private final AnalysisServiceClient analysisServiceClient;
+    private final UserServiceClient userServiceClient;
 
     @Transactional
     public SubscriptionCreateResponse create(
@@ -91,6 +96,8 @@ public class SubscriptionCommandService {
                     requestHash
             );
         }
+
+        validateUserEligibility(userId);
 
         /*
          * 여기부터는 최초로 Idempotency-Key를 선점한 요청만 실행한다.
@@ -332,46 +339,137 @@ public class SubscriptionCommandService {
      * 신규 청약 요청에 대해 Pre-FDS 검사를 수행한다.
      *
      * FDS가 PASS를 반환한 경우에만 이후 청약 로직을 진행한다.
-     * BLOCK 또는 정상적인 결과를 받을 수 없는 경우 청약 처리를 중단한다.
+     * BLOCK 또는 FDS 검사를 정상적으로 수행할 수 없는 경우
+     * Fail Closed 정책에 따라 청약 처리를 중단한다.
      */
     private void validatePreFds(
             UUID requestId,
             UUID userId,
             UUID assetId
     ) {
-        ApiResponse<PreFdsCheckResponse> response =
-                analysisServiceClient.check(
-                        new PreFdsCheckRequest(
-                                requestId,
-                                userId,
-                                assetId
-                        )
+        try {
+            ApiResponse<PreFdsCheckResponse> response =
+                    analysisServiceClient.check(
+                            new PreFdsCheckRequest(
+                                    requestId,
+                                    userId,
+                                    assetId
+                            )
+                    );
+
+            PreFdsCheckResponse result = response.data();
+
+            if (result == null) {
+                // TODO: SubscriptionErrorCode 적용 후 S018
+                throw new IllegalStateException(
+                        "현재 청약 검증 서비스를 사용할 수 없습니다."
                 );
+            }
 
-        PreFdsCheckResponse result = response.data();
+            /*
+             * BLOCK은 FDS 장애가 아니라
+             * 정상적으로 수행된 업무 판단 결과이다.
+             */
+            if (result.isBlock()) {
+                // TODO: SubscriptionErrorCode 적용 후 S017
+                throw new IllegalStateException(
+                        "이상 거래 탐지 정책에 의해 청약이 제한되었습니다."
+                );
+            }
 
-        if (result == null) {
-            // TODO: SubscriptionErrorCode 적용 후 S018
+            /*
+             * PASS / BLOCK 이외의 알 수 없는 응답은
+             * 정상적인 FDS 판단으로 간주하지 않고 Fail Closed 처리한다.
+             */
+            if (!result.isPass()) {
+                // TODO: SubscriptionErrorCode 적용 후 S018
+                throw new IllegalStateException(
+                        "현재 청약 검증 서비스를 사용할 수 없습니다."
+                );
+            }
+
+        } catch (FeignException e) {
+            /*
+             * FDS 4xx/5xx, Timeout, Connection Failure 등
+             * FDS 판단을 정상적으로 받을 수 없는 경우.
+             *
+             * TODO:
+             * - FDS 계약 오류(400)
+             * - FDS 내부 오류(500)
+             * - FDS 일시 장애(503)
+             * 를 예외 코드 적용 시 세부적으로 정리한다.
+             *
+             * 현재는 모두 Fail Closed 처리한다.
+             */
             throw new IllegalStateException(
-                    "현재 청약 검증 서비스를 사용할 수 없습니다."
-            );
-        }
-
-        if (result.isBlock()) {
-            // TODO: SubscriptionErrorCode 적용 후 S017
-            throw new IllegalStateException(
-                    "이상 거래 탐지 정책에 의해 청약이 제한되었습니다."
-            );
-        }
-
-        if (!result.isPass()) {
-            // 알 수 없는 응답은 Fail Closed 처리
-            // TODO: SubscriptionErrorCode 적용 후 S018
-            throw new IllegalStateException(
-                    "현재 청약 검증 서비스를 사용할 수 없습니다."
+                    "현재 청약 검증 서비스를 사용할 수 없습니다.",
+                    e
             );
         }
     }
+
+    /**
+     * User Service에서 최신 사용자 상태를 조회하고
+     * 청약 가능 여부를 검증한다.
+     *
+     * accountStatus가 ACTIVE이고
+     * kycStatus가 VERIFIED인 경우에만 청약을 진행한다.
+     *
+     * User Service를 정상적으로 조회할 수 없는 경우에는
+     * 최신 사용자 상태를 확인할 수 없으므로 Fail Closed 처리한다.
+     */
+    private void validateUserEligibility(UUID userId) {
+
+        try {
+            ApiResponse<UserInvestmentEligibilityResponse> response =
+                    userServiceClient.getInvestmentEligibility(userId);
+
+            UserInvestmentEligibilityResponse user = response.data();
+
+            if (user == null) {
+                // TODO: SubscriptionErrorCode 적용
+                // User Service 정상 응답이지만 필요한 사용자 상태가 없는 경우
+                throw new IllegalStateException(
+                        "사용자 상태를 확인할 수 없습니다."
+                );
+            }
+
+            if (!user.isEligibleForSubscription()) {
+                // TODO: SubscriptionErrorCode 적용 후 S002
+                throw new IllegalStateException(
+                        "청약 자격을 충족하지 않습니다."
+                );
+            }
+
+        } catch (FeignException.NotFound e) {
+            /*
+             * User Service에서 사용자를 찾을 수 없는 경우.
+             *
+             * 실제 User Service 정책 확정 후
+             * 미존재 사용자와 논리 삭제 사용자의 404 처리 계약을 확인한다.
+             */
+            throw new IllegalStateException(
+                    "사용자를 찾을 수 없습니다.",
+                    e
+            );
+
+        } catch (FeignException e) {
+            /*
+             * User Service 4xx/5xx, Timeout, Connection Failure 등
+             * 정상적인 사용자 상태를 확인할 수 없는 경우.
+             *
+             * 최신 사용자 상태를 확인할 수 없으므로
+             * Fail Closed 정책에 따라 청약을 진행하지 않는다.
+             *
+             * TODO: SubscriptionErrorCode / 내부 연동 오류 코드 적용
+             */
+            throw new IllegalStateException(
+                    "사용자 상태 조회 서비스를 사용할 수 없습니다.",
+                    e
+            );
+        }
+    }
+
 
     /**
      * 동일 사용자가 동일 공모에 이미 청약했는지 확인한다.
