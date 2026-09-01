@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.subscription.query.repository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
+import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -24,8 +25,6 @@ import static com.moneykk.moneytown.offering.subscription.domain.entity.QSubscri
 public class SubscriptionQueryRepositoryImpl
         implements SubscriptionQueryRepository {
 
-    private static final String DEFAULT_SORT_FIELD = "createdAt";
-
     private final JPAQueryFactory queryFactory;
 
     @Override
@@ -44,7 +43,7 @@ public class SubscriptionQueryRepositoryImpl
                         createdAtGoe(condition.startDate()),
                         createdAtLoe(condition.endDate())
                 )
-                .orderBy(getOrderSpecifier(pageable))
+                .orderBy(getOrderSpecifiers(pageable))
                 .offset(pageable.getOffset())
                 .limit(pageable.getPageSize())
                 .fetch();
@@ -112,32 +111,41 @@ public class SubscriptionQueryRepositoryImpl
      *
      * 기본 정렬은 createdAt DESC이다.
      */
-    private OrderSpecifier<?> getOrderSpecifier(Pageable pageable) {
+    private OrderSpecifier<?>[] getOrderSpecifiers(Pageable pageable) {
+
         if (pageable.getSort().isUnsorted()) {
-            return subscription.createdAt.desc();
+            return new OrderSpecifier[]{
+                    subscription.createdAt.desc()
+            };
         }
 
-        Sort.Order order = pageable.getSort()
+        return pageable.getSort()
                 .stream()
-                .findFirst()
-                .orElseGet(() ->
-                        Sort.Order.desc(DEFAULT_SORT_FIELD)
-                );
+                .map(order -> {
+                    Order direction = order.isAscending()
+                            ? Order.ASC
+                            : Order.DESC;
 
-        boolean ascending = order.isAscending();
+                    return switch (order.getProperty()) {
+                        case "createdAt" ->
+                                new OrderSpecifier<>(
+                                        direction,
+                                        subscription.createdAt
+                                );
 
-        return switch (order.getProperty()) {
-            case "updatedAt" ->
-                    ascending
-                            ? subscription.updatedAt.asc()
-                            : subscription.updatedAt.desc();
+                        case "updatedAt" ->
+                                new OrderSpecifier<>(
+                                        direction,
+                                        subscription.updatedAt
+                                );
 
-            case "createdAt" ->
-                    ascending
-                            ? subscription.createdAt.asc()
-                            : subscription.createdAt.desc();
-
-            default -> subscription.createdAt.desc();
-        };
+                        default ->
+                                throw new IllegalArgumentException(
+                                        "지원하지 않는 정렬 기준입니다: "
+                                                + order.getProperty()
+                                );
+                    };
+                })
+                .toArray(OrderSpecifier[]::new);
     }
 }
