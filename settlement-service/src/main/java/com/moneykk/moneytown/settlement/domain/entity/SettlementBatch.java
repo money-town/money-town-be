@@ -11,7 +11,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Getter
@@ -31,7 +31,7 @@ public class SettlementBatch extends BaseUpdatableEntity {
     private UUID revenueId;
 
     @Column(name = "record_date", nullable = false)
-    private Instant recordDate;
+    private LocalDate recordDate;
 
     @Column(name = "total_amount", nullable = false)
     private Long totalAmount;
@@ -46,7 +46,10 @@ public class SettlementBatch extends BaseUpdatableEntity {
     @Column(name = "remainder_amount", nullable = false)
     private Long remainderAmount;
 
-    private SettlementBatch(UUID assetId, UUID revenueId, Instant recordDate,
+    @Column(name = "carried_out_to_batch_id")
+    private UUID carriedOutToBatchId;
+
+    private SettlementBatch(UUID assetId, UUID revenueId, LocalDate recordDate,
                              Long distributableAmount, Long carriedInAmount) {
         this.id = UUID.randomUUID();
         this.assetId = assetId;
@@ -58,8 +61,38 @@ public class SettlementBatch extends BaseUpdatableEntity {
         this.status = SettlementStatus.PENDING;
     }
 
-    public static SettlementBatch open(UUID assetId, UUID revenueId, Instant recordDate,
+    public static SettlementBatch open(UUID assetId, UUID revenueId, LocalDate recordDate,
                                         Long distributableAmount, Long carriedInAmount) {
         return new SettlementBatch(assetId, revenueId, recordDate, distributableAmount, carriedInAmount);
+    }
+
+    public void markSnapshotTaken() {
+        this.status = SettlementStatus.SNAPSHOT_TAKEN;
+    }
+
+    public void markCalculated(Long remainderAmount) {
+        this.remainderAmount = remainderAmount;
+        this.status = SettlementStatus.CALCULATED;
+    }
+
+    public void markDisbursing() {
+        this.status = SettlementStatus.DISBURSING;
+    }
+
+    public void markCompleted() {
+        this.status = SettlementStatus.COMPLETED;
+    }
+
+    public void markPartialFailed() {
+        this.status = SettlementStatus.PARTIAL_FAILED;
+    }
+
+    public void markFailed() {
+        this.status = SettlementStatus.FAILED;
+    }
+
+    // 이 배치의 remainderAmount가 targetBatchId로 이월되었음을 기록해, 이후 이월 대상 조회에 다시 후보가 되지 않도록 차단
+    public void markCarriedOut(UUID targetBatchId) {
+        this.carriedOutToBatchId = targetBatchId;
     }
 }
