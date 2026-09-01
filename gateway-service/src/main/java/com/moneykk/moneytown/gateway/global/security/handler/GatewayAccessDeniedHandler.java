@@ -10,7 +10,7 @@ import reactor.core.publisher.Mono;
 
 
 
-
+@Component
 public class GatewayAccessDeniedHandler implements ServerAccessDeniedHandler{
 
     private final SecurityErrorResponseWriter responseWriter;

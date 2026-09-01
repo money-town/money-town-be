@@ -1,4 +1,4 @@
-package filter;
+package com.moneykk.moneytown.gateway.global.filter;
 
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.gateway.global.filter.CorrelationIdGlobalFilter;
