@@ -7,7 +7,9 @@ public enum WalletErrorCode implements ErrorCode {
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "W404", "존재하지 않는 지갑입니다."),
     INSUFFICIENT_AVAILABLE_BALANCE(HttpStatus.BAD_REQUEST, "W001", "가용잔액이 부족합니다."),
     INVALID_HOLD_STATUS_TRANSITION(HttpStatus.CONFLICT, "W002", "허용되지 않는 동결 상태 전이입니다."),
-    INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "W003", "금액은 0보다 커야 합니다.");
+    INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "W003", "금액은 0보다 커야 합니다."),
+    INSUFFICIENT_HOLD_BALANCE(HttpStatus.BAD_REQUEST, "W004", "동결 잔액이 부족합니다."),
+    INVALID_TRANSACTION_BALANCE_SNAPSHOT(HttpStatus.BAD_REQUEST, "W005", "거래 유형과 잔액 스냅샷이 일치하지 않습니다.");
 
     private final HttpStatus status;
     private final String code;

@@ -31,8 +31,25 @@ CREATE TABLE p_wallet_transactions (
     reference_id VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by UUID NOT NULL,
-    CONSTRAINT uk_wallet_transactions_idempotency_key UNIQUE (idempotency_key)
+    CONSTRAINT uk_wallet_transactions_idempotency_key UNIQUE (idempotency_key),
+    CONSTRAINT ck_wallet_transactions_balance_delta CHECK (
+        (type IN ('DEPOSIT', 'DIVIDEND', 'REFUND', 'SETTLEMENT') AND balance_after = balance_before + amount)
+        OR (type IN ('WITHDRAW', 'DEDUCT') AND balance_after = balance_before - amount)
+        OR (type IN ('HOLD', 'UNHOLD') AND balance_after = balance_before)
+    )
 );
+
+-- p_wallet_transactions는 append-only 원장이므로 UPDATE/DELETE 권한을 가진 DB 롤이라도
+-- 애플리케이션(JPA 매핑)을 우회해서 원장을 고치거나 지울 수 없도록 DB 레벨에서 강제한다.
+CREATE FUNCTION fn_prevent_wallet_transactions_mutation() RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'p_wallet_transactions is append-only: % is not allowed', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_wallet_transactions_immutable
+    BEFORE UPDATE OR DELETE ON p_wallet_transactions
+    FOR EACH ROW EXECUTE FUNCTION fn_prevent_wallet_transactions_mutation();
 
 CREATE TABLE p_wallet_holds (
     hold_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

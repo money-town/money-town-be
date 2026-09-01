@@ -67,12 +67,14 @@ public class Wallet extends BaseUpdatableEntity {
 
     public void releaseHold(long amount) {
         requirePositive(amount);
+        requireSufficientHoldBalance(amount);
         this.holdBalance -= amount;
         this.availableBalance += amount;
     }
 
     public void deductHold(long amount) {
         requirePositive(amount);
+        requireSufficientHoldBalance(amount);
         this.balance -= amount;
         this.holdBalance -= amount;
     }
@@ -80,6 +82,12 @@ public class Wallet extends BaseUpdatableEntity {
     private void requireSufficientAvailableBalance(long amount) {
         if (this.availableBalance < amount) {
             throw new BusinessException(WalletErrorCode.INSUFFICIENT_AVAILABLE_BALANCE);
+        }
+    }
+
+    private void requireSufficientHoldBalance(long amount) {
+        if (this.holdBalance < amount) {
+            throw new BusinessException(WalletErrorCode.INSUFFICIENT_HOLD_BALANCE);
         }
     }
 

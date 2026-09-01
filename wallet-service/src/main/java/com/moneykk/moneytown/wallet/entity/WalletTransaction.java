@@ -55,6 +55,7 @@ public class WalletTransaction extends BaseEntity {
         if (amount <= 0) {
             throw new BusinessException(WalletErrorCode.INVALID_AMOUNT);
         }
+        requireConsistentBalanceSnapshot(type, amount, balanceBefore, balanceAfter);
         this.walletId = walletId;
         this.type = type;
         this.amount = amount;
@@ -62,5 +63,19 @@ public class WalletTransaction extends BaseEntity {
         this.balanceAfter = balanceAfter;
         this.idempotencyKey = idempotencyKey;
         this.referenceId = referenceId;
+    }
+
+    // 총잔액(balance) 기준 방향: DEPOSIT/DIVIDEND/REFUND/SETTLEMENT는 증가, WITHDRAW/DEDUCT는 감소,
+    // HOLD/UNHOLD는 hold_balance만 움직이고 balance는 불변.
+    private static void requireConsistentBalanceSnapshot(WalletTransactionType type, long amount,
+                                                           long balanceBefore, long balanceAfter) {
+        long expectedAfter = switch (type) {
+            case DEPOSIT, DIVIDEND, REFUND, SETTLEMENT -> balanceBefore + amount;
+            case WITHDRAW, DEDUCT -> balanceBefore - amount;
+            case HOLD, UNHOLD -> balanceBefore;
+        };
+        if (balanceAfter != expectedAfter) {
+            throw new BusinessException(WalletErrorCode.INVALID_TRANSACTION_BALANCE_SNAPSHOT);
+        }
     }
 }
