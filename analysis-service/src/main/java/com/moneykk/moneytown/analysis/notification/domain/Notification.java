@@ -30,7 +30,7 @@ public class Notification extends BaseUpdatableEntity {
     @Column(name = "notification_id")
     private UUID id;
 
-    @Column(name = "idempotency_key", nullable = false)
+    @Column(name = "idempotency_key", nullable = false, unique = true)
     private UUID idempotencyKey;
 
     // null = 운영(ADMIN) Slack 채널 발송, non-null = 해당 유저 발송
@@ -49,7 +49,7 @@ public class Notification extends BaseUpdatableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
-    private Status status;
+    private NotificationStatus status;
 
     @Column(name = "sent_at")
     private Instant sentAt;
@@ -64,22 +64,22 @@ public class Notification extends BaseUpdatableEntity {
         this.notificationType = notificationType;
         this.title = title;
         this.message = message;
-        this.status = Status.PENDING;
+        this.status = NotificationStatus.PENDING;
     }
 
     public void sent(){
-        if(this.status != Status.PENDING){
+        if(this.status != NotificationStatus.PENDING){
             throw new BusinessException(AnalysisErrorCode.NOTIFICATION_ALREADY_FINISHED);
         }
-        this.status = Status.SENT;
+        this.status = NotificationStatus.SENT;
         this.sentAt = Instant.now();
     }
 
     public void fail(String errorMessage){
-        if(this.status != Status.PENDING){
+        if(this.status != NotificationStatus.PENDING){
             throw new BusinessException(AnalysisErrorCode.NOTIFICATION_ALREADY_FINISHED);
         }
-        this.status = Status.FAILED;
+        this.status = NotificationStatus.FAILED;
         this.errorMessage = errorMessage;
     }
 }
