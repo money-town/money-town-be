@@ -18,7 +18,7 @@ public abstract class BaseUpdatableEntity extends BaseEntity {
     private Instant updatedAt;
 
     @LastModifiedBy
-    @Column(name = "updated_by")
+    @Column(name = "updated_by", nullable = false)
     private UUID updatedBy;
 
     @Column(name = "is_deleted", nullable = false)
