@@ -54,12 +54,41 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
         this.investorId = investorId;
         this.quantity = quantity;
         this.amount = amount;
-        this.idempotencyKey = finalSettlementBatchId + ":" + investorId;
+        this.idempotencyKey = this.id.toString();
         this.status = PayoutStatus.QUEUED;
         this.retryCount = 0;
     }
 
     public static FinalSettlementPayout queue(UUID finalSettlementBatchId, UUID investorId, Long quantity, Long amount) {
         return new FinalSettlementPayout(finalSettlementBatchId, investorId, quantity, amount);
+    }
+
+    public void requeue() {
+        this.status = PayoutStatus.QUEUED;
+        this.retryCount = 0;
+    }
+
+    public void markProcessing() {
+        this.status = PayoutStatus.PROCESSING;
+    }
+
+    public void revertStalledProcessing() {
+        this.status = PayoutStatus.QUEUED;
+    }
+
+    public void markPaid() {
+        this.status = PayoutStatus.PAID;
+    }
+
+    public void incrementRetryCount() {
+        this.retryCount++;
+    }
+
+    public void markRetrying() {
+        this.status = PayoutStatus.RETRYING;
+    }
+
+    public void markDeadLetter() {
+        this.status = PayoutStatus.DEAD_LETTER;
     }
 }

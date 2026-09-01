@@ -11,8 +11,7 @@ public enum AnalysisErrorCode implements ErrorCode {
     FDS_ALREADY_NORMAL(HttpStatus.CONFLICT, "FDS_409_01", "이미 정상 상태인 사용자입니다."),
     FDS_ALREADY_BLOCKED(HttpStatus.CONFLICT, "FDS_409_02", "이미 차단된 사용자입니다."),
     FDS_FORBIDDEN(HttpStatus.FORBIDDEN, "FDS_403_01", "FDS 접근 권한이 없습니다."),
-
-
+    FDS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "FDS_503_01", "일시적으로 FDS 검사를 수행할 수 없습니다."),
 
     // ====== Notification ======
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "NOTI_404_01", "해당하는 알림 정보가 존재하지 않습니다."),
