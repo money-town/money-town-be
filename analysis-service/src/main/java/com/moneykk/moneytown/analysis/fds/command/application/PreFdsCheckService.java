@@ -31,24 +31,24 @@ public class PreFdsCheckService {
     public PreFdsCheckResult check(PreFdsCheckRequest request){
         UUID requestId = request.requestId();
 
-        // 1. 멱등 : 완료된 결과 있으면 그대로
-        Optional<PreFdsCheckResult> cached = idempotencyStore.find(requestId);
-        if(cached.isPresent()) return cached.get();
-
-        // 2. 선점 실패 = 동시 중복. 결과 있으면 반환, 아직 PENDING 이면 fail-closed
-        if(!idempotencyStore.tryBegin(requestId)){
-            return idempotencyStore.find(requestId)
-                    .orElseThrow(() -> new BusinessException(AnalysisErrorCode.FDS_UNAVAILABLE));
-        }
-
-        // 3. 처리
-        try{
-            PreFdsCheckResult result = evaluate(request.userId(), request.requestId(), request.assetId());
-            idempotencyStore.complete(requestId,result);
+        try {
+            Optional<PreFdsCheckResult> cached = idempotencyStore.find(requestId);
+            // 1. 멱등 처리
+            if (cached.isPresent()) return cached.get();
+            // 2. 선점
+            if (!idempotencyStore.tryBegin(requestId)) {
+                return idempotencyStore.find(requestId)
+                        .orElseThrow(() -> new BusinessException(AnalysisErrorCode.FDS_UNAVAILABLE));
+            }
+            // 3. 결과 생성 및 처리
+            PreFdsCheckResult result = evaluate(request.userId(), requestId, request.assetId());
+            idempotencyStore.complete(requestId, result);
             return result;
-        }catch (Exception e){
-            idempotencyStore.abort(requestId); // 재시도가 다시 돌 수 있게 마커 제거
-            if(e instanceof BusinessException be) throw be;
+        } catch (BusinessException e) {
+            idempotencyStore.abort(requestId);   // 이미 시작했으면 마커 정리
+            throw e;
+        } catch (Exception e) {
+            idempotencyStore.abort(requestId);
             throw new BusinessException(AnalysisErrorCode.FDS_UNAVAILABLE);
         }
     }
