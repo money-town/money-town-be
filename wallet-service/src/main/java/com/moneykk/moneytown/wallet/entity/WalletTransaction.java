@@ -69,6 +69,10 @@ public class WalletTransaction extends BaseEntity {
     // HOLD/UNHOLD는 hold_balance만 움직이고 balance는 불변.
     private static void requireConsistentBalanceSnapshot(WalletTransactionType type, long amount,
                                                            long balanceBefore, long balanceAfter) {
+        boolean isDecreasing = type == WalletTransactionType.WITHDRAW || type == WalletTransactionType.DEDUCT;
+        if (balanceBefore < 0 || (isDecreasing && amount > balanceBefore)) {
+            throw new BusinessException(WalletErrorCode.INVALID_TRANSACTION_BALANCE_SNAPSHOT);
+        }
         long expectedAfter = switch (type) {
             case DEPOSIT, DIVIDEND, REFUND, SETTLEMENT -> balanceBefore + amount;
             case WITHDRAW, DEDUCT -> balanceBefore - amount;

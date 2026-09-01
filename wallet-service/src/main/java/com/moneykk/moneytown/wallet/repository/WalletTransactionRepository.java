@@ -18,7 +18,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
             select t from WalletTransaction t
             where t.walletId = :walletId
               and (:type is null or t.type = :type)
-            order by t.createdAt desc
+            order by t.createdAt desc, t.id desc
             """)
     Page<WalletTransaction> findByWalletId(@Param("walletId") Long walletId,
                                             @Param("type") WalletTransactionType type,
