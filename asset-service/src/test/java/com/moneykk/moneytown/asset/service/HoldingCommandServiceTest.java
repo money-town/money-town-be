@@ -256,10 +256,35 @@ class HoldingCommandServiceTest {
         HoldingRevocationResponse response =
                 holdingCommandService.revoke(holdingId, request);
 
-        assertEquals(HoldingRevocationResult.ALREADY_PROCESSED, response.result());
+        assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
         assertEquals(5, holding.getQuantity());
         verifyNoInteractions(assetQueryRepository, holdingQueryRepository);
         verify(holdingRepository, never()).save(any(Holding.class));
+        verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    @DisplayName("배정 이력이 없으면 회수하지 않고 NO_ACTION을 반환한다")
+    void returnsNoActionWhenAllocationDoesNotExist() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        HoldingRevocationRequest request =
+                new HoldingRevocationRequest(subscriptionId, "청약 취소");
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.REVOKE
+        )).thenReturn(Optional.empty());
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.empty());
+
+        HoldingRevocationResponse response =
+                holdingCommandService.revoke(holdingId, request);
+
+        assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
+        assertEquals(0, response.quantity());
+        assertEquals(holdingId, response.holdingId());
+        verifyNoInteractions(assetQueryRepository, holdingQueryRepository, holdingRepository);
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
     }
 

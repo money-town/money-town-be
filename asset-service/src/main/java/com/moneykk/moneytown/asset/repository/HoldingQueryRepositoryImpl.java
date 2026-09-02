@@ -1,12 +1,19 @@
 package com.moneykk.moneytown.asset.repository;
 
-import com.moneykk.moneytown.asset.entity.Holding;
-import com.querydsl.core.types.dsl.PathBuilder;
-import com.querydsl.core.types.dsl.SimplePath;
+import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
+import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.entity.QHolding;
+import com.moneykk.moneytown.asset.entity.QHoldingHistory;
+import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.NumberExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,20 +22,72 @@ import java.util.UUID;
 public class HoldingQueryRepositoryImpl
         implements HoldingQueryRepository {
 
-    private static final PathBuilder<Holding> holding = new PathBuilder<>(Holding.class, "holding");
-    private static final SimplePath<UUID> holdingIdPath = holding.getSimple("id", UUID.class);
-    private static final SimplePath<UUID> assetIdPath = holding.getSimple("assetId", UUID.class);
+    private static final QHolding holding = QHolding.holding;
+    private static final QHoldingHistory history = QHoldingHistory.holdingHistory;
 
     private final JPAQueryFactory queryFactory;
 
     @Override
     public Optional<UUID> findAssetIdByHoldingId(UUID holdingId) {
+        // 보유지분에 연결된 자산 ID 조회
         UUID assetId = queryFactory
-                .select(assetIdPath)
+                .select(holding.assetId)
                 .from(holding)
-                .where(holdingIdPath.eq(holdingId))
+                .where(holding.id.eq(holdingId))
                 .fetchOne();
 
         return Optional.ofNullable(assetId);
+    }
+
+    @Override
+    public List<HoldingSnapshotItemResponse> findSnapshotByAssetId(
+            UUID assetId,
+            Instant cutoffExclusive,
+            UUID cursor,
+            int limit
+    ) {
+        // ALLOCATE는 더하고 REVOKE는 뺌
+        NumberExpression<Long> balanceExpression =
+                new CaseBuilder()
+                        .when(history.historyType.eq(HoldingHistoryType.ALLOCATE))
+                        .then(history.quantity)
+                        .when(history.historyType.eq(HoldingHistoryType.REVOKE))
+                        .then(history.quantity.negate())
+                        .otherwise(0L)
+                        .sum();
+
+        // cursor가 있으면 다음 holdingId부터 조회
+        BooleanExpression cursorCondition = cursor == null
+                ? null
+                : holding.id.gt(cursor);
+
+        return queryFactory
+                .select(Projections.constructor(
+                        HoldingSnapshotItemResponse.class,
+                        holding.id,
+                        holding.userId,
+                        balanceExpression
+                ))
+                .from(history)
+                .join(holding)
+                .on(history.holdingId.eq(holding.id))
+                .where(
+                        holding.assetId.eq(assetId),
+                        history.createdAt.lt(cutoffExclusive),
+                        history.historyType.in(
+                                HoldingHistoryType.ALLOCATE,
+                                HoldingHistoryType.REVOKE
+                        ),
+                        cursorCondition
+                )
+                .groupBy(
+                        holding.id,
+                        holding.userId
+                )
+                // 기준일 보유 수량이 0이면 제외
+                .having(balanceExpression.gt(0L))
+                .orderBy(holding.id.asc())
+                .limit(limit)
+                .fetch();
     }
 }

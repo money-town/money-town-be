@@ -1,9 +1,7 @@
 package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.entity.Asset;
-import com.querydsl.core.types.dsl.BooleanPath;
-import com.querydsl.core.types.dsl.PathBuilder;
-import com.querydsl.core.types.dsl.SimplePath;
+import com.moneykk.moneytown.asset.entity.QAsset;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import jakarta.persistence.LockModeType;
@@ -17,17 +15,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AssetQueryRepositoryImpl implements AssetQueryRepository {
 
-    // Asset 엔티티 경로
-    private static final PathBuilder<Asset> asset =
-            new PathBuilder<>(Asset.class, "asset");
-
-    // 자산 ID 경로
-    private static final SimplePath<UUID> assetIdPath =
-            asset.getSimple("id", UUID.class);
-
-    // 삭제 여부 경로
-    private static final BooleanPath isDeletedPath =
-            asset.getBoolean("isDeleted");
+    private static final QAsset asset = QAsset.asset;
 
     private final JPAQueryFactory queryFactory;
 
@@ -55,8 +43,8 @@ public class AssetQueryRepositoryImpl implements AssetQueryRepository {
         return queryFactory
                 .selectFrom(asset)
                 .where(
-                        assetIdPath.eq(assetId),
-                        isDeletedPath.isFalse()
+                        asset.id.eq(assetId),
+                        asset.isDeleted.isFalse()
                 );
     }
 }

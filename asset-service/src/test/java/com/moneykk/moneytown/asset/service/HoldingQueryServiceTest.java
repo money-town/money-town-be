@@ -1,10 +1,15 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
+import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
+import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
+import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,6 +39,12 @@ class HoldingQueryServiceTest {
 
     @Mock
     private HoldingRepository holdingRepository;
+
+    @Mock
+    private HoldingQueryRepository holdingQueryRepository;
+
+    @Mock
+    private AssetQueryRepository assetQueryRepository;
 
     @InjectMocks
     private HoldingQueryService holdingQueryService;
@@ -94,5 +106,40 @@ class HoldingQueryServiceTest {
         assertTrue(response.allocationProcessed());
         assertTrue(response.revocationProcessed());
         assertEquals(revokedAt, response.lastProcessedAt());
+    }
+
+    @Test
+    @DisplayName("기준일 보유지분을 커서 방식으로 조회한다")
+    void returnsHoldingSnapshotWithNextCursor() {
+        UUID assetId = UUID.randomUUID();
+        UUID firstHoldingId = UUID.randomUUID();
+        UUID secondHoldingId = UUID.randomUUID();
+        UUID thirdHoldingId = UUID.randomUUID();
+        LocalDate asOf = LocalDate.of(2026, 9, 2);
+        Instant cutoffExclusive = Instant.parse("2026-09-02T15:00:00Z");
+
+        HoldingSnapshotItemResponse first = new HoldingSnapshotItemResponse(
+                firstHoldingId, UUID.randomUUID(), 10
+        );
+        HoldingSnapshotItemResponse second = new HoldingSnapshotItemResponse(
+                secondHoldingId, UUID.randomUUID(), 20
+        );
+        HoldingSnapshotItemResponse extra = new HoldingSnapshotItemResponse(
+                thirdHoldingId, UUID.randomUUID(), 30
+        );
+
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(org.mockito.Mockito.mock(Asset.class)));
+        when(holdingQueryRepository.findSnapshotByAssetId(
+                assetId, cutoffExclusive, null, 3
+        )).thenReturn(List.of(first, second, extra));
+
+        HoldingSnapshotResponse response =
+                holdingQueryService.getSnapshot(assetId, asOf, null, 2);
+
+        assertEquals(List.of(first, second), response.holdings());
+        assertEquals(secondHoldingId, response.nextCursor());
+        assertTrue(response.hasNext());
+        assertEquals(asOf, response.asOf());
     }
 }

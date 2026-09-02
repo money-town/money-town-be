@@ -148,13 +148,20 @@ public class HoldingCommandService {
         }
 
         // 해당 청약의 기존 배정 이력 조회
-        HoldingHistory allocationHistory =
+        Optional<HoldingHistory> allocationHistoryOptional =
                 holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                         request.subscriptionId(),
                         HoldingHistoryType.ALLOCATE
-                ).orElseThrow(() -> new BusinessException(
-                        AssetErrorCode.HOLDING_DATA_CONFLICT
-                ));
+                );
+
+        // 배정한 이력이 없으면 회수할 지분도 없음
+        if (allocationHistoryOptional.isEmpty()) {
+            return noAction(holdingId, request);
+        }
+
+        // 기존 배정 이력 꺼내기
+        HoldingHistory allocationHistory =
+                allocationHistoryOptional.get();
 
         // 요청한 보유지분과 실제 배정 이력이 같은지 확인
         if (!allocationHistory.getHoldingId().equals(holdingId)) {
@@ -245,7 +252,22 @@ public class HoldingCommandService {
                 holding.getAssetId(),
                 holding.getUserId(),
                 history.getQuantity(),
-                HoldingRevocationResult.ALREADY_PROCESSED
+                HoldingRevocationResult.NO_ACTION
+        );
+    }
+
+    private HoldingRevocationResponse noAction(
+        UUID holdingId,
+        HoldingRevocationRequest request
+    ) {
+        // 실제로 회수한 지분이 없으므로 수량은 0
+        return new HoldingRevocationResponse(
+                request.subscriptionId(),
+                holdingId,
+                null,
+                null,
+                0,
+                HoldingRevocationResult.NO_ACTION
         );
     }
 }
