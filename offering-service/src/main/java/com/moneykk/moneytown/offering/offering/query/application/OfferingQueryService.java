@@ -33,6 +33,8 @@ public class OfferingQueryService {
             OfferingSearchCondition condition,
             Pageable pageable
     ) {
+        // 공개 목록 조회에서 비공개 상태가 검색 조건으로 전달되는 것을 차단한다.
+        validatePublicSearchCondition(condition);
         Page<Offering> offerings =
                 offeringQueryRepository.searchPublicOfferings(
                         condition,
@@ -87,6 +89,16 @@ public class OfferingQueryService {
 
     /**
      * 공모 상품을 상세 조회한다.
+     *
+     * 공개 상태의 공모는 누구나 조회할 수 있다.
+     * 비공개 상태의 공모는 소유 ISSUER 또는 ADMIN만 조회할 수 있다.
+     *
+     * TODO 3차 구현:
+     * CANCELLED 공모의 투자자 상세 조회 정책 확정 후 접근 권한 확장
+     * - 해당 공모 청약 이력이 있는 투자자
+     * - 취소 당시 유효 청약이 있었던 투자자
+     * - 실제 보상 대상 투자자
+     * 중 어떤 범위까지 허용할지 결정 필요
      */
     public OfferingDetailResponse getOffering(
             UUID offeringId,
@@ -120,6 +132,26 @@ public class OfferingQueryService {
         return OfferingDetailResponse.from(offering, true);
     }
 
+    /**
+     * 공개 목록 조회에 사용할 수 있는 공모 상태인지 검증한다.
+     *
+     * SCHEDULED, OPEN, SOLD_OUT, CLOSED 상태만
+     * 공개 목록의 검색 조건으로 허용한다.
+     */
+    private void validatePublicSearchCondition(
+            OfferingSearchCondition condition
+    ) {
+        if (condition.offeringStatus() != null
+                && !isPublicStatus(condition.offeringStatus())) {
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_SEARCH_CONDITION
+            );
+        }
+    }
+
+    /**
+     * 일반 사용자에게 공개 가능한 공모 상태인지 확인한다.
+     */
     private boolean isPublicStatus(OfferingStatus status) {
         return switch (status) {
             case SCHEDULED, OPEN, SOLD_OUT, CLOSED -> true;
@@ -128,13 +160,20 @@ public class OfferingQueryService {
         };
     }
 
+    /**
+     * 현재 사용자가 해당 공모의 소유자인지 확인한다.
+     */
     private boolean isOwner(Offering offering, UUID userId) {
         return userId != null
                 && offering.getIssuerId().equals(userId);
     }
 
+    /**
+     * 현재 사용자가 관리자인지 확인한다.
+     */
     private boolean isAdmin(String role) {
         return role != null
                 && "ADMIN".equalsIgnoreCase(role);
+
     }
 }
