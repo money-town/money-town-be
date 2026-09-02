@@ -55,7 +55,10 @@ class SettlementQueryServiceTest {
             when(dividendPayoutRepository.countByStatusGrouped(batch.getId()))
                     .thenReturn(List.of(
                             statusCount(PayoutStatus.PAID, 3),
-                            statusCount(PayoutStatus.DEAD_LETTER, 1)
+                            statusCount(PayoutStatus.DEAD_LETTER, 1),
+                            statusCount(PayoutStatus.QUEUED, 2),
+                            statusCount(PayoutStatus.PROCESSING, 1),
+                            statusCount(PayoutStatus.RETRYING, 1)
                     ));
 
             SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(batch.getId());
@@ -65,12 +68,10 @@ class SettlementQueryServiceTest {
             assertThat(response.revenueId()).isEqualTo(REVENUE_ID);
             assertThat(response.status()).isEqualTo(batch.getStatus());
             SettlementBatchDetailResponse.PayoutSummary summary = response.payoutSummary();
-            assertThat(summary.totalCount()).isEqualTo(4);
+            assertThat(summary.totalCount()).isEqualTo(8);
             assertThat(summary.paidCount()).isEqualTo(3);
-            assertThat(summary.deadLetterCount()).isEqualTo(1);
-            assertThat(summary.queuedCount()).isZero();
-            assertThat(summary.processingCount()).isZero();
-            assertThat(summary.retryingCount()).isZero();
+            assertThat(summary.failedCount()).isEqualTo(1);
+            assertThat(summary.pendingCount()).isEqualTo(4);
         }
 
         @Test
