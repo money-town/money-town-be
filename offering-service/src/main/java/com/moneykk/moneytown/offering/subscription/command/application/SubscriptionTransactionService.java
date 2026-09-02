@@ -83,8 +83,8 @@ public class SubscriptionTransactionService {
         );
 
         if (completed != 1) {
-            throw new IllegalStateException(
-                    "멱등 요청 완료 처리에 실패했습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.IDEMPOTENCY_COMPLETION_FAILED
             );
         }
 

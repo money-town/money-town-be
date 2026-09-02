@@ -174,17 +174,19 @@ public class SubscriptionCommandService {
                     offering.getPricePerUnit()
             );
 
+        } catch (BusinessException e) {
+
+            subscriptionIdempotencyService.fail(
+                    userId,
+                    operation.name(),
+                    idempotencyKey,
+                    e.getErrorCode().getStatus().value()
+            );
+
+            throw e;
+
         } catch (RuntimeException e) {
 
-            /*
-             * tryBegin()은 REQUIRES_NEW Transaction으로 이미 COMMIT되었으므로
-             * 이후 사용자 검증 / FDS / 청약 처리에서 실패하면
-             * 해당 멱등 요청을 FAILED 상태로 기록한다.
-             *
-             * TODO:
-             * 예외코드 전체 적용 시 BusinessException의 HttpStatus를 사용하여
-             * 실제 responseCode를 저장하도록 보완.
-             */
             subscriptionIdempotencyService.fail(
                     userId,
                     operation.name(),
@@ -221,8 +223,8 @@ public class SubscriptionCommandService {
                                 idempotencyKey
                         )
                         .orElseThrow(() ->
-                                new IllegalStateException(
-                                        "멱등 요청 정보를 찾을 수 없습니다."
+                                new BusinessException(
+                                        SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID
                                 )
                         );
 
@@ -235,9 +237,8 @@ public class SubscriptionCommandService {
          * 재요청 quantity = 20
          */
         if (!existing.getRequestHash().equals(requestHash)) {
-            // TODO: SubscriptionErrorCode S006 적용
-            throw new IllegalStateException(
-                    "동일 멱등 키에 다른 요청 데이터가 전달되었습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.IDEMPOTENCY_KEY_CONFLICT
             );
         }
 
@@ -253,8 +254,8 @@ public class SubscriptionCommandService {
              * 아직 최초 요청 처리가 끝나지 않았으므로
              * 수량 차감, Pre-FDS 등을 다시 실행하지 않는다.
              */
-            throw new IllegalStateException(
-                    "동일한 청약 요청이 현재 처리 중입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.IDEMPOTENCY_REQUEST_PROCESSING
             );
         }
 
@@ -266,13 +267,13 @@ public class SubscriptionCommandService {
              *
              * 현재는 자동 재처리하지 않는다.
              */
-            throw new IllegalStateException(
-                    "이전에 실패한 멱등 요청입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.IDEMPOTENCY_REQUEST_FAILED
             );
         }
 
-        throw new IllegalStateException(
-                "알 수 없는 멱등 요청 상태입니다."
+        throw new BusinessException(
+                SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID
         );
     }
 
@@ -285,16 +286,16 @@ public class SubscriptionCommandService {
         UUID resourceId = idempotencyRequest.getResourceId();
 
         if (resourceId == null) {
-            throw new IllegalStateException(
-                    "완료된 멱등 요청의 청약 ID가 존재하지 않습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID
             );
         }
 
         Subscription subscription = subscriptionRepository
                 .findBySubscriptionIdAndIsDeletedFalse(resourceId)
                 .orElseThrow(() ->
-                        new IllegalStateException(
-                                "기존 청약 결과를 찾을 수 없습니다."
+                        new BusinessException(
+                                SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID
                         )
                 );
 
@@ -308,14 +309,14 @@ public class SubscriptionCommandService {
             String idempotencyKey
     ) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Idempotency-Key는 필수입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_IDEMPOTENCY_KEY
             );
         }
 
         if (idempotencyKey.length() > 100) {
-            throw new IllegalArgumentException(
-                    "Idempotency-Key는 100자를 초과할 수 없습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_IDEMPOTENCY_KEY
             );
         }
     }
@@ -379,9 +380,8 @@ public class SubscriptionCommandService {
             PreFdsCheckResponse result = response.data();
 
             if (result == null) {
-                // TODO: SubscriptionErrorCode 적용 후 S018
-                throw new IllegalStateException(
-                        "현재 청약 검증 서비스를 사용할 수 없습니다."
+                throw new BusinessException(
+                        SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
                 );
             }
 
@@ -390,9 +390,8 @@ public class SubscriptionCommandService {
              * 정상적으로 수행된 업무 판단 결과이다.
              */
             if (result.isBlock()) {
-                // TODO: SubscriptionErrorCode 적용 후 S017
-                throw new IllegalStateException(
-                        "이상 거래 탐지 정책에 의해 청약이 제한되었습니다."
+                throw new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_BLOCKED_BY_FDS
                 );
             }
 
@@ -401,28 +400,19 @@ public class SubscriptionCommandService {
              * 정상적인 FDS 판단으로 간주하지 않고 Fail Closed 처리한다.
              */
             if (!result.isPass()) {
-                // TODO: SubscriptionErrorCode 적용 후 S018
-                throw new IllegalStateException(
-                        "현재 청약 검증 서비스를 사용할 수 없습니다."
+                throw new BusinessException(
+                        SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
                 );
             }
 
         } catch (FeignException e) {
             /*
-             * FDS 4xx/5xx, Timeout, Connection Failure 등
-             * FDS 판단을 정상적으로 받을 수 없는 경우.
-             *
-             * TODO:
-             * - FDS 계약 오류(400)
-             * - FDS 내부 오류(500)
-             * - FDS 일시 장애(503)
-             * 를 예외 코드 적용 시 세부적으로 정리한다.
-             *
-             * 현재는 모두 Fail Closed 처리한다.
+             * FDS 호출 과정에서 4xx/5xx 또는 통신 오류가 발생하면
+             * 정상적인 FDS 판단 결과를 확인할 수 없으므로
+             * Fail Closed 정책에 따라 청약을 중단한다.
              */
-            throw new IllegalStateException(
-                    "현재 청약 검증 서비스를 사용할 수 없습니다.",
-                    e
+            throw new BusinessException(
+                    SubscriptionErrorCode.FDS_SERVICE_UNAVAILABLE
             );
         }
     }
@@ -446,17 +436,14 @@ public class SubscriptionCommandService {
             UserInvestmentEligibilityResponse user = response.data();
 
             if (user == null) {
-                // TODO: SubscriptionErrorCode 적용
-                // User Service 정상 응답이지만 필요한 사용자 상태가 없는 경우
-                throw new IllegalStateException(
-                        "사용자 상태를 확인할 수 없습니다."
+                throw new BusinessException(
+                        SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
                 );
             }
 
             if (!user.isEligibleForSubscription()) {
-                // TODO: SubscriptionErrorCode 적용 후 S002
-                throw new IllegalStateException(
-                        "청약 자격을 충족하지 않습니다."
+                throw new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_ELIGIBILITY_NOT_MET
                 );
             }
 
@@ -467,9 +454,8 @@ public class SubscriptionCommandService {
              * 실제 User Service 정책 확정 후
              * 미존재 사용자와 논리 삭제 사용자의 404 처리 계약을 확인한다.
              */
-            throw new IllegalStateException(
-                    "사용자를 찾을 수 없습니다.",
-                    e
+            throw new BusinessException(
+                    SubscriptionErrorCode.USER_NOT_FOUND
             );
 
         } catch (FeignException e) {
@@ -479,12 +465,9 @@ public class SubscriptionCommandService {
              *
              * 최신 사용자 상태를 확인할 수 없으므로
              * Fail Closed 정책에 따라 청약을 진행하지 않는다.
-             *
-             * TODO: SubscriptionErrorCode / 내부 연동 오류 코드 적용
              */
-            throw new IllegalStateException(
-                    "사용자 상태 조회 서비스를 사용할 수 없습니다.",
-                    e
+            throw new BusinessException(
+                    SubscriptionErrorCode.USER_SERVICE_UNAVAILABLE
             );
         }
     }
@@ -501,9 +484,8 @@ public class SubscriptionCommandService {
                 || quantity < offering.getMinSubscriptionQuantity()
                 || quantity > offering.getMaxSubscriptionQuantity()) {
 
-            // TODO: SubscriptionErrorCode 적용 후 S001로 변경
-            throw new IllegalArgumentException(
-                    "청약 수량이 유효하지 않습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_QUANTITY
             );
         }
     }

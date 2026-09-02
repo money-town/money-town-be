@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.offering.subscription.query.repository;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.exception.CommonErrorCode;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
@@ -11,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -140,9 +141,8 @@ public class SubscriptionQueryRepositoryImpl
                                 );
 
                         default ->
-                                throw new IllegalArgumentException(
-                                        "지원하지 않는 정렬 기준입니다: "
-                                                + order.getProperty()
+                                throw new BusinessException(
+                                        CommonErrorCode.INVALID_SORT_PROPERTY
                                 );
                     };
                 })

@@ -1,7 +1,8 @@
 package com.moneykk.moneytown.offering.subscription.domain.entity;
 
 import com.moneykk.moneytown.common.entity.BaseUpdatableEntity;
-import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -195,20 +196,20 @@ public class Subscription extends BaseUpdatableEntity {
             Long pricePerUnit
     ) {
         if (offeringId == null) {
-            throw new IllegalArgumentException(
-                    "공모 ID는 필수입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
         // TODO 2차 구현범위에서 아래 내용 재검토 예정
         if (userId == null) {
-            throw new IllegalArgumentException(
-                    "사용자 ID는 필수입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
         // 클라이언트 입력 검증
         if (quantity == null || quantity <= 0) {
-            throw new IllegalArgumentException(
-                    "청약 수량은 1 이상이어야 합니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_QUANTITY
             );
         }
         /*
@@ -221,8 +222,8 @@ public class Subscription extends BaseUpdatableEntity {
          *   → Subscription.pricePerUnit
          */
         if (pricePerUnit == null || pricePerUnit <= 0) {
-            throw new IllegalArgumentException(
-                    "청약 단위 가격은 0보다 커야 합니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
     }

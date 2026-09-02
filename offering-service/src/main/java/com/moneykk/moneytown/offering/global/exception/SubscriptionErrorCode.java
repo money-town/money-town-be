@@ -115,6 +115,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             HttpStatus.INTERNAL_SERVER_ERROR,
             "SUBSCRIPTION_500_03",
             "외부 서비스 응답이 올바르지 않습니다."
+    ),
+    REQUEST_HASH_GENERATION_FAILED(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "SUBSCRIPTION_500_04",
+            "청약 요청 해시 생성에 실패했습니다."
     );
     private final HttpStatus status;
     private final String code;
