@@ -10,6 +10,11 @@ jar {
 dependencies {
     compileOnly 'org.springframework:spring-web'
     compileOnly 'org.springframework:spring-webmvc'
+
+    // 테스트
+    testImplementation 'org.springframework:spring-web'
+    testImplementation 'org.springframework.data:spring-data-jpa'
+
     compileOnly 'jakarta.servlet:jakarta.servlet-api'
     compileOnly 'com.fasterxml.jackson.core:jackson-annotations'
     compileOnly 'jakarta.persistence:jakarta.persistence-api'

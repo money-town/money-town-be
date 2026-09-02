@@ -174,6 +174,12 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    environment:
+      <<: *common-environment
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-money-town-user-service}
+
+
 
   nginx:
     image: nginx:1.31.3
@@ -186,6 +192,8 @@ services:
       gateway-service:
         condition: service_healthy
     networks: [moneytown]
+
+
 
   user-service:
     <<: *app-common
