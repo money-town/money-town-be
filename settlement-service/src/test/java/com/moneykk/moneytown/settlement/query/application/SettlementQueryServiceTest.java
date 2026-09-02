@@ -1,11 +1,14 @@
 package com.moneykk.moneytown.settlement.query.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
+import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,7 +17,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -95,6 +102,47 @@ class SettlementQueryServiceTest {
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> settlementQueryService.getSettlementBatch(SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
+        }
+    }
+
+    @Nested
+    @DisplayName("회차별 개별 지급 내역 조회")
+    class GetPayouts {
+
+        @Test
+        @DisplayName("존재하는 회차의 지급 내역을 페이지로 반환한다")
+        void returnsPayoutPage() {
+            UUID batchId = UUID.randomUUID();
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
+            Pageable pageable = PageRequest.of(0, 20);
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batchId, pageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), pageable, 1));
+
+            PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(batchId, pageable);
+
+            assertThat(response.content()).hasSize(1);
+            DividendPayoutListItemResponse item = response.content().get(0);
+            assertThat(item.dividendPayoutId()).isEqualTo(payout.getId());
+            assertThat(item.investorId()).isEqualTo(payout.getInvestorId());
+            assertThat(item.shareRatio()).isEqualTo(payout.getShareRatio());
+            assertThat(item.amount()).isEqualTo(payout.getAmount());
+            assertThat(item.status()).isEqualTo(payout.getStatus());
+            assertThat(item.retryCount()).isEqualTo(payout.getRetryCount());
+            assertThat(response.totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
+        void throwsWhenBatchNotFound() {
+            UUID batchId = UUID.randomUUID();
+            Pageable pageable = PageRequest.of(0, 20);
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
+
+            assertThatThrownBy(() -> settlementQueryService.getPayouts(batchId, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
