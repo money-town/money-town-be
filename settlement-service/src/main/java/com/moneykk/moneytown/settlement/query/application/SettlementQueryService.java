@@ -9,6 +9,7 @@ import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutReposito
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -43,6 +44,13 @@ public class SettlementQueryService {
 
         Page<DividendPayout> payouts = dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId, pageable);
         return PageResponse.from(payouts, DividendPayoutListItemResponse::of);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<MyDividendPayoutListItemResponse> getMyDividends(UUID investorId, UUID assetId, Pageable pageable) {
+        Page<DividendPayoutRepository.MyDividendPayoutRow> payouts =
+                dividendPayoutRepository.findMyDividendPayouts(investorId, assetId, pageable);
+        return PageResponse.from(payouts, MyDividendPayoutListItemResponse::of);
     }
 
     private SettlementBatchDetailResponse.PayoutSummary buildPayoutSummary(UUID settlementBatchId) {

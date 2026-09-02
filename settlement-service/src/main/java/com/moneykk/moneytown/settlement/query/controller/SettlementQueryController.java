@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.settlement.query.application.SettlementQueryService;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -11,7 +12,9 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -38,5 +41,15 @@ public class SettlementQueryController {
             @PageableDefault(size = 10) Pageable pageable) {
         PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(settlementBatchId, pageable);
         return ResponseEntity.ok(ApiResponse.success(response, "회차별 개별 지급 내역을 조회했습니다."));
+    }
+
+    // TODO: Gateway 인증/인가 정책 확정 후 INVESTOR 권한 및 사용자 정보 전달 방식 재검토
+    @GetMapping("/investors/me/dividends")
+    public ResponseEntity<ApiResponse<PageResponse<MyDividendPayoutListItemResponse>>> getMyDividends(
+            @RequestHeader("X-User-Id") UUID investorId,
+            @RequestParam(required = false) UUID assetId,
+            @PageableDefault(size = 20) Pageable pageable) {
+        PageResponse<MyDividendPayoutListItemResponse> response = settlementQueryService.getMyDividends(investorId, assetId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(response, "배당 내역을 조회했습니다."));
     }
 }
