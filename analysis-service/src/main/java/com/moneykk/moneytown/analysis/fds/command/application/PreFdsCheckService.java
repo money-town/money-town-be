@@ -1,7 +1,7 @@
 package com.moneykk.moneytown.analysis.fds.command.application;
 
-import com.moneykk.moneytown.analysis.fds.command.dto.PreFdsCheckRequest;
-import com.moneykk.moneytown.analysis.fds.command.dto.PreFdsCheckResult;
+import com.moneykk.moneytown.analysis.fds.command.dto.request.PreFdsCheckRequest;
+import com.moneykk.moneytown.analysis.fds.command.dto.response.PreFdsCheckResult;
 import com.moneykk.moneytown.analysis.fds.command.redis.FdsCheckIdempotencyStore;
 import com.moneykk.moneytown.analysis.fds.command.redis.FdsCounts;
 import com.moneykk.moneytown.analysis.fds.command.redis.FdsRedisCounter;
@@ -11,13 +11,18 @@ import com.moneykk.moneytown.analysis.fds.domain.UserStatus;
 import com.moneykk.moneytown.analysis.fds.domain.repository.FdsUserStateRepository;
 import com.moneykk.moneytown.analysis.global.config.FdsRuleProperties;
 import com.moneykk.moneytown.analysis.global.exception.AnalysisErrorCode;
+import com.moneykk.moneytown.analysis.notification.command.application.NotificationCommandService;
+import com.moneykk.moneytown.analysis.notification.command.dto.request.NotificationRequest;
+import com.moneykk.moneytown.analysis.notification.domain.NotificationType;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PreFdsCheckService {
@@ -27,6 +32,7 @@ public class PreFdsCheckService {
     private final FdsUserStateRepository fdsUserStateRepository;
     private final FdsRuleProperties ruleProperties;
     private final FdsBlockApplier fdsBlockApplier;
+    private final NotificationCommandService notificationCommandService;
 
     public PreFdsCheckResult check(PreFdsCheckRequest request){
         UUID requestId = request.requestId();
@@ -70,7 +76,36 @@ public class PreFdsCheckService {
         }
 
         fdsBlockApplier.applyBlock(userId, requestId, assetId, violation.rule, violation.observed, violation.threshold);
+        // 차단 트랜잭션은 위에서 이미 커밋됨. 알림 실패는 삼켜서 FDS 검사 응답에 영향 X
+        notifyBlocked(userId, requestId, assetId, violation);
         return PreFdsCheckResult.block(violation.rule);
+    }
+
+    private void notifyBlocked(UUID userId, UUID requestId, UUID assetId, RuleViolation violation) {
+        try {
+            notificationCommandService.send(
+                    requestId,                       // 멱등키 = FDS requestId
+                    new NotificationRequest(
+                            NotificationType.FDS_BLOCKED,
+                            userId,                  // 컨텍스트용 (라우팅 아님)
+                            "FDS 사용자 차단 발생",
+                            buildBlockMessage(userId, assetId, requestId, violation)
+                    )
+            );
+        } catch (Exception e) {
+            log.error("FDS 차단 알림 발송 실패 userId={}, requestId={}", userId, requestId, e);
+        }
+    }
+
+    private String buildBlockMessage(UUID userId, UUID assetId, UUID requestId, RuleViolation v) {
+        return """
+                사용자가 이상 청약 행위로 차단되었습니다.
+                + userId: %s
+                + rule: %s
+                + 측정값 / 임계값 : %d / %d
+                + assetId: %s
+                + requestId: %s""".formatted(
+                userId, v.rule(), v.observed(), v.threshold(), assetId, requestId);
     }
 
     private RuleViolation firstViolation(UserStatus status, FdsCounts counts) {
