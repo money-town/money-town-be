@@ -114,4 +114,21 @@ public class Asset extends BaseUpdatableEntity {
 
         allocatedQuantity += quantity;
     }
+
+    /** 지분 회수 */
+    public void revokeShares(long quantity) {
+        if (quantity <= 0) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_HOLDING_QUANTITY
+            );
+        }
+
+        if (allocatedQuantity < quantity) {
+            throw new BusinessException(
+                    AssetErrorCode.INSUFFICIENT_ALLOCATED_QUANTITY
+            );
+        }
+
+        allocatedQuantity -= quantity;
+    }
 }
