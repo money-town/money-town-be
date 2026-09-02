@@ -6,6 +6,7 @@ import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -36,8 +37,8 @@ class HoldingQueryServiceTest {
     @InjectMocks
     private HoldingQueryService holdingQueryService;
 
-    // 처리 이력이 없는 경우
     @Test
+    @DisplayName("처리 이력이 없으면 미처리 상태를 반환한다")
     void returnsNotProcessedWhenHistoryDoesNotExist() {
         UUID subscriptionId = UUID.randomUUID();
         when(holdingHistoryRepository.findAllBySubscriptionIdOrderByCreatedAtAsc(subscriptionId))
@@ -54,8 +55,8 @@ class HoldingQueryServiceTest {
         assertNull(response.holdingId());
     }
 
-    // 배정·회수 이력이 있는 경우
     @Test
+    @DisplayName("배정·회수 이력이 있으면 처리 결과를 반환한다")
     void returnsAllocationAndRevocationResultFromHistories() {
         UUID subscriptionId = UUID.randomUUID();
         UUID holdingId = UUID.randomUUID();

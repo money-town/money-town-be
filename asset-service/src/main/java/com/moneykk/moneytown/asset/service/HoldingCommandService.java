@@ -41,10 +41,19 @@ public class HoldingCommandService {
         }
 
         // 자산 조회
-        Asset asset = assetRepository.findById(request.assetId())
+        Asset asset = assetRepository.findByIdAndIsDeletedFalse(request.assetId())
                 .orElseThrow(() -> new BusinessException(
                         AssetErrorCode.ASSET_NOT_FOUND
                 ));
+
+        // 자산 락을 기다리는 동안 같은 청약이 처리됐는지 다시 확인
+        existingHistory = holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                request.subscriptionId(),
+                HoldingHistoryType.ALLOCATE
+        );
+        if (existingHistory.isPresent()) {
+            return alreadyProcessed(request, existingHistory.get());
+        }
 
         // 자산 배정 수량 증가
         asset.allocateShares(request.quantity());

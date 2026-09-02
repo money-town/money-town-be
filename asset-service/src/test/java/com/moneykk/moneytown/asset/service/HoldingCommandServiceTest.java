@@ -9,9 +9,11 @@ import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -26,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -63,7 +66,7 @@ class HoldingCommandServiceTest {
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
         )).thenReturn(Optional.empty());
-        when(assetRepository.findById(assetId)).thenReturn(Optional.of(asset));
+        when(assetRepository.findByIdAndIsDeletedFalse(assetId)).thenReturn(Optional.of(asset));
         when(holdingRepository.findByAssetIdAndUserId(assetId, userId))
                 .thenReturn(Optional.of(holding));
         when(holdingRepository.save(holding)).thenReturn(holding);
@@ -113,6 +116,58 @@ class HoldingCommandServiceTest {
         verifyNoInteractions(assetRepository);
         verify(holdingRepository, never()).save(any(Holding.class));
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    void duplicateCompletedWhileWaitingForAssetLockIsNotAllocatedAgain() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        HoldingAllocationRequest request =
+                new HoldingAllocationRequest(subscriptionId, assetId, userId, 10);
+
+        Asset asset = approvedAsset(assetId);
+        Holding holding = new Holding(assetId, userId, 10);
+        ReflectionTestUtils.setField(holding, "id", holdingId);
+        HoldingHistory history = new HoldingHistory(
+                holdingId, subscriptionId, HoldingHistoryType.ALLOCATE,
+                10, 0, 10, "ALLOCATE:" + subscriptionId, null
+        );
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.empty(), Optional.of(history));
+        when(assetRepository.findByIdAndIsDeletedFalse(assetId)).thenReturn(Optional.of(asset));
+        when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
+
+        HoldingAllocationResponse response = holdingCommandService.allocate(request);
+
+        assertEquals(HoldingAllocationResult.ALREADY_PROCESSED, response.result());
+        assertEquals(0, asset.getAllocatedQuantity());
+        verify(holdingRepository, never()).save(any(Holding.class));
+        verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    void deletedAssetCannotReceiveAllocation() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        HoldingAllocationRequest request =
+                new HoldingAllocationRequest(subscriptionId, assetId, UUID.randomUUID(), 10);
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.empty());
+        when(assetRepository.findByIdAndIsDeletedFalse(assetId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingCommandService.allocate(request)
+        );
+
+        assertEquals(AssetErrorCode.ASSET_NOT_FOUND, exception.getErrorCode());
+        verifyNoInteractions(holdingRepository);
     }
 
     private Asset approvedAsset(UUID assetId) {
