@@ -16,7 +16,11 @@ public enum AnalysisErrorCode implements ErrorCode {
     // ====== Notification ======
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "NOTI_404_01", "해당하는 알림 정보가 존재하지 않습니다."),
     NOTIFICATION_FORBIDDEN(HttpStatus.FORBIDDEN, "NOTI_403_01", "알림 조회 권한이 없습니다."),
-    NOTIFICATION_ALREADY_FINISHED(HttpStatus.CONFLICT, "NOTI_409_01", "이미 처리된 알림입니다.");
+    NOTIFICATION_ALREADY_FINISHED(HttpStatus.CONFLICT, "NOTI_409_01", "이미 처리된 알림입니다."),
+    NOTIFICATION_IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_01", "멱등키(idempotencyKey)는 필수입니다."),
+    NOTIFICATION_TYPE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_02", "알림 유형(notificationType)은 필수입니다."),
+    NOTIFICATION_TITLE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_03", "알림 제목(title)은 필수입니다."),
+    NOTIFICATION_MESSAGE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_04", "알림 내용(message)은 필수입니다.");
 
     private final HttpStatus status;
     private final String code;

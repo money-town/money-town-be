@@ -59,6 +59,19 @@ public class Notification extends BaseUpdatableEntity {
 
     @Builder
     private Notification(UUID idempotencyKey, UUID userId, NotificationType notificationType, String title, String message){
+        // 필수값 검증
+        if (idempotencyKey == null) {
+            throw new BusinessException(AnalysisErrorCode.NOTIFICATION_IDEMPOTENCY_KEY_REQUIRED);
+        }
+        if (notificationType == null) {
+            throw new BusinessException(AnalysisErrorCode.NOTIFICATION_TYPE_REQUIRED);
+        }
+        if (title == null || title.isBlank()) {
+            throw new BusinessException(AnalysisErrorCode.NOTIFICATION_TITLE_REQUIRED);
+        }
+        if (message == null || message.isBlank()) {
+            throw new BusinessException(AnalysisErrorCode.NOTIFICATION_MESSAGE_REQUIRED);
+        }
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
         this.notificationType = notificationType;
