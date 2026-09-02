@@ -47,7 +47,7 @@ class DividendDisbursementServiceTest {
         UUID batchId = UUID.randomUUID();
         DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
         when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
-        DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", payout.getAmount(), Instant.now(), null);
+        DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", payout.getAmount(), batchId, Instant.now());
         when(walletServiceClient.depositDividend(any())).thenReturn(ApiResponse.success(response, null));
 
         dividendDisbursementService.disburse(batchId);
@@ -113,13 +113,46 @@ class DividendDisbursementServiceTest {
     }
 
     @Test
+    @DisplayName("지갑 응답의 settlementBatchId가 요청과 다르면 markPaid 대신 즉시 markResponseMismatch를 호출한다")
+    void marksResponseMismatchWhenSettlementBatchIdDiffers() {
+        UUID batchId = UUID.randomUUID();
+        UUID otherBatchId = UUID.randomUUID();
+        DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
+        DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", payout.getAmount(), otherBatchId, Instant.now());
+        when(walletServiceClient.depositDividend(any())).thenReturn(ApiResponse.success(response, null));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(payoutWriter).markResponseMismatch(payout.getId());
+        verify(payoutWriter, never()).markPaid(any());
+        verify(payoutWriter, never()).markFailedAttempt(any());
+        verify(payoutWriter).updateBatchStatus(batchId);
+    }
+
+    @Test
+    @DisplayName("지갑 응답이 success=true인데 data가 없으면 불일치로 간주해 즉시 markResponseMismatch를 호출한다")
+    void marksResponseMismatchWhenDataIsNull() {
+        UUID batchId = UUID.randomUUID();
+        DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(walletServiceClient.depositDividend(any())).thenReturn(ApiResponse.success(null, null));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(payoutWriter).markResponseMismatch(payout.getId());
+        verify(payoutWriter, never()).markPaid(any());
+        verify(payoutWriter, never()).markFailedAttempt(any());
+    }
+
+    @Test
     @DisplayName("한 건이 실패해도 나머지 건은 계속 처리한다")
     void continuesProcessingRemainingPayoutsAfterOneFailure() {
         UUID batchId = UUID.randomUUID();
         DividendPayout failing = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
         DividendPayout succeeding = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
         when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(failing, succeeding));
-        DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", succeeding.getAmount(), Instant.now(), null);
+        DividendDepositResponse response = new DividendDepositResponse(9012L, 55L, "DIVIDEND", succeeding.getAmount(), batchId, Instant.now());
         when(walletServiceClient.depositDividend(any()))
                 .thenThrow(mock(FeignException.class))
                 .thenReturn(ApiResponse.success(response, null));

@@ -140,6 +140,19 @@ class DividendPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("markResponseMismatch: retryCount와 무관하게 즉시 DEAD_LETTER로 전환한다")
+    void marksResponseMismatch() {
+        DividendPayout payout = retryingPayout(2);
+        when(dividendPayoutRepository.findByIdAndIsDeletedFalse(payout.getId())).thenReturn(Optional.of(payout));
+
+        dividendPayoutWriter.markResponseMismatch(payout.getId());
+
+        assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DEAD_LETTER);
+        assertThat(payout.getRetryCount()).isEqualTo(2);
+        verify(dividendPayoutRepository).save(payout);
+    }
+
+    @Test
     @DisplayName("updateBatchStatus: 진행 중인 건이 남아있으면 배치 상태를 바꾸지 않는다")
     void updateBatchStatus_skipsWhenAnyInProgress() {
         SettlementBatch batch = openBatch();
