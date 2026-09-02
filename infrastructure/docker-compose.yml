@@ -19,7 +19,6 @@ x-app-common: &app-common
     REDIS_HOST: redis
     REDIS_PORT: 6379
     REDIS_PASSWORD: ${REDIS_PASSWORD}
-    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
 
 services:
   postgres:
@@ -287,6 +286,7 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/analysis_db
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
     ports: ["19098:19098"]
     depends_on:
       config-server: { condition: service_healthy }
