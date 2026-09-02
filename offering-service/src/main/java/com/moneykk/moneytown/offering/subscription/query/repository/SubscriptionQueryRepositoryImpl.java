@@ -16,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -110,22 +111,27 @@ public class SubscriptionQueryRepositoryImpl
     /**
      * 지원하는 정렬 필드에 맞는 QueryDSL OrderSpecifier를 생성한다.
      *
-     * 기본 정렬은 createdAt DESC이다.
+     * 기본 정렬은 createdAt DESC이며,
+     * 동일 createdAt 값이 존재하는 경우 안정적인 페이징을 위해
+     * subscriptionId DESC를 보조 정렬 기준으로 사용한다.
      */
     private OrderSpecifier<?>[] getOrderSpecifiers(Pageable pageable) {
 
         if (pageable.getSort().isUnsorted()) {
-            return new OrderSpecifier[]{
-                    subscription.createdAt.desc()
+            return new OrderSpecifier<?>[]{
+                    subscription.createdAt.desc(),
+                    subscription.subscriptionId.desc()
             };
         }
 
-        return pageable.getSort()
-                .stream()
-                .map(order -> {
-                    Order direction = order.isAscending()
-                            ? Order.ASC
-                            : Order.DESC;
+        List<OrderSpecifier<?>> orderSpecifiers =
+                new ArrayList<>(
+                        pageable.getSort()
+                                .stream()
+                                .map(order -> {
+                                    Order direction = order.isAscending()
+                                            ? Order.ASC
+                                            : Order.DESC;
 
                     return switch (order.getProperty()) {
                         case "createdAt" ->
@@ -146,6 +152,17 @@ public class SubscriptionQueryRepositoryImpl
                                 );
                     };
                 })
-                .toArray(OrderSpecifier[]::new);
+                .toList()
+        );
+
+        /*
+         * 동일한 createdAt / updatedAt 값을 가진 청약이 여러 건 존재할 경우
+         * offset 기반 페이징에서 항목 순서가 비결정적으로 바뀌는 것을 방지한다.
+         */
+        orderSpecifiers.add(
+                subscription.subscriptionId.desc()
+        );
+
+        return orderSpecifiers.toArray(OrderSpecifier[]::new);
     }
 }
