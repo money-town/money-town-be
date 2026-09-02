@@ -47,7 +47,8 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
             "p.status AS status, p.updatedAt AS updatedAt " +
             "FROM DividendPayout p JOIN SettlementBatch b ON b.id = p.settlementBatchId " +
             "WHERE p.investorId = :investorId AND (:assetId IS NULL OR b.assetId = :assetId) " +
-            "AND p.isDeleted = false AND b.isDeleted = false",
+            "AND p.isDeleted = false AND b.isDeleted = false " +
+            "ORDER BY p.updatedAt DESC, p.id ASC",
             countQuery = "SELECT COUNT(p) FROM DividendPayout p JOIN SettlementBatch b ON b.id = p.settlementBatchId " +
                     "WHERE p.investorId = :investorId AND (:assetId IS NULL OR b.assetId = :assetId) " +
                     "AND p.isDeleted = false AND b.isDeleted = false")

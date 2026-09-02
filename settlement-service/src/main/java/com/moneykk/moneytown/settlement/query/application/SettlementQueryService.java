@@ -45,8 +45,8 @@ public class SettlementQueryService {
         }
 
         Sort sort = status == PayoutStatus.DEAD_LETTER
-                ? Sort.by(Sort.Direction.DESC, "retryCount")
-                : Sort.by(Sort.Direction.DESC, "amount");
+                ? Sort.by(Sort.Direction.DESC, "retryCount").and(Sort.by(Sort.Direction.ASC, "id"))
+                : Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id"));
         Pageable sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
 
         Page<DividendPayout> payouts = status == null
@@ -57,8 +57,9 @@ public class SettlementQueryService {
 
     @Transactional(readOnly = true)
     public PageResponse<MyDividendPayoutListItemResponse> getMyDividends(UUID investorId, UUID assetId, Pageable pageable) {
+        Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
         Page<DividendPayoutRepository.MyDividendPayoutRow> payouts =
-                dividendPayoutRepository.findMyDividendPayouts(investorId, assetId, pageable);
+                dividendPayoutRepository.findMyDividendPayouts(investorId, assetId, unsortedPageable);
         return PageResponse.from(payouts, MyDividendPayoutListItemResponse::of);
     }
 
