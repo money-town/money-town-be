@@ -1,31 +1,36 @@
 package com.moneykk.moneytown.asset.service;
 
 import com.moneykk.moneytown.asset.dto.request.HoldingAllocationRequest;
+import com.moneykk.moneytown.asset.dto.request.HoldingRevocationRequest;
 import com.moneykk.moneytown.asset.dto.response.HoldingAllocationResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingAllocationResult;
+import com.moneykk.moneytown.asset.dto.response.HoldingRevocationResponse;
+import com.moneykk.moneytown.asset.dto.response.HoldingRevocationResult;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
-import com.moneykk.moneytown.asset.repository.AssetRepository;
-import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
-import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import com.moneykk.moneytown.asset.repository.*;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.UUID;
 
-/** 지분 배정·회수 서비스 */
+/**
+ * 지분 배정·회수 서비스
+ */
 @Service
 @RequiredArgsConstructor
 public class HoldingCommandService {
 
-    private final AssetRepository assetRepository;
+    private final AssetQueryRepository assetQueryRepository;
     private final HoldingRepository holdingRepository;
     private final HoldingHistoryRepository holdingHistoryRepository;
+    private final HoldingQueryRepository holdingQueryRepository;
 
     @Transactional
     public HoldingAllocationResponse allocate(HoldingAllocationRequest request) {
@@ -41,7 +46,8 @@ public class HoldingCommandService {
         }
 
         // 자산 조회
-        Asset asset = assetRepository.findByIdAndIsDeletedFalse(request.assetId())
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(request.assetId())
                 .orElseThrow(() -> new BusinessException(
                         AssetErrorCode.ASSET_NOT_FOUND
                 ));
@@ -122,6 +128,124 @@ public class HoldingCommandService {
                 holding.getUserId(),
                 history.getQuantity(),
                 HoldingAllocationResult.ALREADY_PROCESSED
+        );
+    }
+
+    @Transactional
+    public HoldingRevocationResponse revoke(
+            UUID holdingId,
+            HoldingRevocationRequest request
+    ) {
+        // 이미 회수된 청약인지 확인
+        Optional<HoldingHistory> existingHistory =
+                holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                        request.subscriptionId(),
+                        HoldingHistoryType.REVOKE
+                );
+
+        if (existingHistory.isPresent()) {
+            return alreadyRevoked(holdingId, request, existingHistory.get());
+        }
+
+        // 해당 청약의 기존 배정 이력 조회
+        HoldingHistory allocationHistory =
+                holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                        request.subscriptionId(),
+                        HoldingHistoryType.ALLOCATE
+                ).orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
+
+        // 요청한 보유지분과 실제 배정 이력이 같은지 확인
+        if (!allocationHistory.getHoldingId().equals(holdingId)) {
+            throw new BusinessException(AssetErrorCode.HOLDING_DATA_CONFLICT);
+        }
+
+        // 자산 ID 조회
+        UUID assetId = holdingQueryRepository
+                .findAssetIdByHoldingId(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
+
+        // 자산을 조회하면서 비관적 락 획득
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 락을 기다리는 동안 회수가 처리됐는지 다시 확인
+        existingHistory =
+                holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                        request.subscriptionId(),
+                        HoldingHistoryType.REVOKE
+                );
+
+        if (existingHistory.isPresent()) {
+            return alreadyRevoked(holdingId, request, existingHistory.get());
+        }
+
+        Holding holding = holdingRepository.findById(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
+
+        long quantity = allocationHistory.getQuantity();
+        long balanceBefore = holding.getQuantity();
+
+        // 자산 배정 수량과 사용자 보유 수량 감소
+        asset.revokeShares(quantity);
+        holding.revoke(quantity);
+
+        holdingRepository.save(holding);
+
+        HoldingHistory revocationHistory = new HoldingHistory(
+                holding.getId(),
+                request.subscriptionId(),
+                HoldingHistoryType.REVOKE,
+                quantity,
+                balanceBefore,
+                holding.getQuantity(),
+                "REVOKE:" + request.subscriptionId(),
+                request.reason()
+        );
+
+        holdingHistoryRepository.save(revocationHistory);
+
+        return new HoldingRevocationResponse(
+                request.subscriptionId(),
+                holding.getId(),
+                holding.getAssetId(),
+                holding.getUserId(),
+                quantity,
+                HoldingRevocationResult.REVOKED
+        );
+    }
+
+    private HoldingRevocationResponse alreadyRevoked(
+            UUID holdingId,
+            HoldingRevocationRequest request,
+            HoldingHistory history
+    ) {
+        // 기존 회수 이력의 지분과 요청한 지분 비교
+        if (!history.getHoldingId().equals(holdingId)) {
+            throw new BusinessException(AssetErrorCode.HOLDING_DATA_CONFLICT);
+        }
+
+        // 기존 보유지분 조회
+        Holding holding = holdingRepository.findById(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
+
+        return new HoldingRevocationResponse(
+                request.subscriptionId(),
+                holding.getId(),
+                holding.getAssetId(),
+                holding.getUserId(),
+                history.getQuantity(),
+                HoldingRevocationResult.ALREADY_PROCESSED
         );
     }
 }

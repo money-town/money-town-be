@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.request.HoldingAllocationRequest;
+import com.moneykk.moneytown.asset.dto.request.HoldingRevocationRequest;
 import com.moneykk.moneytown.asset.dto.response.HoldingAllocationResponse;
+import com.moneykk.moneytown.asset.dto.response.HoldingRevocationResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
 import com.moneykk.moneytown.asset.service.HoldingCommandService;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
@@ -43,6 +45,23 @@ public class InternalHoldingController {
         return ApiResponse.success(
                 response,
                 "지분 배정이 완료되었습니다."
+        );
+    }
+
+    /** 지분 회수 */
+    @PostMapping("/{holdingId}/revocations")
+    public ApiResponse<HoldingRevocationResponse> revoke(
+            @PathVariable UUID holdingId,
+            @Valid @RequestBody HoldingRevocationRequest request
+    ) {
+        // 지분 회수 요청
+        HoldingRevocationResponse response =
+                holdingCommandService.revoke(holdingId, request);
+
+        // 회수 결과 반환
+        return ApiResponse.success(
+                response,
+                "지분 회수가 완료되었습니다."
         );
     }
 }
