@@ -25,14 +25,14 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class OfferingCommandService {
 
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final AssetServiceClient assetServiceClient;
 
-    @Transactional
+    private final OfferingTransactionService offeringTransactionService;
+
     public OfferingCreateResponse create(
             UUID issuerId,
             OfferingCreateRequest request
@@ -46,21 +46,11 @@ public class OfferingCommandService {
                         request.totalQuantity()
                 );
 
-        Offering offering = Offering.create(
-                request.assetId(),
+        return offeringTransactionService.createOffering(
                 issuerId,
-                request.title(),
-                asset.unitPrice(),
-                request.totalQuantity(),
-                request.minSubscriptionQuantity(),
-                request.maxSubscriptionQuantity(),
-                request.startAt(),
-                request.endAt()
+                request,
+                asset.unitPrice()
         );
-
-        Offering savedOffering = offeringRepository.save(offering);
-
-        return OfferingCreateResponse.from(savedOffering);
     }
 
 
@@ -110,7 +100,6 @@ public class OfferingCommandService {
         return OfferingRejectionResponse.from(offering);
     }
 
-    @Transactional
     public OfferingUpdateResponse updateOffering(
             UUID offeringId,
             UUID userId,
@@ -138,16 +127,12 @@ public class OfferingCommandService {
                 targetTotalQuantity
         );
 
-        offering.update(
-                request.title(),
-                request.totalQuantity(),
-                request.minSubscriptionQuantity(),
-                request.maxSubscriptionQuantity(),
-                request.startAt(),
-                request.endAt()
+        return offeringTransactionService.updateOffering(
+                offeringId,
+                userId,
+                role,
+                request
         );
-
-        return OfferingUpdateResponse.from(offering);
     }
 
     @Transactional
