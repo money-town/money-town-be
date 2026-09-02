@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -115,16 +116,18 @@ class SettlementQueryServiceTest {
     class GetPayouts {
 
         @Test
-        @DisplayName("존재하는 회차의 지급 내역을 페이지로 반환한다")
-        void returnsPayoutPage() {
+        @DisplayName("status 미지정 시 전체 지급 내역을 amount 내림차순으로 반환한다")
+        void returnsAllPayoutsSortedByAmountDescWhenStatusOmitted() {
             UUID batchId = UUID.randomUUID();
             DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
-            Pageable pageable = PageRequest.of(0, 20);
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
-            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batchId, pageable))
-                    .thenReturn(new PageImpl<>(List.of(payout), pageable, 1));
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batchId, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
-            PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(batchId, pageable);
+            PageResponse<DividendPayoutListItemResponse> response =
+                    settlementQueryService.getPayouts(batchId, null, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             DividendPayoutListItemResponse item = response.content().get(0);
@@ -138,13 +141,52 @@ class SettlementQueryServiceTest {
         }
 
         @Test
+        @DisplayName("status로 필터링하여 해당 상태의 지급 내역만 반환한다")
+        void filtersPayoutsByStatus() {
+            UUID batchId = UUID.randomUUID();
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
+            payout.markProcessing();
+            payout.markPaid();
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.PAID, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<DividendPayoutListItemResponse> response =
+                    settlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
+        }
+
+        @Test
+        @DisplayName("status=DEAD_LETTER로 필터링하면 retryCount 내림차순으로 정렬한다")
+        void sortsByRetryCountDescWhenFilteredByDeadLetter() {
+            UUID batchId = UUID.randomUUID();
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
+            payout.markDeadLetter();
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "retryCount"));
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.DEAD_LETTER, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<DividendPayoutListItemResponse> response =
+                    settlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
+        }
+
+        @Test
         @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
         void throwsWhenBatchNotFound() {
             UUID batchId = UUID.randomUUID();
             Pageable pageable = PageRequest.of(0, 20);
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
 
-            assertThatThrownBy(() -> settlementQueryService.getPayouts(batchId, pageable))
+            assertThatThrownBy(() -> settlementQueryService.getPayouts(batchId, null, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
