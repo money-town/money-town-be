@@ -31,6 +31,7 @@ public class WalletService {
     private final WalletHoldRepository walletHoldRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final UserServiceClient userServiceClient;
+    private final WalletTransactionService walletTransactionService;
 
     public WalletResponse getMyWallet(UUID userId) {
         Wallet wallet = walletRepository.findByUserId(userId)
@@ -48,7 +49,6 @@ public class WalletService {
         return WalletStatusResponse.of(wallet, hasActiveHold);
     }
 
-    @Transactional
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -60,21 +60,9 @@ public class WalletService {
 
         requireEligibleForTransaction(userId);
 
-        Wallet lockedWallet = walletRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
-        long balanceBefore = lockedWallet.getBalance();
-        lockedWallet.deposit(amount);
-
-        WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
-                lockedWallet.getId(), WalletTransactionType.DEPOSIT, amount,
-                balanceBefore, lockedWallet.getBalance(), idempotencyKey, null
-        ));
-
-        return TransactionResponse.from(transaction);
+        return walletTransactionService.deposit(userId, idempotencyKey, amount);
     }
 
-    @Transactional
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -86,18 +74,7 @@ public class WalletService {
 
         requireEligibleForTransaction(userId);
 
-        Wallet lockedWallet = walletRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
-        long balanceBefore = lockedWallet.getBalance();
-        lockedWallet.withdraw(amount);
-
-        WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
-                lockedWallet.getId(), WalletTransactionType.WITHDRAW, amount,
-                balanceBefore, lockedWallet.getBalance(), idempotencyKey, null
-        ));
-
-        return TransactionResponse.from(transaction);
+        return walletTransactionService.withdraw(userId, idempotencyKey, amount);
     }
 
     // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 그 거래가 "내 지갑" 것이고 타입+금액까지 똑같으면
