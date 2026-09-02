@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.offering.offering.query.controller;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.query.application.OfferingQueryService;
 import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchCondition;
@@ -108,11 +110,9 @@ public class OfferingQueryController {
             @RequestParam(required = false) String keyword,
             Pageable pageable
     ) {
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // 권한 예외 코드로 교체
         if (!"ADMIN".equalsIgnoreCase(role)) {
-            throw new IllegalArgumentException(
-                    "관리자 권한이 필요합니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_MANAGEMENT_ACCESS_DENIED
             );
         }
 

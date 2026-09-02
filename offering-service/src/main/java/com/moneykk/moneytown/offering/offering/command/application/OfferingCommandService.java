@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.offering.offering.command.application;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingRejectionRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
@@ -64,13 +66,14 @@ public class OfferingCommandService {
         Offering offering = offeringRepository
                 .findByOfferingIdAndIsDeletedFalse(offeringId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("공모를 찾을 수 없습니다.")
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
+                        )
                 );
 
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
         if (!offering.getIssuerId().equals(issuerId)) {
-            throw new IllegalArgumentException(
-                    "해당 공모에 대한 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
 
@@ -87,15 +90,12 @@ public class OfferingCommandService {
         Offering offering = offeringRepository
                 .findByOfferingIdAndIsDeletedFalse(offeringId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
                         )
                 );
 
         // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // O003(공모 없음), O005(승인 권한 없음), O006(승인 불가 상태) 적용
-
         offering.approve(reviewerId);
 
         return OfferingApprovalResponse.from(offering);
@@ -110,16 +110,12 @@ public class OfferingCommandService {
         Offering offering = offeringRepository
                 .findByOfferingIdAndIsDeletedFalse(offeringId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
                         )
                 );
 
         // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // O003(공모 없음), O005(심사 권한 없음),
-        // O007(반려 사유 오류), O008(반려 불가 상태) 적용
-
         offering.reject(
                 reviewerId,
                 request.rejectionReason()
@@ -138,8 +134,8 @@ public class OfferingCommandService {
         Offering offering = offeringRepository
                 .findByOfferingIdAndIsDeletedFalse(offeringId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
                         )
                 );
 
@@ -147,10 +143,9 @@ public class OfferingCommandService {
         boolean admin = "ADMIN".equalsIgnoreCase(role);
 
         // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
         if (!owner && !admin) {
-            throw new IllegalArgumentException(
-                    "해당 공모를 수정할 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
 
@@ -175,8 +170,8 @@ public class OfferingCommandService {
         Offering offering = offeringRepository
                 .findByOfferingIdAndIsDeletedFalse(offeringId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
                         )
                 );
 
@@ -184,16 +179,14 @@ public class OfferingCommandService {
         boolean admin = "ADMIN".equalsIgnoreCase(role);
 
         // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
         if (!owner && !admin) {
-            throw new IllegalArgumentException(
-                    "해당 공모를 삭제할 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
 
         // TODO: Subscription Service 연동 계약 확정 후 청약 이력 존재 여부 검증
-        // 청약 이력이 존재하는 경우 O018
-        // "청약 이력이 존재하는 공모는 삭제할 수 없습니다."
+// 청약 이력이 존재하는 경우 OFFERING_HAS_SUBSCRIPTIONS
 
         offering.delete(userId);
 

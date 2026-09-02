@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.offering.offering.command.controller;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.application.OfferingCommandService;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingRejectionRequest;
@@ -65,10 +67,9 @@ public class OfferingCommandController {
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role
     ) {
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O005로 교체
         if (!"ADMIN".equalsIgnoreCase(role)) {
-            throw new IllegalArgumentException(
-                    "공모 승인 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_REVIEW_ACCESS_DENIED
             );
         }
 
@@ -97,10 +98,9 @@ public class OfferingCommandController {
             @Valid @RequestBody OfferingRejectionRequest request
     ) {
         // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 방식 재검토
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O005로 교체
         if (!"ADMIN".equalsIgnoreCase(role)) {
-            throw new IllegalArgumentException(
-                    "공모 심사 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_REVIEW_ACCESS_DENIED
             );
         }
 

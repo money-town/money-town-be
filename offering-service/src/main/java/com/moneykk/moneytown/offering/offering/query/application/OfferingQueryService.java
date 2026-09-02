@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.offering.offering.query.application;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -94,7 +96,9 @@ public class OfferingQueryService {
         Offering offering = offeringRepository
                 .findByOfferingIdAndIsDeletedFalse(offeringId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("공모를 찾을 수 없습니다.")
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
+                        )
                 );
 
         if (isPublicStatus(offering.getOfferingStatus())) {
@@ -108,11 +112,9 @@ public class OfferingQueryService {
         }
 
         // TODO: Gateway의 실제 Role 전달 계약이 확정되기 전 임시 구현
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // O002, O003으로 교체
         if (!isOwner(offering, userId) && !isAdmin(role)) {
-            throw new IllegalArgumentException(
-                    "해당 공모를 조회할 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
 

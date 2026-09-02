@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.offering.offering.query.repository;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.exception.CommonErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.entity.QOffering;
@@ -154,9 +156,8 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
         String property = order.getProperty();
 
         if (!ALLOWED_SORT_FIELDS.contains(property)) {
-            // TODO: OfferingErrorCode 적용 후 잘못된 정렬 기준을 O013으로 변환
-            throw new IllegalArgumentException(
-                    "지원하지 않는 정렬 기준입니다: " + property
+            throw new BusinessException(
+                    CommonErrorCode.INVALID_SORT_PROPERTY
             );
         }
 
@@ -189,8 +190,8 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
                             : offering.remainingQuantity.desc();
 
             default ->
-                    throw new IllegalArgumentException(
-                            "지원하지 않는 정렬 기준입니다: " + property
+                    throw new BusinessException(
+                            CommonErrorCode.INVALID_SORT_PROPERTY
                     );
         };
     }

@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.offering.offering.domain.entity;
 
 import com.moneykk.moneytown.common.entity.BaseUpdatableEntity;
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -152,9 +154,8 @@ public class Offering extends BaseUpdatableEntity {
 
     public void requestReview() {
         if (offeringStatus != OfferingStatus.DRAFT) {
-            // TODO: OfferingErrorCode 적용 후 O004로 변경
-            throw new IllegalStateException(
-                    "DRAFT 상태의 공모만 심사를 요청할 수 있습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_REVIEW_REQUEST_NOT_ALLOWED
             );
         }
 
@@ -169,17 +170,15 @@ public class Offering extends BaseUpdatableEntity {
      * 심사 요청된 공모를 승인한다.
      */
     public void approve(UUID reviewerId) {
-        // TODO: OfferingErrorCode 적용 후 O006으로 변경
         if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
-            throw new IllegalStateException(
-                    "REVIEW_REQUESTED 상태의 공모만 승인할 수 있습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_APPROVAL_NOT_ALLOWED
             );
         }
 
-        // TODO: OfferingErrorCode 적용 후 O001로 변경
         if (reviewerId == null) {
-            throw new IllegalArgumentException(
-                    "승인 처리자 ID는 필수입니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
             );
         }
 
@@ -201,29 +200,27 @@ public class Offering extends BaseUpdatableEntity {
             UUID reviewerId,
             String rejectionReason
     ) {
-        // TODO: OfferingErrorCode 적용 후 O008로 변경
         if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
-            throw new IllegalStateException(
-                    "반려할 수 없는 공모 상태입니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_REJECTION_NOT_ALLOWED
             );
         }
 
-        // TODO: OfferingErrorCode 적용 후 O007로 변경
         if (rejectionReason == null || rejectionReason.isBlank()) {
-            throw new IllegalArgumentException(
-                    "반려 사유를 입력해주세요."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_REJECTION_REASON
             );
         }
 
         if (rejectionReason.length() > 500) {
-            throw new IllegalArgumentException(
-                    "반려 사유는 500자를 초과할 수 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_REJECTION_REASON
             );
         }
 
         if (reviewerId == null) {
-            throw new IllegalArgumentException(
-                    "심사 처리자 ID는 필수입니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
             );
         }
 
@@ -241,10 +238,9 @@ public class Offering extends BaseUpdatableEntity {
             Instant startAt,
             Instant endAt
     ) {
-        // TODO: OfferingErrorCode 적용 후 O014로 변경
         if (offeringStatus != OfferingStatus.DRAFT) {
-            throw new IllegalStateException(
-                    "DRAFT 상태의 공모만 수정할 수 있습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_UPDATE_NOT_ALLOWED
             );
         }
 
@@ -295,16 +291,15 @@ public class Offering extends BaseUpdatableEntity {
      * 작성 중인 공모를 논리 삭제한다.
      */
     public void delete(UUID deletedBy) {
-        // TODO: OfferingErrorCode 적용 후 O015로 변경
         if (offeringStatus != OfferingStatus.DRAFT) {
-            throw new IllegalStateException(
-                    "현재 상태에서는 공모 상품을 삭제할 수 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_DELETE_NOT_ALLOWED
             );
         }
 
         if (deletedBy == null) {
-            throw new IllegalArgumentException(
-                    "삭제 처리자 ID는 필수입니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
             );
         }
 
@@ -313,8 +308,8 @@ public class Offering extends BaseUpdatableEntity {
 
     private void validateOfferingPeriodNotExpired() {
         if (!endAt.isAfter(Instant.now())) {
-            throw new IllegalStateException(
-                    "이미 종료된 모집 기간의 공모는 처리할 수 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_PERIOD_EXPIRED
             );
         }
     }
@@ -333,8 +328,8 @@ public class Offering extends BaseUpdatableEntity {
         );
 
         if (!totalQuantity.equals(remainingQuantity)) {
-            throw new IllegalArgumentException(
-                    "승인 전 잔여 모집 수량은 총 모집 수량과 동일해야 합니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_QUANTITY_STATE_INVALID
             );
         }
     }
@@ -365,53 +360,69 @@ public class Offering extends BaseUpdatableEntity {
             Instant endAt
     ) {
         if (assetId == null) {
-            throw new IllegalArgumentException("assetId는 필수입니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
+            );
         }
 
         if (issuerId == null) {
-            throw new IllegalArgumentException("issuerId는 필수입니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
+            );
         }
 
         if (title == null || title.isBlank()) {
-            throw new IllegalArgumentException("공모 상품명은 필수입니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_TITLE
+            );
         }
 
         if (title.length() > 200) {
-            throw new IllegalArgumentException("공모 상품명은 200자를 초과할 수 없습니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_TITLE
+            );
         }
 
         if (pricePerUnit == null || pricePerUnit <= 0) {
-            throw new IllegalArgumentException("단위당 청약 가격은 0보다 커야 합니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_PRICE
+            );
         }
 
         if (totalQuantity == null || totalQuantity <= 0) {
-            throw new IllegalArgumentException("총 모집 수량은 0보다 커야 합니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_QUANTITY
+            );
         }
 
         if (minSubscriptionQuantity == null || minSubscriptionQuantity < 1) {
-            throw new IllegalArgumentException("최소 청약 수량은 1 이상이어야 합니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_SUBSCRIPTION_QUANTITY_RANGE
+            );
         }
 
         if (maxSubscriptionQuantity == null
                 || maxSubscriptionQuantity < minSubscriptionQuantity) {
-            throw new IllegalArgumentException(
-                    "최대 청약 수량은 최소 청약 수량 이상이어야 합니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_SUBSCRIPTION_QUANTITY_RANGE
             );
         }
 
         if (maxSubscriptionQuantity > totalQuantity) {
-            throw new IllegalArgumentException(
-                    "최대 청약 수량은 총 모집 수량을 초과할 수 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_SUBSCRIPTION_QUANTITY_RANGE
             );
         }
 
         if (startAt == null || endAt == null) {
-            throw new IllegalArgumentException("모집 시작일과 종료일은 필수입니다.");
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_PERIOD
+            );
         }
 
         if (!startAt.isBefore(endAt)) {
-            throw new IllegalArgumentException(
-                    "모집 시작일은 종료일보다 이전이어야 합니다."
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_PERIOD
             );
         }
     }
