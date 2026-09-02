@@ -38,10 +38,10 @@ public record SettlementBatchDetailResponse(
     }
 
     public record PayoutSummary(
-            int totalCount,
-            int paidCount,
-            int failedCount,
-            int pendingCount
+            long totalCount,
+            long paidCount,
+            long failedCount,
+            long pendingCount
     ) {
     }
 }

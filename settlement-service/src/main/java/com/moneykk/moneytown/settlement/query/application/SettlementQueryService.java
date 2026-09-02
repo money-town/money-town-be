@@ -31,18 +31,18 @@ public class SettlementQueryService {
     }
 
     private SettlementBatchDetailResponse.PayoutSummary buildPayoutSummary(UUID settlementBatchId) {
-        Map<PayoutStatus, Integer> counts = new EnumMap<>(PayoutStatus.class);
+        Map<PayoutStatus, Long> counts = new EnumMap<>(PayoutStatus.class);
         for (PayoutStatus status : PayoutStatus.values()) {
-            counts.put(status, 0);
+            counts.put(status, 0L);
         }
         for (DividendPayoutRepository.PayoutStatusCount row : dividendPayoutRepository.countByStatusGrouped(settlementBatchId)) {
-            counts.put(row.getStatus(), (int) row.getCount());
+            counts.put(row.getStatus(), row.getCount());
         }
 
-        int totalCount = counts.values().stream().mapToInt(Integer::intValue).sum();
-        int paidCount = counts.get(PayoutStatus.PAID);
-        int failedCount = counts.get(PayoutStatus.DEAD_LETTER);
-        int pendingCount = counts.get(PayoutStatus.QUEUED) + counts.get(PayoutStatus.PROCESSING) + counts.get(PayoutStatus.RETRYING);
+        long totalCount = counts.values().stream().mapToLong(Long::longValue).sum();
+        long paidCount = counts.get(PayoutStatus.PAID);
+        long failedCount = counts.get(PayoutStatus.DEAD_LETTER);
+        long pendingCount = counts.get(PayoutStatus.QUEUED) + counts.get(PayoutStatus.PROCESSING) + counts.get(PayoutStatus.RETRYING);
 
         return new SettlementBatchDetailResponse.PayoutSummary(totalCount, paidCount, failedCount, pendingCount);
     }
