@@ -13,7 +13,7 @@ import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
-import com.moneykk.moneytown.asset.repository.AssetRepository;
+import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
 class HoldingCommandServiceTest {
 
     @Mock
-    private AssetRepository assetRepository;
+    private AssetQueryRepository assetQueryRepository;
 
     @Mock
     private HoldingRepository holdingRepository;
@@ -74,7 +74,7 @@ class HoldingCommandServiceTest {
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
         )).thenReturn(Optional.empty());
-        when(assetRepository.findByIdAndIsDeletedFalse(assetId)).thenReturn(Optional.of(asset));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
         when(holdingRepository.findByAssetIdAndUserId(assetId, userId))
                 .thenReturn(Optional.of(holding));
         when(holdingRepository.save(holding)).thenReturn(holding);
@@ -121,7 +121,7 @@ class HoldingCommandServiceTest {
 
         assertEquals(HoldingAllocationResult.ALREADY_PROCESSED, response.result());
         assertEquals(10, holding.getQuantity());
-        verifyNoInteractions(assetRepository);
+        verifyNoInteractions(assetQueryRepository);
         verify(holdingRepository, never()).save(any(Holding.class));
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
     }
@@ -146,7 +146,7 @@ class HoldingCommandServiceTest {
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
         )).thenReturn(Optional.empty(), Optional.of(history));
-        when(assetRepository.findByIdAndIsDeletedFalse(assetId)).thenReturn(Optional.of(asset));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
         when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
 
         HoldingAllocationResponse response = holdingCommandService.allocate(request);
@@ -167,7 +167,7 @@ class HoldingCommandServiceTest {
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
         )).thenReturn(Optional.empty());
-        when(assetRepository.findByIdAndIsDeletedFalse(assetId)).thenReturn(Optional.empty());
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.empty());
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -207,7 +207,7 @@ class HoldingCommandServiceTest {
         )).thenReturn(Optional.of(allocationHistory));
         when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
                 .thenReturn(Optional.of(assetId));
-        when(assetRepository.findByIdAndIsDeletedFalse(assetId))
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
                 .thenReturn(Optional.of(asset));
         when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
         when(holdingRepository.save(holding)).thenReturn(holding);
@@ -258,7 +258,7 @@ class HoldingCommandServiceTest {
 
         assertEquals(HoldingRevocationResult.ALREADY_PROCESSED, response.result());
         assertEquals(5, holding.getQuantity());
-        verifyNoInteractions(assetRepository, holdingQueryRepository);
+        verifyNoInteractions(assetQueryRepository, holdingQueryRepository);
         verify(holdingRepository, never()).save(any(Holding.class));
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
     }
