@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
 import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyOperation;
@@ -53,10 +55,8 @@ public class SubscriptionTransactionService {
         );
 
         if (updatedRows == 0) {
-            // TODO: SubscriptionErrorCode 적용 후
-            // S004 / S005 구분
-            throw new IllegalStateException(
-                    "현재 청약 가능한 공모가 아니거나 청약 가능한 수량이 부족합니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INSUFFICIENT_REMAINING_QUANTITY
             );
         }
 
@@ -108,9 +108,8 @@ public class SubscriptionTransactionService {
                         );
 
         if (exists) {
-            // TODO: SubscriptionErrorCode 적용 후 S003
-            throw new IllegalStateException(
-                    "이미 청약한 공모입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.DUPLICATE_SUBSCRIPTION
             );
         }
     }

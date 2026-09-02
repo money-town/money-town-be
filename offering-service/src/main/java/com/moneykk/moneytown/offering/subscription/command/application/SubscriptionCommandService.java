@@ -1,7 +1,11 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
+import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
@@ -22,9 +26,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.UUID;
 
-// TODO: ERROR/EXCEPTION - CODE 처리
 @Service
 @RequiredArgsConstructor
 public class SubscriptionCommandService {
@@ -51,7 +55,6 @@ public class SubscriptionCommandService {
             SubscriptionCreateRequest request
     ) {
         // TODO: User Service 실제 API merge 후 Path / Response 계약 최종 확인
-        // TODO: SubscriptionErrorCode 적용
         // TODO: SubscriptionReserved Outbox 저장 추가
 
         validateIdempotencyKey(idempotencyKey);
@@ -117,10 +120,19 @@ public class SubscriptionCommandService {
             Offering offering = offeringRepository
                     .findByOfferingIdAndIsDeletedFalse(offeringId)
                     .orElseThrow(() ->
-                            new IllegalArgumentException(
-                                    "공모를 찾을 수 없습니다."
+                            new BusinessException(
+                                    OfferingErrorCode.OFFERING_NOT_FOUND
                             )
                     );
+
+            /*
+             * OPEN 상태이며 실제 모집 기간 내에 있는지 먼저 확인한다.
+             *
+             * reserveQuantity()의 조건부 UPDATE와 별개로 수행한다.
+             * 여기서는 사용자에게 실패 원인을 구분해서 제공하기 위한
+             * 사전 비즈니스 검증을 담당한다.
+             */
+            validateOfferingAvailable(offering);
 
             /*
              * 공모의 최소·최대 청약 수량을 검증한다.
@@ -170,8 +182,8 @@ public class SubscriptionCommandService {
              * 해당 멱등 요청을 FAILED 상태로 기록한다.
              *
              * TODO:
-             * 실제 SubscriptionErrorCode 적용 시
-             * S002 / S017 / S018 등에 따라 responseCode를 구분한다.
+             * 예외코드 전체 적용 시 BusinessException의 HttpStatus를 사용하여
+             * 실제 responseCode를 저장하도록 보완.
              */
             subscriptionIdempotencyService.fail(
                     userId,
@@ -304,6 +316,40 @@ public class SubscriptionCommandService {
         if (idempotencyKey.length() > 100) {
             throw new IllegalArgumentException(
                     "Idempotency-Key는 100자를 초과할 수 없습니다."
+            );
+        }
+    }
+
+    /**
+     * 청약 대상 공모가 현재 실제 청약 가능한 상태인지 검증한다.
+     *
+     * - OPEN 상태
+     * - 모집 시작 시각 도달
+     * - 모집 종료 시각 이전
+     *
+     * 이 검증은 사용자에게 정확한 비즈니스 실패 원인을
+     * 반환하기 위한 사전 검증이다.
+     *
+     * 실제 수량 차감 시에는 reserveQuantity()의 조건부 UPDATE가
+     * 상태/기간/잔여 수량을 다시 검증한다.
+     */
+    private void validateOfferingAvailable(
+            Offering offering
+    ) {
+
+        if (offering.getOfferingStatus() != OfferingStatus.OPEN) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_NOT_AVAILABLE
+            );
+        }
+
+        Instant now = Instant.now();
+
+        if (now.isBefore(offering.getStartAt())
+                || !now.isBefore(offering.getEndAt())) {
+
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_NOT_AVAILABLE
             );
         }
     }
