@@ -33,4 +33,14 @@ public interface FinalSettlementPayoutRepository extends JpaRepository<FinalSett
 
     List<FinalSettlementPayout> findByFinalSettlementBatchIdAndIdInAndStatusAndIsDeletedFalse(
             UUID finalSettlementBatchId, List<UUID> ids, PayoutStatus status);
+
+    @Query("SELECT p.status AS status, COUNT(p) AS count FROM FinalSettlementPayout p " +
+            "WHERE p.finalSettlementBatchId = :finalSettlementBatchId AND p.isDeleted = false GROUP BY p.status")
+    List<PayoutStatusCount> countByStatusGrouped(@Param("finalSettlementBatchId") UUID finalSettlementBatchId);
+
+    interface PayoutStatusCount {
+        PayoutStatus getStatus();
+
+        long getCount();
+    }
 }
