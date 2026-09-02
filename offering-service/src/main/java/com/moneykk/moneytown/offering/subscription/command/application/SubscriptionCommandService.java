@@ -54,7 +54,6 @@ public class SubscriptionCommandService {
             String idempotencyKey,
             SubscriptionCreateRequest request
     ) {
-        // TODO: User Service 실제 API merge 후 Path / Response 계약 최종 확인
         // TODO: SubscriptionReserved Outbox 저장 추가
 
         validateIdempotencyKey(idempotencyKey);
@@ -109,6 +108,7 @@ public class SubscriptionCommandService {
              *
              * accountStatus == ACTIVE
              * kycStatus == VERIFIED
+             * 현재 시각 < kycExpiresAt
              */
             validateUserEligibility(userId);
 
@@ -421,8 +421,9 @@ public class SubscriptionCommandService {
      * User Service에서 최신 사용자 상태를 조회하고
      * 청약 가능 여부를 검증한다.
      *
-     * accountStatus가 ACTIVE이고
-     * kycStatus가 VERIFIED인 경우에만 청약을 진행한다.
+     * accountStatus가 ACTIVE이고,
+     * kycStatus가 VERIFIED이며,
+     * 현재 시각이 kycExpiresAt 이전인 경우에만 청약을 진행한다.
      *
      * User Service를 정상적으로 조회할 수 없는 경우에는
      * 최신 사용자 상태를 확인할 수 없으므로 Fail Closed 처리한다.
@@ -441,7 +442,9 @@ public class SubscriptionCommandService {
                 );
             }
 
-            if (!user.isEligibleForSubscription()) {
+            Instant now = Instant.now();
+
+            if (!user.isEligibleForSubscription(now)) {
                 throw new BusinessException(
                         SubscriptionErrorCode.SUBSCRIPTION_ELIGIBILITY_NOT_MET
                 );

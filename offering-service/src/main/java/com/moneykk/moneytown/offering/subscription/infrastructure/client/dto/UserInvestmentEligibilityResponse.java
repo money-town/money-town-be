@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.infrastructure.client.dto;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -11,11 +12,14 @@ import java.util.UUID;
 public record UserInvestmentEligibilityResponse(
         UUID userId,
         String accountStatus,
-        String kycStatus
+        String kycStatus,
+        Instant kycExpiresAt
 ) {
 
-    public boolean isEligibleForSubscription() {
+    public boolean isEligibleForSubscription(Instant now) {
         return "ACTIVE".equalsIgnoreCase(accountStatus)
-                && "VERIFIED".equalsIgnoreCase(kycStatus);
+                && "VERIFIED".equalsIgnoreCase(kycStatus)
+                && kycExpiresAt != null
+                && now.isBefore(kycExpiresAt);
     }
 }
