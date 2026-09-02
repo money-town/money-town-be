@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.UUID;
 
-// Offering-User(은지-승욱) 협의로 만들어진 계약을 그대로 재사용한다 (wallet_openfeign_spec.md 1번 참고).
+// Offering-User 협의로 만들어진 계약을 그대로 재사용
 // 이 계약은 Wallet 소유가 아니므로, 실제 Path/필드가 바뀌면 이 문서와 함께 갱신할 것.
 @FeignClient(name = "user-service")
 public interface UserServiceClient {
