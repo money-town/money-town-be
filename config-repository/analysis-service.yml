@@ -19,3 +19,9 @@ fds:
       window-seconds: 10
       normal: 5
       suspicious: 3
+
+
+
+notification:
+  slack:
+    webhook-url: ${SLACK_WEBHOOK_URL}
