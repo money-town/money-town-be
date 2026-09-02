@@ -121,7 +121,8 @@ class SettlementQueryServiceTest {
             UUID batchId = UUID.randomUUID();
             DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
             Pageable requestedPageable = PageRequest.of(0, 20);
-            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id")));
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
             when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batchId, expectedPageable))
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
@@ -148,7 +149,8 @@ class SettlementQueryServiceTest {
             payout.markProcessing();
             payout.markPaid();
             Pageable requestedPageable = PageRequest.of(0, 20);
-            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id")));
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
             when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.PAID, expectedPageable))
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
@@ -167,7 +169,8 @@ class SettlementQueryServiceTest {
             DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
             payout.markDeadLetter();
             Pageable requestedPageable = PageRequest.of(0, 20);
-            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "retryCount"));
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "retryCount").and(Sort.by(Sort.Direction.ASC, "id")));
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
             when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.DEAD_LETTER, expectedPageable))
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
