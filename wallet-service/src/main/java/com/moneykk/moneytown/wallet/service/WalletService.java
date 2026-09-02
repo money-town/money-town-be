@@ -50,22 +50,25 @@ public class WalletService {
 
     @Transactional
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
+        Wallet wallet = walletRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
         Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
-            return buildIdempotentResponse(existing.get(), WalletTransactionType.DEPOSIT, amount);
+            return buildIdempotentResponse(existing.get(), wallet.getId(), WalletTransactionType.DEPOSIT, amount);
         }
 
         requireEligibleForTransaction(userId);
 
-        Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
+        Wallet lockedWallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
-        long balanceBefore = wallet.getBalance();
-        wallet.deposit(amount);
+        long balanceBefore = lockedWallet.getBalance();
+        lockedWallet.deposit(amount);
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
-                wallet.getId(), WalletTransactionType.DEPOSIT, amount,
-                balanceBefore, wallet.getBalance(), idempotencyKey, null
+                lockedWallet.getId(), WalletTransactionType.DEPOSIT, amount,
+                balanceBefore, lockedWallet.getBalance(), idempotencyKey, null
         ));
 
         return TransactionResponse.from(transaction);
@@ -73,31 +76,37 @@ public class WalletService {
 
     @Transactional
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
+        Wallet wallet = walletRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
         Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
-            return buildIdempotentResponse(existing.get(), WalletTransactionType.WITHDRAW, amount);
+            return buildIdempotentResponse(existing.get(), wallet.getId(), WalletTransactionType.WITHDRAW, amount);
         }
 
         requireEligibleForTransaction(userId);
 
-        Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
+        Wallet lockedWallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
-        long balanceBefore = wallet.getBalance();
-        wallet.withdraw(amount);
+        long balanceBefore = lockedWallet.getBalance();
+        lockedWallet.withdraw(amount);
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
-                wallet.getId(), WalletTransactionType.WITHDRAW, amount,
-                balanceBefore, wallet.getBalance(), idempotencyKey, null
+                lockedWallet.getId(), WalletTransactionType.WITHDRAW, amount,
+                balanceBefore, lockedWallet.getBalance(), idempotencyKey, null
         ));
 
         return TransactionResponse.from(transaction);
     }
 
-    // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 요청 내용(타입+금액)이 똑같으면 그 결과를 그대로
-    // 재반환하고(재시도 허용), 하나라도 다르면 충돌로 처리.
-    private TransactionResponse buildIdempotentResponse(WalletTransaction existing, WalletTransactionType type, long requestedAmount) {
-        if (existing.getType() != type || existing.getAmount() != requestedAmount) {
+    // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 그 거래가 "내 지갑" 것이고 타입+금액까지 똑같으면
+    // 그 결과를 그대로 재반환하고(재시도 허용), 지갑이 다르거나 타입/금액이 다르면 충돌로 처리한다.
+    // walletId까지 확인하는 이유는, 다른 유저가 우연히 같은 idempotencyKey를 썼을 때
+    // 그 유저의 거래 정보(잔액 등)가 그대로 반환되는 걸 막기 위해서다.
+    private TransactionResponse buildIdempotentResponse(WalletTransaction existing, Long walletId,
+                                                          WalletTransactionType type, long requestedAmount) {
+        if (!existing.getWalletId().equals(walletId) || existing.getType() != type || existing.getAmount() != requestedAmount) {
             throw new BusinessException(WalletErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
 
