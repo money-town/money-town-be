@@ -95,7 +95,7 @@ public class WalletService {
     }
 
     // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 요청 내용(타입+금액)이 똑같으면 그 결과를 그대로
-    // 재반환하고(재시도 허용), 하나라도 다르면 이 키가 이미 다른 의미로 쓰였다는 뜻이므로 충돌로 처리한다.
+    // 재반환하고(재시도 허용), 하나라도 다르면 충돌로 처리.
     private TransactionResponse buildIdempotentResponse(WalletTransaction existing, WalletTransactionType type, long requestedAmount) {
         if (existing.getType() != type || existing.getAmount() != requestedAmount) {
             throw new BusinessException(WalletErrorCode.IDEMPOTENCY_KEY_CONFLICT);
