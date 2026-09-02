@@ -10,6 +10,8 @@ import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchC
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingDetailResponse;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingListItemResponse;
 import com.moneykk.moneytown.offering.offering.query.repository.OfferingQueryRepository;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -25,6 +27,7 @@ public class OfferingQueryService {
 
     private final OfferingRepository offeringRepository;
     private final OfferingQueryRepository offeringQueryRepository;
+    private final SubscriptionRepository subscriptionRepository;
 
     /**
      * 공개 공모 목록을 검색한다.
@@ -93,12 +96,6 @@ public class OfferingQueryService {
      * 공개 상태의 공모는 누구나 조회할 수 있다.
      * 비공개 상태의 공모는 소유 ISSUER 또는 ADMIN만 조회할 수 있다.
      *
-     * TODO 3차 구현:
-     * CANCELLED 공모의 투자자 상세 조회 정책 확정 후 접근 권한 확장
-     * - 해당 공모 청약 이력이 있는 투자자
-     * - 취소 당시 유효 청약이 있었던 투자자
-     * - 실제 보상 대상 투자자
-     * 중 어떤 범위까지 허용할지 결정 필요
      */
     public OfferingDetailResponse getOffering(
             UUID offeringId,
@@ -113,7 +110,10 @@ public class OfferingQueryService {
                         )
                 );
 
-        if (isPublicStatus(offering.getOfferingStatus())) {
+        OfferingStatus status = offering.getOfferingStatus();
+
+        // 1. 공개 상태
+        if (isPublicStatus(status)) {
             boolean includePrivateFields =
                     isOwner(offering, userId) || isAdmin(role);
 
@@ -123,6 +123,16 @@ public class OfferingQueryService {
             );
         }
 
+        // 2. CANCELLED 별도 정책
+        if (status == OfferingStatus.CANCELLED) {
+            return getCancelledOfferingDetail(
+                    offering,
+                    userId,
+                    role
+            );
+        }
+
+        // 3. 일반 비공개 상태 - DRAFT / REVIEW_REQUESTED / REJECTED / CANCELLING
         if (!isOwner(offering, userId) && !isAdmin(role)) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
@@ -130,6 +140,68 @@ public class OfferingQueryService {
         }
 
         return OfferingDetailResponse.from(offering, true);
+    }
+
+
+    /**
+     * CANCELLED 공모의 상세 조회 권한을 검증한다.
+     *
+     * - 소유 ISSUER / ADMIN: 조회 가능 + 관리용 private field 포함
+     * - INVESTOR: 공모 취소 보상 완료로 자신의 청약이 CANCELLED된 경우만 해당 공모 상세 조회 가능
+     * - 관리용 private field는 제외
+     * - 그 외 사용자: 조회 불가
+     *
+     * Saga 보상 흐름 구현 후 Subscription이
+     * COMPENSATING -> CANCELLED로 정상 전환되면 해당 상태를 기준으로 관련 투자자를 판별한다.
+     */
+    private OfferingDetailResponse getCancelledOfferingDetail(
+            Offering offering,
+            UUID userId,
+            String role
+    ) {
+        if (isOwner(offering, userId) || isAdmin(role)) {
+            return OfferingDetailResponse.from(
+                    offering,
+                    true
+            );
+        }
+
+        if (isCompensatedInvestor(
+                offering.getOfferingId(),
+                userId,
+                role
+        )) {
+            return OfferingDetailResponse.from(
+                    offering,
+                    false
+            );
+        }
+
+        throw new BusinessException(
+                OfferingErrorCode.OFFERING_ACCESS_DENIED
+        );
+    }
+
+    /**
+     * 공모 취소로 인해 실제 보상 완료된 투자자인지 확인한다.
+     */
+    private boolean isCompensatedInvestor(
+            UUID offeringId,
+            UUID userId,
+            String role
+    ) {
+        if (userId == null
+                || role == null
+                || !"INVESTOR".equalsIgnoreCase(role)) {
+            return false;
+        }
+
+        return subscriptionRepository
+                .existsByOfferingIdAndUserIdAndSubscriptionStatusAndCancellationTypeIsNotNullAndIsDeletedFalse(
+                        offeringId,
+                        userId,
+                        SubscriptionStatus.CANCELLED
+                );
     }
 
     /**
