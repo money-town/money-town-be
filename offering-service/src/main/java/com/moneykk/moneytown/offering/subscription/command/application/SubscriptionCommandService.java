@@ -117,13 +117,7 @@ public class SubscriptionCommandService {
              *
              * 이 시점에는 DB Write Transaction을 시작하지 않는다.
              */
-            Offering offering = offeringRepository
-                    .findByOfferingIdAndIsDeletedFalse(offeringId)
-                    .orElseThrow(() ->
-                            new BusinessException(
-                                    OfferingErrorCode.OFFERING_NOT_FOUND
-                            )
-                    );
+            Offering offering = findOffering(offeringId);
 
             /*
              * OPEN 상태이며 실제 모집 기간 내에 있는지 먼저 확인한다.
@@ -377,7 +371,7 @@ public class SubscriptionCommandService {
                             )
                     );
 
-            PreFdsCheckResponse result = response.data();
+            PreFdsCheckResponse result = response != null ? response.data() : null;
 
             if (result == null) {
                 throw new BusinessException(
@@ -508,5 +502,15 @@ public class SubscriptionCommandService {
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_QUANTITY
             );
         }
+    }
+
+    private Offering findOffering(UUID offeringId) {
+        return offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId)
+                .orElseThrow(() ->
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
+                        )
+                );
     }
 }
