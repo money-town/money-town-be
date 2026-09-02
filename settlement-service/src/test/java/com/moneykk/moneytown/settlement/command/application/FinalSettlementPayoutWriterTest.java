@@ -116,13 +116,13 @@ class FinalSettlementPayoutWriterTest {
     @Test
     @DisplayName("markResponseMismatch: retryCount와 무관하게 즉시 DEAD_LETTER로 전환한다")
     void marksResponseMismatch() {
-        FinalSettlementPayout payout = queuedPayout();
+        FinalSettlementPayout payout = retryingPayout(2);
         when(finalSettlementPayoutRepository.findByIdAndIsDeletedFalse(payout.getId())).thenReturn(Optional.of(payout));
 
         finalSettlementPayoutWriter.markResponseMismatch(payout.getId());
 
         assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DEAD_LETTER);
-        assertThat(payout.getRetryCount()).isZero();
+        assertThat(payout.getRetryCount()).isEqualTo(2);
         verify(finalSettlementPayoutRepository).save(payout);
     }
 

@@ -142,13 +142,13 @@ class DividendPayoutWriterTest {
     @Test
     @DisplayName("markResponseMismatch: retryCount와 무관하게 즉시 DEAD_LETTER로 전환한다")
     void marksResponseMismatch() {
-        DividendPayout payout = queuedPayout();
+        DividendPayout payout = retryingPayout(2);
         when(dividendPayoutRepository.findByIdAndIsDeletedFalse(payout.getId())).thenReturn(Optional.of(payout));
 
         dividendPayoutWriter.markResponseMismatch(payout.getId());
 
         assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DEAD_LETTER);
-        assertThat(payout.getRetryCount()).isZero();
+        assertThat(payout.getRetryCount()).isEqualTo(2);
         verify(dividendPayoutRepository).save(payout);
     }
 
