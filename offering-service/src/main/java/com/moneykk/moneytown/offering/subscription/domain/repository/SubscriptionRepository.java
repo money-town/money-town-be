@@ -19,4 +19,7 @@ public interface SubscriptionRepository
             UUID offeringId,
             UUID userId
     );
+
+    // 공모 삭제 전 청약 이력 존재 여부 확인용
+    boolean existsByOfferingId(UUID offeringId);
 }

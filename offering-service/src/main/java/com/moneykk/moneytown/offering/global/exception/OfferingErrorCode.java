@@ -41,6 +41,11 @@ public enum OfferingErrorCode implements ErrorCode {
             "OFFERING_400_07",
             "공모 반려 사유가 올바르지 않습니다."
     ),
+    INVALID_OFFERING_SEARCH_CONDITION(
+            HttpStatus.BAD_REQUEST,
+            "OFFERING_400_08",
+            "공모 검색 조건이 올바르지 않습니다."
+    ),
 
     // 403 FORBIDDEN
     OFFERING_ACCESS_DENIED(
@@ -58,12 +63,22 @@ public enum OfferingErrorCode implements ErrorCode {
             "OFFERING_403_03",
             "공모 관리 권한이 없습니다."
     ),
+    OFFERING_ASSET_ACCESS_DENIED(
+            HttpStatus.FORBIDDEN,
+            "OFFERING_403_04",
+            "해당 자산에 대한 권한이 없습니다."
+    ),
 
     // 404 NOT_FOUND
     OFFERING_NOT_FOUND(
             HttpStatus.NOT_FOUND,
             "OFFERING_404_01",
             "공모를 찾을 수 없습니다."
+    ),
+    OFFERING_ASSET_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "OFFERING_404_02",
+            "공모 대상 자산을 찾을 수 없습니다."
     ),
 
     // 409 CONFLICT
@@ -106,7 +121,39 @@ public enum OfferingErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "OFFERING_409_08",
             "청약 이력이 존재하는 공모는 삭제할 수 없습니다."
-    );
+    ),
+    OFFERING_ASSET_NOT_AVAILABLE(
+            HttpStatus.CONFLICT,
+        "OFFERING_409_09",
+                "현재 상태의 자산으로 공모를 생성할 수 없습니다."
+    ),
+    OFFERING_QUANTITY_EXCEEDS_AVAILABLE(
+            HttpStatus.CONFLICT,
+            "OFFERING_409_10",
+            "공모 모집 수량이 현재 공모 가능한 지분 수량을 초과했습니다."
+    ),
+
+    // 500
+    ASSET_RESPONSE_INVALID(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "OFFERING_500_01",
+            "자산 서비스 응답이 올바르지 않습니다."
+    ),
+
+    ASSET_QUANTITY_STATE_INVALID(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "OFFERING_500_02",
+            "자산 지분 수량 상태가 올바르지 않습니다."
+    ),
+
+    // 503
+    ASSET_SERVICE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "OFFERING_503_01",
+            "현재 자산 조회 서비스를 사용할 수 없습니다."
+    )
+
+    ;
 
     private final HttpStatus status;
     private final String code;

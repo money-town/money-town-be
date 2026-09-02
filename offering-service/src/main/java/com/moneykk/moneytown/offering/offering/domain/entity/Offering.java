@@ -150,8 +150,8 @@ public class Offering extends BaseUpdatableEntity {
      * 심사 요청은 DRAFT 상태이면서
      * 공모 시작 시각 이전인 경우에만 가능하다.
      *
-     * TODO:
-     * - Asset 상태가 여전히 APPROVED인지 검증
+     * TODO: 심사 요청 정책 추가 구현
+     * - Asset Service 연동 후 Asset 상태가 여전히 APPROVED인지 Service에서 검증
      * - 필수 첨부자료 존재 여부 검증
      * - 기타 심사 요청 운영 정책 검증
      */
