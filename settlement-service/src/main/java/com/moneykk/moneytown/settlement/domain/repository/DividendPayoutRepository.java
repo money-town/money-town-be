@@ -28,4 +28,14 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
 
     @Query("SELECT DISTINCT p.settlementBatchId FROM DividendPayout p WHERE p.status IN :statuses AND p.isDeleted = false")
     List<UUID> findDistinctSettlementBatchIdByStatusIn(@Param("statuses") List<PayoutStatus> statuses);
+
+    @Query("SELECT p.status AS status, COUNT(p) AS count FROM DividendPayout p " +
+            "WHERE p.settlementBatchId = :settlementBatchId AND p.isDeleted = false GROUP BY p.status")
+    List<PayoutStatusCount> countByStatusGrouped(@Param("settlementBatchId") UUID settlementBatchId);
+
+    interface PayoutStatusCount {
+        PayoutStatus getStatus();
+
+        long getCount();
+    }
 }
