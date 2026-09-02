@@ -5,6 +5,7 @@ import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -75,6 +76,24 @@ public class OfferingTransactionService {
         );
 
         return OfferingUpdateResponse.from(offering);
+    }
+
+    @Transactional
+    public OfferingReviewRequestResponse requestReview(
+            UUID offeringId,
+            UUID issuerId
+    ) {
+        Offering offering = findOffering(offeringId);
+
+        if (!offering.getIssuerId().equals(issuerId)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
+        offering.requestReview();
+
+        return OfferingReviewRequestResponse.from(offering);
     }
 
     private Offering findOffering(UUID offeringId) {

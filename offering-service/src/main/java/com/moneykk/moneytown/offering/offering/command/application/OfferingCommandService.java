@@ -54,7 +54,6 @@ public class OfferingCommandService {
     }
 
 
-    @Transactional
     public OfferingReviewRequestResponse requestReview(
             UUID offeringId,
             UUID issuerId
@@ -67,9 +66,18 @@ public class OfferingCommandService {
             );
         }
 
+        // 심사 요청 시 자산의 현재 상태와 소유권을 다시 검증한다.
+        validateAssetForReview(
+                offering.getAssetId(),
+                issuerId
+        );
+
         offering.requestReview();
 
-        return OfferingReviewRequestResponse.from(offering);
+        return offeringTransactionService.requestReview(
+                offeringId,
+                issuerId
+        );
     }
 
     @Transactional
@@ -162,6 +170,36 @@ public class OfferingCommandService {
         offering.delete(userId);
 
         return OfferingDeleteResponse.from(offering);
+    }
+
+    private void validateAssetForReview(
+            UUID assetId,
+            UUID issuerId
+    ) {
+        ApiResponse<AssetOfferingInfoResponse> assetResponse =
+                assetServiceClient.getAsset(assetId);
+
+        AssetOfferingInfoResponse asset =
+                assetResponse != null
+                        ? assetResponse.data()
+                        : null;
+
+        validateAssetResponse(
+                assetId,
+                asset
+        );
+
+        if (!"APPROVED".equalsIgnoreCase(asset.assetStatus())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_NOT_AVAILABLE
+            );
+        }
+
+        if (!issuerId.equals(asset.userId())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_ACCESS_DENIED
+            );
+        }
     }
 
     private AssetOfferingInfoResponse getValidatedAssetForOffering(
