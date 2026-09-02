@@ -60,6 +60,7 @@ public class SubscriptionTransactionService {
             );
         }
 
+        // TODO: 수량 확보 유효시간 정책 확정 후 설정값으로 분리
         Instant reservationExpiresAt =
                 Instant.now().plus(10, ChronoUnit.MINUTES);
 

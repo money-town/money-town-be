@@ -120,7 +120,6 @@ public class Subscription extends BaseUpdatableEntity {
      *
      * 장시간 PROCESSING 상태로 남아 있는 청약을 탐지하기 위해 사용한다.
      */
-    // TODO 몇 분 뒤로 설정할지 아직 정책 없음
     @Column(name = "reservation_expires_at")
     private Instant reservationExpiresAt;
 
@@ -171,10 +170,11 @@ public class Subscription extends BaseUpdatableEntity {
                 offeringId,
                 userId,
                 quantity,
-                pricePerUnit
+                pricePerUnit,
+                reservationExpiresAt
         );
 
-        long amount = Math.multiplyExact(pricePerUnit, quantity);
+        long amount = calculateAmount(pricePerUnit, quantity);
 
         return new Subscription(
                 UUID.randomUUID(),
@@ -189,18 +189,51 @@ public class Subscription extends BaseUpdatableEntity {
         );
     }
 
+    // TODO 3차 구현:
+    // Wallet 동결 결과 이벤트 처리 및 보상 흐름 구현
+    // - 동결 성공: PROCESSING -> CONFIRMED
+    // - 동결 실패: 보상 정책에 따라 COMPENSATING 전환 후 수량 복원
+    // - 수량 복원 완료 시 quantityReserved = false
+    // - 최종 실패 처리 시 REJECTED
+    // - 취소 완료 시 CANCELLED
+    // - CONFIRMED 전환 시 confirmedAt 기록
+    // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
+
+    /**
+     * 청약 총 금액을 계산한다.
+     *
+     * 단위 가격과 청약 수량의 곱이 Long 범위를 초과하는 경우
+     * 잘못된 청약 금액으로 처리한다.
+     */
+    private static long calculateAmount(
+            Long pricePerUnit,
+            Long quantity
+    ) {
+        try {
+            return Math.multiplyExact(
+                    pricePerUnit,
+                    quantity
+            );
+        } catch (ArithmeticException e) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_AMOUNT
+            );
+        }
+    }
+
     private static void validateCreate(
             UUID offeringId,
             UUID userId,
             Long quantity,
-            Long pricePerUnit
+            Long pricePerUnit,
+            Instant reservationExpiresAt
     ) {
         if (offeringId == null) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
-        // TODO 2차 구현범위에서 아래 내용 재검토 예정
+
         if (userId == null) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
@@ -222,6 +255,13 @@ public class Subscription extends BaseUpdatableEntity {
          *   → Subscription.pricePerUnit
          */
         if (pricePerUnit == null || pricePerUnit <= 0) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (reservationExpiresAt == null
+                || !reservationExpiresAt.isAfter(Instant.now())) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );

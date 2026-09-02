@@ -26,6 +26,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_400_04",
             "청약 검색 조건이 올바르지 않습니다."
     ),
+    INVALID_SUBSCRIPTION_AMOUNT(
+            HttpStatus.BAD_REQUEST,
+            "SUBSCRIPTION_400_05",
+            "청약 금액이 허용 범위를 초과했습니다."
+    ),
 
     // 403 FORBIDDEN
     SUBSCRIPTION_ACCESS_DENIED(

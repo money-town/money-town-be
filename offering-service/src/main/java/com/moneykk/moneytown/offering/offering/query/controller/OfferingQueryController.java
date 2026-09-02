@@ -31,6 +31,8 @@ public class OfferingQueryController {
 
     /**
      * 공개 공모 목록 조회
+     *
+     * 인증 없이 접근할 수 있다.
      */
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchPublicOfferings(
@@ -64,15 +66,24 @@ public class OfferingQueryController {
 
     /**
      * 내 공모 목록 조회
+     *
+     * ISSUER만 접근할 수 있다.
      */
-    // TODO: Gateway Role 정책 반영 후 ISSUER 접근 제어 위치 최종 확인
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchMyOfferings(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @RequestParam(required = false) OfferingStatus offeringStatus,
             @RequestParam(required = false) String keyword,
             Pageable pageable
     ) {
+
+        if (!"ISSUER".equalsIgnoreCase(role)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
         OfferingSearchCondition condition =
                 new OfferingSearchCondition(
                         offeringStatus,
@@ -100,8 +111,9 @@ public class OfferingQueryController {
 
     /**
      * 관리자 공모 목록 조회
+     *
+     * ADMIN만 접근할 수 있다.
      */
-    // TODO: Gateway Role 정책 반영 후 ADMIN 접근 제어 위치 최종 확인
     @GetMapping("/manage")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchOfferingsForManagement(
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
@@ -141,6 +153,9 @@ public class OfferingQueryController {
 
     /**
      * 공모 상품 상세 조회
+     *
+     * 공개 상태의 공모는 인증 없이 조회할 수 있다.
+     * 비공개 상태의 공모는 발행자 본인 또는 ADMIN만 조회할 수 있다.
      */
     @GetMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingDetailResponse>> getOffering(

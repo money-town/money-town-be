@@ -24,12 +24,23 @@ public class OfferingCommandController {
 
     private final OfferingCommandService offeringCommandService;
 
-    // TODO: Gateway/서비스 인가 정책 확정 후 ISSUER 권한 검증 적용
+    /**
+     * 공모 상품 등록
+     *
+     * ISSUER만 접근할 수 있다.
+     */
     @PostMapping
     public ResponseEntity<ApiResponse<OfferingCreateResponse>> createOffering(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OfferingCreateRequest request
     ) {
+        if (!"ISSUER".equalsIgnoreCase(role)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
         OfferingCreateResponse response =
                 offeringCommandService.create(userId, request);
 
@@ -41,12 +52,25 @@ public class OfferingCommandController {
                 ));
     }
 
-    // TODO: Gateway/서비스 인가 정책 확정 후 ISSUER 권한 검증 적용
+    /**
+     * 공모 심사 요청
+     *
+     * ISSUER만 접근할 수 있다.
+     * 실제 공모 소유자 여부는 Service에서 추가 검증한다.
+     */
     @PostMapping("/{offeringId}/review-requests")
     public ResponseEntity<ApiResponse<OfferingReviewRequestResponse>> requestReview(
             @PathVariable UUID offeringId,
-            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
+
+        if (!"ISSUER".equalsIgnoreCase(role)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
         OfferingReviewRequestResponse response =
                 offeringCommandService.requestReview(
                         offeringId,
@@ -61,7 +85,11 @@ public class OfferingCommandController {
         );
     }
 
-    // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 방식 재검토
+    /**
+     * 공모 승인
+     *
+     * ADMIN만 접근할 수 있다.
+     */
     @PostMapping("/{offeringId}/approval")
     public ResponseEntity<ApiResponse<OfferingApprovalResponse>> approveOffering(
             @PathVariable UUID offeringId,
@@ -90,6 +118,8 @@ public class OfferingCommandController {
 
     /**
      * 공모 반려
+     *
+     * ADMIN만 접근할 수 있다.
      */
     @PostMapping("/{offeringId}/rejection")
     public ResponseEntity<ApiResponse<OfferingRejectionResponse>> rejectOffering(
@@ -98,7 +128,6 @@ public class OfferingCommandController {
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OfferingRejectionRequest request
     ) {
-        // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 방식 재검토
         if (!"ADMIN".equalsIgnoreCase(role)) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_REVIEW_ACCESS_DENIED
@@ -122,8 +151,10 @@ public class OfferingCommandController {
 
     /**
      * 공모 상품 수정
+     *
+     * ISSUER 또는 ADMIN만 접근할 수 있다.
+     * ISSUER의 실제 공모 소유권은 Service에서 추가 검증한다.
      */
-    // TODO: Gateway/서비스 인가 정책 확정 후 권한 전달 방식 재검토
     @PatchMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingUpdateResponse>> updateOffering(
             @PathVariable UUID offeringId,
@@ -131,6 +162,16 @@ public class OfferingCommandController {
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @RequestBody OfferingUpdateRequest request
     ) {
+
+        boolean issuer = "ISSUER".equalsIgnoreCase(role);
+        boolean admin = "ADMIN".equalsIgnoreCase(role);
+
+        if (!issuer && !admin) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
         OfferingUpdateResponse response =
                 offeringCommandService.updateOffering(
                         offeringId,
@@ -149,6 +190,9 @@ public class OfferingCommandController {
 
     /**
      * 공모 상품 삭제
+     *
+     * ISSUER 또는 ADMIN만 접근할 수 있다.
+     * ISSUER의 실제 공모 소유권은 Service에서 추가 검증한다.
      */
     @DeleteMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingDeleteResponse>> deleteOffering(
@@ -156,6 +200,16 @@ public class OfferingCommandController {
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
+
+        boolean issuer = "ISSUER".equalsIgnoreCase(role);
+        boolean admin = "ADMIN".equalsIgnoreCase(role);
+
+        if (!issuer && !admin) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
         OfferingDeleteResponse response =
                 offeringCommandService.deleteOffering(
                         offeringId,

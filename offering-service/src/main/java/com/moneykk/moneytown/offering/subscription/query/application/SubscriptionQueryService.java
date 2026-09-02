@@ -103,6 +103,10 @@ public class SubscriptionQueryService {
                 role != null
                         && "ADMIN".equalsIgnoreCase(role);
 
+        boolean investor =
+                role != null
+                        && "INVESTOR".equalsIgnoreCase(role);
+
         boolean owner =
                 userId != null
                         && subscription.getUserId().equals(userId);

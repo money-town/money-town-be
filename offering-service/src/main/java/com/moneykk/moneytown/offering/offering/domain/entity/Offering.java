@@ -143,15 +143,18 @@ public class Offering extends BaseUpdatableEntity {
                 endAt
         );
     }
-    /**
-     * TODO 추가 검증 - 심사요청 관련
-     * 자산 상태가 여전히 APPROVED인지
-     * 필수 첨부자료가 있는지
-     * 심사 요청 가능한 기간인지
-     * 기타 운영 검증
-     *
-     * */
 
+    /**
+     * 작성 중인 공모를 심사 요청 상태로 전환한다.
+     *
+     * 심사 요청은 DRAFT 상태이면서
+     * 공모 시작 시각 이전인 경우에만 가능하다.
+     *
+     * TODO:
+     * - Asset 상태가 여전히 APPROVED인지 검증
+     * - 필수 첨부자료 존재 여부 검증
+     * - 기타 심사 요청 운영 정책 검증
+     */
     public void requestReview() {
         if (offeringStatus != OfferingStatus.DRAFT) {
             throw new BusinessException(
@@ -160,7 +163,7 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         validateForReview();
-        validateOfferingPeriodNotExpired();
+        validateBeforeOfferingStart();
 
         this.offeringStatus = OfferingStatus.REVIEW_REQUESTED;
         this.reviewRequestedAt = Instant.now();
@@ -168,6 +171,13 @@ public class Offering extends BaseUpdatableEntity {
 
     /**
      * 심사 요청된 공모를 승인한다.
+     *
+     * 승인은 공모 시작 시각 이전까지만 가능하며,
+     * 승인 완료 후 SCHEDULED 상태로 전환한다.
+     *
+     * TODO:
+     * SCHEDULED 공모는 startAt 도달 시 OPEN 상태로 전환해야 한다.
+     * 스케줄러/배치 또는 별도의 상태 동기화 정책 확정 후 구현한다.
      */
     public void approve(UUID reviewerId) {
         if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
@@ -183,7 +193,7 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         validateForApproval();
-        validateOfferingPeriodNotExpired();
+        validateBeforeOfferingStart();
 
         this.offeringStatus = OfferingStatus.SCHEDULED;
         this.reviewedAt = Instant.now();
@@ -206,13 +216,16 @@ public class Offering extends BaseUpdatableEntity {
             );
         }
 
-        if (rejectionReason == null || rejectionReason.isBlank()) {
+        if (rejectionReason == null) {
             throw new BusinessException(
                     OfferingErrorCode.INVALID_REJECTION_REASON
             );
         }
 
-        if (rejectionReason.length() > 500) {
+        String trimmedReason = rejectionReason.trim();
+
+        if (trimmedReason.isBlank()
+                || trimmedReason.length() > 500) {
             throw new BusinessException(
                     OfferingErrorCode.INVALID_REJECTION_REASON
             );
@@ -225,11 +238,21 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         this.offeringStatus = OfferingStatus.REJECTED;
-        this.rejectionReason = rejectionReason.trim();
+        this.rejectionReason = trimmedReason;
         this.reviewedAt = Instant.now();
         this.reviewedBy = reviewerId;
     }
 
+    /**
+     * 작성 중인 공모 정보를 수정한다.
+     *
+     * 현재 정책에서는 DRAFT 상태에서만 수정할 수 있으므로,
+     * totalQuantity 변경 시 remainingQuantity도 동일한 값으로 초기화한다.
+     *
+     * TODO:
+     * REJECTED 상태 수정 및 재심사를 허용할 경우
+     * remainingQuantity 초기화 정책을 다시 검토한다.
+     */
     public void update(
             String title,
             Long totalQuantity,
@@ -306,8 +329,15 @@ public class Offering extends BaseUpdatableEntity {
         softDelete(deletedBy);
     }
 
-    private void validateOfferingPeriodNotExpired() {
-        if (!endAt.isAfter(Instant.now())) {
+
+    /**
+     * 심사 요청 및 승인은 공모 시작 시각 이전까지만 허용한다.
+     *
+     * startAt과 현재 시각이 동일하거나 이미 지난 경우
+     * 더 이상 심사 요청/승인할 수 없다.
+     */
+    private void validateBeforeOfferingStart() {
+        if (!startAt.isAfter(Instant.now())) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_PERIOD_EXPIRED
             );

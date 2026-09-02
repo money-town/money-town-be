@@ -111,7 +111,6 @@ public class OfferingQueryService {
             );
         }
 
-        // TODO: Gateway의 실제 Role 전달 계약이 확정되기 전 임시 구현
         if (!isOwner(offering, userId) && !isAdmin(role)) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED

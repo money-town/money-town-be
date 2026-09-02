@@ -95,7 +95,6 @@ public class OfferingCommandService {
                         )
                 );
 
-        // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
         offering.approve(reviewerId);
 
         return OfferingApprovalResponse.from(offering);
@@ -115,7 +114,6 @@ public class OfferingCommandService {
                         )
                 );
 
-        // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
         offering.reject(
                 reviewerId,
                 request.rejectionReason()
@@ -142,7 +140,6 @@ public class OfferingCommandService {
         boolean owner = offering.getIssuerId().equals(userId);
         boolean admin = "ADMIN".equalsIgnoreCase(role);
 
-        // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
         if (!owner && !admin) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
@@ -178,15 +175,14 @@ public class OfferingCommandService {
         boolean owner = offering.getIssuerId().equals(userId);
         boolean admin = "ADMIN".equalsIgnoreCase(role);
 
-        // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
         if (!owner && !admin) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
 
-        // TODO: Subscription Service 연동 계약 확정 후 청약 이력 존재 여부 검증
-// 청약 이력이 존재하는 경우 OFFERING_HAS_SUBSCRIPTIONS
+        // TODO: 청약 이력 존재 여부 검증
+        // 청약 이력이 존재하는 경우 OFFERING_HAS_SUBSCRIPTIONS
 
         offering.delete(userId);
 
