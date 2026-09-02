@@ -288,6 +288,79 @@ class HoldingCommandServiceTest {
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
     }
 
+    @Test
+    @DisplayName("회수 요청의 보유지분과 배정 이력이 다르면 오류를 반환한다")
+    void throwsWhenAllocationHoldingDoesNotMatchRequest() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID requestedHoldingId = UUID.randomUUID();
+        HoldingRevocationRequest request =
+                new HoldingRevocationRequest(subscriptionId, "청약 취소");
+        HoldingHistory allocationHistory = new HoldingHistory(
+                UUID.randomUUID(), subscriptionId, HoldingHistoryType.ALLOCATE,
+                10, 0, 10, "ALLOCATE:" + subscriptionId, null
+        );
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.REVOKE
+        )).thenReturn(Optional.empty());
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.of(allocationHistory));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingCommandService.revoke(requestedHoldingId, request)
+        );
+
+        assertEquals(AssetErrorCode.HOLDING_DATA_CONFLICT, exception.getErrorCode());
+        verifyNoInteractions(assetQueryRepository, holdingQueryRepository, holdingRepository);
+    }
+
+    @Test
+    @DisplayName("자산 락을 기다리는 동안 처리된 회수는 다시 차감하지 않는다")
+    void duplicateRevocationCompletedWhileWaitingForAssetLockDoesNotDecreaseAgain() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        HoldingRevocationRequest request =
+                new HoldingRevocationRequest(subscriptionId, "청약 취소");
+
+        Asset asset = approvedAsset(assetId);
+        asset.allocateShares(10);
+        Holding holding = new Holding(assetId, userId, 5);
+        ReflectionTestUtils.setField(holding, "id", holdingId);
+        HoldingHistory allocationHistory = new HoldingHistory(
+                holdingId, subscriptionId, HoldingHistoryType.ALLOCATE,
+                10, 0, 10, "ALLOCATE:" + subscriptionId, null
+        );
+        HoldingHistory revocationHistory = new HoldingHistory(
+                holdingId, subscriptionId, HoldingHistoryType.REVOKE,
+                10, 15, 5, "REVOKE:" + subscriptionId, "청약 취소"
+        );
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.REVOKE
+        )).thenReturn(Optional.empty(), Optional.of(revocationHistory));
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.of(allocationHistory));
+        when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
+                .thenReturn(Optional.of(assetId));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+        when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
+
+        HoldingRevocationResponse response =
+                holdingCommandService.revoke(holdingId, request);
+
+        assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
+        assertEquals(10, asset.getAllocatedQuantity());
+        assertEquals(5, holding.getQuantity());
+        verify(holdingRepository, never()).save(any(Holding.class));
+        verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
     private Asset approvedAsset(UUID assetId) {
         Asset asset = new Asset(
                 UUID.randomUUID(), "테스트 부동산", AssetType.REAL_ESTATE, "테스트 자산",

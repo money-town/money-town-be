@@ -27,15 +27,6 @@ public class AssetQueryService {
                 ));
 
         // 내부 API 응답 생성
-        return new InternalAssetResponse(
-                asset.getId(),
-                asset.getUserId(),
-                asset.getType(),
-                asset.getAssetName(),
-                asset.getUnitPrice(),
-                asset.getTotalShareQuantity(),
-                asset.getAllocatedQuantity(),
-                asset.getStatus()
-        );
+        return InternalAssetResponse.of(asset);
     }
 }
