@@ -47,8 +47,8 @@ public class Wallet extends BaseUpdatableEntity {
 
     public void deposit(long amount) {
         requirePositive(amount);
-        this.balance += amount;
-        this.availableBalance += amount;
+        this.balance = addExact(this.balance, amount);
+        this.availableBalance = addExact(this.availableBalance, amount);
     }
 
     public void withdraw(long amount) {
@@ -61,7 +61,7 @@ public class Wallet extends BaseUpdatableEntity {
     public void hold(long amount) {
         requirePositive(amount);
         requireSufficientAvailableBalance(amount);
-        this.holdBalance += amount;
+        this.holdBalance = addExact(this.holdBalance, amount);
         this.availableBalance -= amount;
     }
 
@@ -69,7 +69,7 @@ public class Wallet extends BaseUpdatableEntity {
         requirePositive(amount);
         requireSufficientHoldBalance(amount);
         this.holdBalance -= amount;
-        this.availableBalance += amount;
+        this.availableBalance = addExact(this.availableBalance, amount);
     }
 
     public void deductHold(long amount) {
@@ -94,6 +94,16 @@ public class Wallet extends BaseUpdatableEntity {
     private static void requirePositive(long amount) {
         if (amount <= 0) {
             throw new BusinessException(WalletErrorCode.INVALID_AMOUNT);
+        }
+    }
+
+    // long 덧셈 오버플로가 나면(이론상 balance가 Long.MAX_VALUE에 근접한 경우)
+    // 값이 음수로 뒤집히는 대신 명시적인 BusinessException으로 막는다.
+    private static long addExact(long a, long b) {
+        try {
+            return Math.addExact(a, b);
+        } catch (ArithmeticException e) {
+            throw new BusinessException(WalletErrorCode.BALANCE_OVERFLOW);
         }
     }
 }
