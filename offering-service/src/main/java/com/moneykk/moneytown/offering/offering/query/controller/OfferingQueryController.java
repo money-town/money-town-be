@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.offering.query.controller;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.query.application.OfferingQueryService;
@@ -64,11 +65,10 @@ public class OfferingQueryController {
     /**
      * 내 공모 목록 조회
      */
-    // TODO: Gateway 인증/인가 정책 확정 후 사용자 정보 전달 방식 재검토
-    // TODO: ISSUER 권한 검증 방식 확정 후 적용
+    // TODO: Gateway Role 정책 반영 후 ISSUER 접근 제어 위치 최종 확인
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchMyOfferings(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestParam(required = false) OfferingStatus offeringStatus,
             @RequestParam(required = false) String keyword,
             Pageable pageable
@@ -101,11 +101,10 @@ public class OfferingQueryController {
     /**
      * 관리자 공모 목록 조회
      */
-    // TODO: Gateway 인증/인가 정책 확정 후 사용자 정보 전달 방식 재검토
-    // TODO: ADMIN 권한 검증 방식 확정 후 적용
+    // TODO: Gateway Role 정책 반영 후 ADMIN 접근 제어 위치 최종 확인
     @GetMapping("/manage")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchOfferingsForManagement(
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @RequestParam(required = false) OfferingStatus offeringStatus,
             @RequestParam(required = false) String keyword,
             Pageable pageable
@@ -143,16 +142,15 @@ public class OfferingQueryController {
     /**
      * 공모 상품 상세 조회
      */
-    // TODO: Gateway 인증/인가 정책 확정 후 사용자 정보 전달 방식 재검토
     @GetMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingDetailResponse>> getOffering(
             @PathVariable UUID offeringId,
             @RequestHeader(
-                    value = "X-User-Id",
+                    value = AuthHeaderConstants.USER_ID,
                     required = false
             ) UUID userId,
             @RequestHeader(
-                    value = "X-User-Role",
+                    value = AuthHeaderConstants.USER_ROLE,
                     required = false
             ) String role
     ) {

@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.offering.command.controller;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.application.OfferingCommandService;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
@@ -26,7 +27,7 @@ public class OfferingCommandController {
     // TODO: Gateway/서비스 인가 정책 확정 후 ISSUER 권한 검증 적용
     @PostMapping
     public ResponseEntity<ApiResponse<OfferingCreateResponse>> createOffering(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @Valid @RequestBody OfferingCreateRequest request
     ) {
         OfferingCreateResponse response =
@@ -44,7 +45,7 @@ public class OfferingCommandController {
     @PostMapping("/{offeringId}/review-requests")
     public ResponseEntity<ApiResponse<OfferingReviewRequestResponse>> requestReview(
             @PathVariable UUID offeringId,
-            @RequestHeader("X-User-Id") UUID userId
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
     ) {
         OfferingReviewRequestResponse response =
                 offeringCommandService.requestReview(
@@ -64,8 +65,8 @@ public class OfferingCommandController {
     @PostMapping("/{offeringId}/approval")
     public ResponseEntity<ApiResponse<OfferingApprovalResponse>> approveOffering(
             @PathVariable UUID offeringId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
         if (!"ADMIN".equalsIgnoreCase(role)) {
             throw new BusinessException(
@@ -93,8 +94,8 @@ public class OfferingCommandController {
     @PostMapping("/{offeringId}/rejection")
     public ResponseEntity<ApiResponse<OfferingRejectionResponse>> rejectOffering(
             @PathVariable UUID offeringId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OfferingRejectionRequest request
     ) {
         // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 방식 재검토
@@ -126,8 +127,8 @@ public class OfferingCommandController {
     @PatchMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingUpdateResponse>> updateOffering(
             @PathVariable UUID offeringId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @RequestBody OfferingUpdateRequest request
     ) {
         OfferingUpdateResponse response =
@@ -152,8 +153,8 @@ public class OfferingCommandController {
     @DeleteMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingDeleteResponse>> deleteOffering(
             @PathVariable UUID offeringId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
         OfferingDeleteResponse response =
                 offeringCommandService.deleteOffering(

@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.query.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.query.application.SubscriptionQueryService;
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
@@ -25,11 +26,10 @@ public class SubscriptionQueryController {
     /**
      * 내 청약 목록 조회
      */
-    // TODO: Gateway 인증/인가 정책 확정 후
-    // INVESTOR 권한 및 사용자 정보 전달 방식 재검토
+    // TODO: Gateway Role 정책 반영 후 INVESTOR 접근 제어 위치 최종 확인
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<PageResponse<SubscriptionListItemResponse>>> searchMySubscriptions(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestParam(required = false) UUID offeringId,
             @RequestParam(required = false) SubscriptionStatus subscriptionStatus,
             @RequestParam(required = false) Instant startDate,
@@ -66,8 +66,8 @@ public class SubscriptionQueryController {
     @GetMapping("/{subscriptionId}")
     public ResponseEntity<ApiResponse<SubscriptionDetailResponse>> getSubscriptionDetail(
             @PathVariable UUID subscriptionId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
         SubscriptionDetailResponse response =
                 subscriptionQueryService.getSubscriptionDetail(

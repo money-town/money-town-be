@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.offering.subscription.command.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCommandService;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
@@ -27,12 +28,11 @@ public class SubscriptionCommandController {
     /**
      * 선착순 청약 접수
      */
-    // TODO: Gateway 인증/인가 정책 확정 후
-    // INVESTOR 권한 및 사용자 정보 전달 방식 재검토
+    // TODO: Gateway Role 정책 반영 후 INVESTOR 접근 제어 위치 최종 확인
     @PostMapping
     public ResponseEntity<ApiResponse<SubscriptionCreateResponse>> createSubscription(
             @PathVariable UUID offeringId,
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubscriptionCreateRequest request
     ) {
