@@ -71,6 +71,14 @@ class DividendPayoutWriter {
         dividendPayoutRepository.save(payout);
     }
 
+    // 지갑 응답이 success=true인데 우리가 보낸 settlementBatchId와 다른 값을 돌려준 경우 : 즉시 DEAD_LETTER
+    @Transactional
+    public void markResponseMismatch(UUID payoutId) {
+        DividendPayout payout = loadPayout(payoutId);
+        payout.markDeadLetter();
+        dividendPayoutRepository.save(payout);
+    }
+
     @Transactional
     public void updateBatchStatus(UUID settlementBatchId) {
         SettlementBatch batch = loadBatch(settlementBatchId);
