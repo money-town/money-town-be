@@ -2,6 +2,7 @@ package com.moneykk.moneytown.settlement.query.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.query.application.SettlementQueryService;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
@@ -38,8 +39,9 @@ public class SettlementQueryController {
     @GetMapping("/settlements/{settlementBatchId}/payouts")
     public ResponseEntity<ApiResponse<PageResponse<DividendPayoutListItemResponse>>> getPayouts(
             @PathVariable UUID settlementBatchId,
+            @RequestParam(required = false) PayoutStatus status,
             @PageableDefault(size = 10) Pageable pageable) {
-        PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(settlementBatchId, pageable);
+        PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(settlementBatchId, status, pageable);
         return ResponseEntity.ok(ApiResponse.success(response, "회차별 개별 지급 내역을 조회했습니다."));
     }
 

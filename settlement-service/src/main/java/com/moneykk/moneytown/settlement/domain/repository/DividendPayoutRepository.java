@@ -32,6 +32,8 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
 
     Page<DividendPayout> findBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId, Pageable pageable);
 
+    Page<DividendPayout> findBySettlementBatchIdAndStatusAndIsDeletedFalse(UUID settlementBatchId, PayoutStatus status, Pageable pageable);
+
     @Query("SELECT DISTINCT p.settlementBatchId FROM DividendPayout p WHERE p.status IN :statuses AND p.isDeleted = false")
     List<UUID> findDistinctSettlementBatchIdByStatusIn(@Param("statuses") List<PayoutStatus> statuses);
 

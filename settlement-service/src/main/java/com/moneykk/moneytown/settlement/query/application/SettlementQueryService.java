@@ -13,7 +13,9 @@ import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemRespon
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,12 +39,19 @@ public class SettlementQueryService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<DividendPayoutListItemResponse> getPayouts(UUID settlementBatchId, Pageable pageable) {
+    public PageResponse<DividendPayoutListItemResponse> getPayouts(UUID settlementBatchId, PayoutStatus status, Pageable pageable) {
         if (!settlementBatchRepository.existsByIdAndIsDeletedFalse(settlementBatchId)) {
             throw new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
         }
 
-        Page<DividendPayout> payouts = dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId, pageable);
+        Sort sort = status == PayoutStatus.DEAD_LETTER
+                ? Sort.by(Sort.Direction.DESC, "retryCount")
+                : Sort.by(Sort.Direction.DESC, "amount");
+        Pageable sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+
+        Page<DividendPayout> payouts = status == null
+                ? dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId, sortedPageable)
+                : dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(settlementBatchId, status, sortedPageable);
         return PageResponse.from(payouts, DividendPayoutListItemResponse::of);
     }
 
