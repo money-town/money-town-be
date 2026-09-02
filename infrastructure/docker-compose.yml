@@ -235,7 +235,8 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/asset_db
-    ports: ["19095:19095"]
+    # 외부에서 내부 API를 직접 호출하지 못하도록 호스트 포트를 열지 않는다.
+    expose: ["19095"]
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
