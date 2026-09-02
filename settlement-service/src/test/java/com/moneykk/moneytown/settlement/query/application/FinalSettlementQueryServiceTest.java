@@ -1,12 +1,15 @@
 package com.moneykk.moneytown.settlement.query.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
+import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementBatchDetailResponse;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementPayoutListItemResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -14,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
@@ -97,6 +104,88 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch(finalSettlementBatchId))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);
+        }
+    }
+
+    @Nested
+    @DisplayName("회차별 개별 반환 내역 조회")
+    class GetPayouts {
+
+        @Test
+        @DisplayName("status 미지정 시 전체 반환 내역을 amount 내림차순으로 반환한다")
+        void returnsAllPayoutsSortedByAmountDescWhenStatusOmitted() {
+            UUID batchId = UUID.randomUUID();
+            FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 30L, 30_000_000L);
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batchId, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<FinalSettlementPayoutListItemResponse> response =
+                    finalSettlementQueryService.getPayouts(batchId, null, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            FinalSettlementPayoutListItemResponse item = response.content().get(0);
+            assertThat(item.finalSettlementPayoutId()).isEqualTo(payout.getId());
+            assertThat(item.investorId()).isEqualTo(payout.getInvestorId());
+            assertThat(item.quantity()).isEqualTo(payout.getQuantity());
+            assertThat(item.amount()).isEqualTo(payout.getAmount());
+            assertThat(item.status()).isEqualTo(payout.getStatus());
+            assertThat(item.retryCount()).isEqualTo(payout.getRetryCount());
+            assertThat(response.totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("status로 필터링하여 해당 상태의 반환 내역만 반환한다")
+        void filtersPayoutsByStatus() {
+            UUID batchId = UUID.randomUUID();
+            FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 30L, 30_000_000L);
+            payout.markProcessing();
+            payout.markPaid();
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.PAID, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<FinalSettlementPayoutListItemResponse> response =
+                    finalSettlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
+        }
+
+        @Test
+        @DisplayName("status=DEAD_LETTER로 필터링하면 retryCount 내림차순으로 정렬한다")
+        void sortsByRetryCountDescWhenFilteredByDeadLetter() {
+            UUID batchId = UUID.randomUUID();
+            FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 30L, 30_000_000L);
+            payout.markDeadLetter();
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "retryCount"));
+            when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.DEAD_LETTER, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<FinalSettlementPayoutListItemResponse> response =
+                    finalSettlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
+        void throwsWhenBatchNotFound() {
+            UUID batchId = UUID.randomUUID();
+            Pageable pageable = PageRequest.of(0, 20);
+            when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
+
+            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts(batchId, null, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);
