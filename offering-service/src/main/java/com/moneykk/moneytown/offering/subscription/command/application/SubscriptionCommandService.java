@@ -434,13 +434,15 @@ public class SubscriptionCommandService {
             ApiResponse<UserInvestmentEligibilityResponse> response =
                     userServiceClient.getInvestmentEligibility(userId);
 
-            UserInvestmentEligibilityResponse user = response.data();
+            UserInvestmentEligibilityResponse user =
+                    response != null
+                            ? response.data()
+                            : null;
 
-            if (user == null) {
-                throw new BusinessException(
-                        SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
-                );
-            }
+            validateUserEligibilityResponse(
+                    userId,
+                    user
+            );
 
             Instant now = Instant.now();
 
@@ -475,6 +477,21 @@ public class SubscriptionCommandService {
         }
     }
 
+    private void validateUserEligibilityResponse(
+            UUID requestedUserId,
+            UserInvestmentEligibilityResponse user
+    ) {
+        if (user == null
+                || user.userId() == null
+                || !requestedUserId.equals(user.userId())
+                || user.accountStatus() == null
+                || user.kycStatus() == null
+                || user.kycExpiresAt() == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
+            );
+        }
+    }
 
     /**
      * 공모별 최소·최대 청약 수량 범위를 검증한다.
