@@ -2,7 +2,7 @@ package com.moneykk.moneytown.analysis.fds.command.redis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.moneykk.moneytown.analysis.fds.command.dto.PreFdsCheckResult;
+import com.moneykk.moneytown.analysis.fds.command.dto.response.PreFdsCheckResult;
 import com.moneykk.moneytown.analysis.global.exception.AnalysisErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
