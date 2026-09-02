@@ -1,6 +1,5 @@
 codecov:
   require_ci_to_pass: true
-  require_changes: false
 
 coverage:
   status:
@@ -14,3 +13,4 @@ coverage:
 comment:
   layout: "reach,diff,flags,files,footer"
   behavior: default
+  require_changes: false
