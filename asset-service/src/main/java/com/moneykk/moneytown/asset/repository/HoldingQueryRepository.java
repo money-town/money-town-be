@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,6 +18,7 @@ public interface HoldingQueryRepository {
             UUID assetId,
             Instant cutoffExclusive,
             UUID cursor,
-            int limit
+            int limit,
+            Sort.Direction direction
     );
 }

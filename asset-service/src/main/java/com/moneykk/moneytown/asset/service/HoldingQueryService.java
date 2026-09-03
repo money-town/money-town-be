@@ -13,6 +13,7 @@ import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -84,7 +85,8 @@ public class HoldingQueryService {
             UUID assetId,
             LocalDate asOf,
             UUID cursor,
-            int size
+            int size,
+            Sort.Direction direction
     ) {
         // 삭제되지 않은 자산인지 확인
         assetQueryRepository.findActiveById(assetId)
@@ -101,7 +103,8 @@ public class HoldingQueryService {
                         assetId,
                         cutoffExclusive,
                         cursor,
-                        size + 1
+                        size + 1,
+                        direction
                 );
 
         boolean hasNext = rows.size() > size;
