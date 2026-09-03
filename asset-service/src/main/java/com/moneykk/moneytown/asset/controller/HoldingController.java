@@ -20,7 +20,7 @@ import java.util.UUID;
 /** 보유지분 조회 API */
 @Validated
 @RestController
-@RequestMapping("/assets/{assetId}/holdings")
+@RequestMapping("/api/v1/assets/{assetId}/holdings")
 @RequiredArgsConstructor
 public class HoldingController {
 

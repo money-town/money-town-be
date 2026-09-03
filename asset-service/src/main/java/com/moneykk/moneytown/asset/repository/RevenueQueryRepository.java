@@ -2,6 +2,7 @@ package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.entity.Revenue;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,5 +12,18 @@ public interface RevenueQueryRepository {
     Optional<Revenue> findByAssetIdAndRevenueId(
             UUID assetId,
             UUID revenueId
+    );
+
+    // 정산 서비스에 전달할 READY 상태 수익 목록 조회
+    List<Revenue> findReadyRevenues(
+            UUID cursor,
+            int limit
+    );
+
+    // 자산별 수익 목록 조회
+    List<Revenue> findByAssetId(
+            UUID assetId,
+            UUID cursor,
+            int limit
     );
 }

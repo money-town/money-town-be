@@ -13,7 +13,7 @@ import java.util.UUID;
 
 /** 내부 자산 조회 API */
 @RestController
-@RequestMapping("/internal/assets")
+@RequestMapping("/api/v1/internal/assets")
 @RequiredArgsConstructor
 public class InternalAssetController {
 
