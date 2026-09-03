@@ -80,7 +80,7 @@ public class Notification extends BaseUpdatableEntity {
         this.status = NotificationStatus.PENDING;
     }
 
-    public void sent(){
+    public void markSent(){
         if(this.status != NotificationStatus.PENDING){
             throw new BusinessException(AnalysisErrorCode.NOTIFICATION_ALREADY_FINISHED);
         }
@@ -88,7 +88,7 @@ public class Notification extends BaseUpdatableEntity {
         this.sentAt = Instant.now();
     }
 
-    public void fail(String errorMessage){
+    public void markFail(String errorMessage){
         if(this.status != NotificationStatus.PENDING){
             throw new BusinessException(AnalysisErrorCode.NOTIFICATION_ALREADY_FINISHED);
         }

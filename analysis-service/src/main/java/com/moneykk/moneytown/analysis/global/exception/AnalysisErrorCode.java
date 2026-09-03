@@ -20,7 +20,9 @@ public enum AnalysisErrorCode implements ErrorCode {
     NOTIFICATION_IDEMPOTENCY_KEY_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_01", "멱등키(idempotencyKey)는 필수입니다."),
     NOTIFICATION_TYPE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_02", "알림 유형(notificationType)은 필수입니다."),
     NOTIFICATION_TITLE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_03", "알림 제목(title)은 필수입니다."),
-    NOTIFICATION_MESSAGE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_04", "알림 내용(message)은 필수입니다.");
+    NOTIFICATION_MESSAGE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_04", "알림 내용(message)은 필수입니다."),
+    NOTIFICATION_DUPLICATE_REQUEST(HttpStatus.CONFLICT, "NOTI_409_02", "동일한 알림 요청이 이미 처리되었습니다."),
+    NOTIFICATION_SLACK_SEND_FAILED(HttpStatus.BAD_GATEWAY, "NOTI_502_01", "Slack Webhook 호출에 실패했습니다.");
 
     private final HttpStatus status;
     private final String code;

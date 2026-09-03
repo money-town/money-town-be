@@ -1,7 +1,7 @@
 package com.moneykk.moneytown.analysis.fds.command.controller;
 
 import com.moneykk.moneytown.analysis.fds.command.application.FdsUnblockService;
-import com.moneykk.moneytown.analysis.fds.command.dto.UnblockUserResult;
+import com.moneykk.moneytown.analysis.fds.command.dto.response.UnblockUserResult;
 import com.moneykk.moneytown.analysis.global.exception.AnalysisErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;

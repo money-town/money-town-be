@@ -1,4 +1,4 @@
-package com.moneykk.moneytown.analysis.fds.command.dto;
+package com.moneykk.moneytown.analysis.fds.command.dto.response;
 
 import com.moneykk.moneytown.analysis.fds.domain.FdsUserState;
 import com.moneykk.moneytown.analysis.fds.domain.UserStatus;
