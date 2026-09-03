@@ -99,7 +99,7 @@ public class Revenue extends BaseEntity {
                    BigDecimal grossAmount, BigDecimal expenseAmount, BigDecimal feeAmount,
                    String currency, LocalDate periodStart, LocalDate periodEnd,
                    Map<String, Object> rawPayload) {
-        if (grossAmount == null || expenseAmount == null || feeAmount == null
+        if (!isValidAmount(grossAmount) || !isValidAmount(expenseAmount) || !isValidAmount(feeAmount)
                 || grossAmount.signum() <= 0 || expenseAmount.signum() < 0 || feeAmount.signum() < 0) {
             throw new BusinessException(AssetErrorCode.INVALID_REVENUE_AMOUNT);
         }
@@ -125,14 +125,22 @@ public class Revenue extends BaseEntity {
     }
 
     public void markTransferred() {
+        // 재전송되어도 최초 완료 시간 유지
+        if (this.transferStatus == RevenueTransferStatus.TRANSFERRED) {
+            return;
+        }
         this.transferStatus = RevenueTransferStatus.TRANSFERRED;
         this.transferredAt = Instant.now();
         this.failureReason = null;
     }
 
     public void markFailed(String failureReason) {
+        validateNotTransferred();
         if (failureReason == null || failureReason.isBlank()) {
             throw new BusinessException(AssetErrorCode.REVENUE_FAILURE_REASON_REQUIRED);
+        }
+        if (this.transferStatus == RevenueTransferStatus.FAILED) {
+            return;
         }
         this.transferStatus = RevenueTransferStatus.FAILED;
         this.transferredAt = null;
@@ -140,8 +148,25 @@ public class Revenue extends BaseEntity {
     }
 
     public void retry() {
+        validateNotTransferred();
+        if (this.transferStatus == RevenueTransferStatus.READY) {
+            return;
+        }
         this.transferStatus = RevenueTransferStatus.READY;
         this.transferredAt = null;
         this.failureReason = null;
+    }
+
+    // 전달 완료 상태는 이전 상태로 변경 불가
+    private void validateNotTransferred() {
+        if (this.transferStatus == RevenueTransferStatus.TRANSFERRED) {
+            throw new BusinessException(AssetErrorCode.INVALID_REVENUE_TRANSFER_STATUS);
+        }
+    }
+
+    // DB에서 반올림되거나 범위를 초과하는 금액 차단
+    private static boolean isValidAmount(BigDecimal amount) {
+        return amount != null && amount.scale() <= 2
+                && amount.precision() - amount.scale() <= 17;
     }
 }

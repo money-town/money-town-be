@@ -7,13 +7,20 @@ import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import org.springframework.data.domain.Sort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,6 +36,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -108,9 +119,72 @@ class HoldingQueryServiceTest {
         assertEquals(revokedAt, response.lastProcessedAt());
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "2026-08-31, 2026-08-31T15:00:00Z",
+            "2026-12-31, 2026-12-31T15:00:00Z",
+            "2028-02-29, 2028-02-29T15:00:00Z"
+    })
+    @DisplayName("월말·연말·윤일도 한국 시간 다음 날 0시를 조회 경계로 사용한다")
+    void convertsRecordDateToExclusiveCutoff(LocalDate asOf, Instant expectedCutoff) {
+        UUID assetId = UUID.randomUUID();
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(mock(Asset.class)));
+        when(holdingQueryRepository.findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC))
+                .thenReturn(List.of());
+
+        HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, null, 100, Sort.Direction.DESC);
+
+        verify(holdingQueryRepository).findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC);
+        assertEquals(assetId, response.assetId());
+        assertEquals(asOf, response.asOf());
+        assertTrue(response.holdings().isEmpty());
+        assertFalse(response.hasNext());
+        assertNull(response.nextCursor());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    @DisplayName("다음 페이지의 결과가 요청 크기 이하면 마지막 페이지로 반환한다")
+    void returnsLastSnapshotPage(int count) {
+        UUID assetId = UUID.randomUUID();
+        UUID cursor = UUID.randomUUID();
+        LocalDate asOf = LocalDate.of(2026, 8, 31);
+        Instant cutoff = Instant.parse("2026-08-31T15:00:00Z");
+        List<HoldingSnapshotItemResponse> rows = List.of(
+                new HoldingSnapshotItemResponse(UUID.randomUUID(), UUID.randomUUID(), 10),
+                new HoldingSnapshotItemResponse(UUID.randomUUID(), UUID.randomUUID(), 20)
+        ).subList(0, count);
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(mock(Asset.class)));
+        when(holdingQueryRepository.findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC))
+                .thenReturn(rows);
+
+        HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, cursor, 2, Sort.Direction.DESC);
+
+        assertEquals(rows, response.holdings());
+        assertFalse(response.hasNext());
+        assertNull(response.nextCursor());
+        verify(holdingQueryRepository).findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC);
+    }
+
     @Test
+    @DisplayName("조회 가능한 자산이 없으면 스냅샷 쿼리를 호출하지 않는다")
+    void rejectsSnapshotForMissingAsset() {
+        UUID assetId = UUID.randomUUID();
+        when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> holdingQueryService.getSnapshot(assetId, LocalDate.of(2026, 8, 31), null, 100, Sort.Direction.DESC));
+
+        assertEquals(AssetErrorCode.ASSET_NOT_FOUND, exception.getErrorCode());
+        verifyNoInteractions(holdingQueryRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(Sort.Direction.class)
     @DisplayName("기준일 보유지분을 커서 방식으로 조회한다")
-    void returnsHoldingSnapshotWithNextCursor() {
+    void returnsHoldingSnapshotWithNextCursor(Sort.Direction direction) {
         UUID assetId = UUID.randomUUID();
         UUID firstHoldingId = UUID.randomUUID();
         UUID secondHoldingId = UUID.randomUUID();
@@ -131,11 +205,11 @@ class HoldingQueryServiceTest {
         when(assetQueryRepository.findActiveById(assetId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(Asset.class)));
         when(holdingQueryRepository.findSnapshotByAssetId(
-                assetId, cutoffExclusive, null, 3
+                assetId, cutoffExclusive, null, 3, direction
         )).thenReturn(List.of(first, second, extra));
 
         HoldingSnapshotResponse response =
-                holdingQueryService.getSnapshot(assetId, asOf, null, 2);
+                holdingQueryService.getSnapshot(assetId, asOf, null, 2, direction);
 
         assertEquals(List.of(first, second), response.holdings());
         assertEquals(secondHoldingId, response.nextCursor());
