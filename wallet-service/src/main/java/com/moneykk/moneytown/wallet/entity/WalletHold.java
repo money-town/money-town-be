@@ -21,7 +21,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 // HELD -> RELEASED 또는 HELD -> COMMITTED만 허용. 상태값이 종료를 표현하므로
-// BaseUpdatableEntity의 소프트삭제 필드는 쓰지 않고 updated_at/by만 직접 선언한다.
+// BaseUpdatableEntity의 소프트삭제 필드는 쓰지 않고 updated_at/by만 직접 선언.
 @Getter
 @Entity
 @Table(name = "p_wallet_holds")

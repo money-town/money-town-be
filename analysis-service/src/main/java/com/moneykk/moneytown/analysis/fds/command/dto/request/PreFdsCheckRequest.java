@@ -1,4 +1,4 @@
-package com.moneykk.moneytown.analysis.fds.command.dto;
+package com.moneykk.moneytown.analysis.fds.command.dto.request;
 
 import jakarta.validation.constraints.NotNull;
 

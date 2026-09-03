@@ -1,5 +1,8 @@
 package com.moneykk.moneytown.offering.offering.command.application;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingRejectionRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
@@ -11,6 +14,9 @@ import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingRevi
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.offering.infrastructure.client.AssetServiceClient;
+import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOfferingInfoResponse;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,64 +25,58 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class OfferingCommandService {
 
     private final OfferingRepository offeringRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final AssetServiceClient assetServiceClient;
 
-    @Transactional
+    private final OfferingTransactionService offeringTransactionService;
+
     public OfferingCreateResponse create(
             UUID issuerId,
             OfferingCreateRequest request
     ) {
         // TODO: User Service 연동 정책 확정 후 ACTIVE 사용자 검증 여부 결정
 
-        // TODO: Asset Service OpenFeign 연동 후 자산 존재 여부 검증
-        // TODO: Asset 상태가 APPROVED인지 검증
-        // TODO: 삭제된 Asset인지 검증
-        // TODO: Asset 소유자와 issuerId 일치 여부 검증
-        // TODO: Asset Service OpenFeign 연동 후 Asset.unitPrice로 교체
-        Long temporaryUnitPrice = 10_000L; // 임시값 제거 예정
+        // availableShareQuantity 기준 검증
+        AssetOfferingInfoResponse asset =
+                getValidatedAssetForOffering(
+                        request.assetId(),
+                        issuerId,
+                        request.totalQuantity()
+                );
 
-        Offering offering = Offering.create(
-                request.assetId(),
+        return offeringTransactionService.createOffering(
                 issuerId,
-                request.title(),
-                temporaryUnitPrice,  // TODO: Asset Service OpenFeign 연동 후 Asset.unitPrice로 교체
-                request.totalQuantity(),
-                request.minSubscriptionQuantity(),
-                request.maxSubscriptionQuantity(),
-                request.startAt(),
-                request.endAt()
+                request,
+                asset.unitPrice()
         );
-
-        Offering savedOffering = offeringRepository.save(offering);
-
-        return OfferingCreateResponse.from(savedOffering);
     }
 
 
-    @Transactional
     public OfferingReviewRequestResponse requestReview(
             UUID offeringId,
             UUID issuerId
     ) {
-        Offering offering = offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException("공모를 찾을 수 없습니다.")
-                );
+        Offering offering = findOffering(offeringId);
 
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
         if (!offering.getIssuerId().equals(issuerId)) {
-            throw new IllegalArgumentException(
-                    "해당 공모에 대한 권한이 없습니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
 
-        offering.requestReview();
+        // 심사 요청 시 자산의 현재 상태와 소유권을 다시 검증한다.
+        validateAssetForReview(
+                offering.getAssetId(),
+                issuerId
+        );
 
-        return OfferingReviewRequestResponse.from(offering);
+        return offeringTransactionService.requestReview(
+                offeringId,
+                issuerId
+        );
     }
 
     @Transactional
@@ -84,17 +84,7 @@ public class OfferingCommandService {
             UUID offeringId,
             UUID reviewerId
     ) {
-        Offering offering = offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
-                        )
-                );
-
-        // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // O003(공모 없음), O005(승인 권한 없음), O006(승인 불가 상태) 적용
+        Offering offering = findOffering(offeringId);
 
         offering.approve(reviewerId);
 
@@ -107,18 +97,7 @@ public class OfferingCommandService {
             UUID reviewerId,
             OfferingRejectionRequest request
     ) {
-        Offering offering = offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
-                        )
-                );
-
-        // TODO: Gateway/서비스 인가 정책 확정 후 ADMIN 권한 검증 적용
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // O003(공모 없음), O005(심사 권한 없음),
-        // O007(반려 사유 오류), O008(반려 불가 상태) 적용
+        Offering offering = findOffering(offeringId);
 
         offering.reject(
                 reviewerId,
@@ -128,42 +107,40 @@ public class OfferingCommandService {
         return OfferingRejectionResponse.from(offering);
     }
 
-    @Transactional
     public OfferingUpdateResponse updateOffering(
             UUID offeringId,
             UUID userId,
             String role,
             OfferingUpdateRequest request
     ) {
-        Offering offering = offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
-                        )
-                );
+        Offering offering = findOffering(offeringId);
 
-        boolean owner = offering.getIssuerId().equals(userId);
-        boolean admin = "ADMIN".equalsIgnoreCase(role);
-
-        // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
-        if (!owner && !admin) {
-            throw new IllegalArgumentException(
-                    "해당 공모를 수정할 권한이 없습니다."
-            );
-        }
-
-        offering.update(
-                request.title(),
-                request.totalQuantity(),
-                request.minSubscriptionQuantity(),
-                request.maxSubscriptionQuantity(),
-                request.startAt(),
-                request.endAt()
+        validateOwnerOrAdmin(
+                offering,
+                userId,
+                role
         );
 
-        return OfferingUpdateResponse.from(offering);
+        Long targetTotalQuantity =
+                request.totalQuantity() != null
+                        ? request.totalQuantity()
+                        : offering.getTotalQuantity();
+
+        // 공모 수정은 DRAFT 상태에서만 허용되므로,
+        // 현재 공모에서 이미 배정된 청약 수량은 존재하지 않는다.
+        // 따라서 등록과 동일하게 Asset의 현재 가용 수량을 기준으로 검증한다.
+        getValidatedAssetForOffering(
+                offering.getAssetId(),
+                offering.getIssuerId(),
+                targetTotalQuantity
+        );
+
+        return offeringTransactionService.updateOffering(
+                offeringId,
+                userId,
+                role,
+                request
+        );
     }
 
     @Transactional
@@ -172,31 +149,171 @@ public class OfferingCommandService {
             UUID userId,
             String role
     ) {
-        Offering offering = offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "공모를 찾을 수 없습니다."
-                        )
-                );
+        Offering offering = findOffering(offeringId);
 
-        boolean owner = offering.getIssuerId().equals(userId);
-        boolean admin = "ADMIN".equalsIgnoreCase(role);
+        validateOwnerOrAdmin(
+                offering,
+                userId,
+                role
+        );
 
-        // TODO: Gateway/서비스 인가 정책 확정 후 권한 검증 방식 재검토
-        // TODO: OfferingException / OfferingErrorCode 적용 후 O002로 교체
-        if (!owner && !admin) {
-            throw new IllegalArgumentException(
-                    "해당 공모를 삭제할 권한이 없습니다."
+        // 청약 이력이 존재하면 공모 삭제를 허용하지 않는다.
+        boolean hasSubscriptions =
+                subscriptionRepository.existsByOfferingId(offeringId);
+
+        if (hasSubscriptions) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_HAS_SUBSCRIPTIONS
             );
         }
-
-        // TODO: Subscription Service 연동 계약 확정 후 청약 이력 존재 여부 검증
-        // 청약 이력이 존재하는 경우 O018
-        // "청약 이력이 존재하는 공모는 삭제할 수 없습니다."
 
         offering.delete(userId);
 
         return OfferingDeleteResponse.from(offering);
+    }
+
+    private void validateAssetForReview(
+            UUID assetId,
+            UUID issuerId
+    ) {
+        ApiResponse<AssetOfferingInfoResponse> assetResponse =
+                assetServiceClient.getAsset(assetId);
+
+        AssetOfferingInfoResponse asset =
+                assetResponse != null
+                        ? assetResponse.data()
+                        : null;
+
+        validateAssetResponse(
+                assetId,
+                asset
+        );
+
+        if (!"APPROVED".equalsIgnoreCase(asset.assetStatus())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_NOT_AVAILABLE
+            );
+        }
+
+        if (!issuerId.equals(asset.userId())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_ACCESS_DENIED
+            );
+        }
+    }
+
+    private AssetOfferingInfoResponse getValidatedAssetForOffering(
+            UUID assetId,
+            UUID issuerId,
+            Long totalQuantity
+    ) {
+        if (totalQuantity == null || totalQuantity <= 0) {
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_QUANTITY
+            );
+        }
+
+        ApiResponse<AssetOfferingInfoResponse> assetResponse =
+                assetServiceClient.getAsset(assetId);
+
+        AssetOfferingInfoResponse asset =
+                assetResponse != null
+                        ? assetResponse.data()
+                        : null;
+
+        validateAssetResponse(
+                assetId,
+                asset
+        );
+
+        if (!"APPROVED".equalsIgnoreCase(asset.assetStatus())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_NOT_AVAILABLE
+            );
+        }
+
+        if (!issuerId.equals(asset.userId())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_ACCESS_DENIED
+            );
+        }
+
+        if (asset.allocatedQuantity() > asset.totalShareQuantity()) {
+            throw new BusinessException(
+                    OfferingErrorCode.ASSET_QUANTITY_STATE_INVALID
+            );
+        }
+
+        long availableShareQuantity =
+                asset.totalShareQuantity()
+                        - asset.allocatedQuantity();
+
+        if (totalQuantity > availableShareQuantity) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_QUANTITY_EXCEEDS_AVAILABLE
+            );
+        }
+
+        return asset;
+    }
+
+    /**
+     * Asset Service에서 전달받은 자산 정보의 유효성을 검증한다.
+     *
+     * totalShareQuantity
+     * - 자산의 전체 발행 지분 수량
+     * - 공모에 사용하려면 반드시 1 이상이어야 한다.
+     *
+     * allocatedQuantity
+     * - 이미 투자자에게 배정 완료된 지분 수량
+     * - 아직 배정된 지분이 없다면 0이 정상이다.
+     */
+    private void validateAssetResponse(
+            UUID requestedAssetId,
+            AssetOfferingInfoResponse asset
+    ) {
+        if (asset == null
+                || asset.assetId() == null
+                || !requestedAssetId.equals(asset.assetId())
+                || asset.userId() == null
+                || asset.unitPrice() == null
+                || asset.unitPrice() <= 0
+                || asset.totalShareQuantity() == null
+                || asset.totalShareQuantity() <= 0
+                || asset.allocatedQuantity() == null
+                || asset.allocatedQuantity() < 0
+                || asset.assetStatus() == null) {
+            throw new BusinessException(
+                    OfferingErrorCode.ASSET_RESPONSE_INVALID
+            );
+        }
+    }
+
+    private void validateOwnerOrAdmin(
+            Offering offering,
+            UUID userId,
+            String role
+    ) {
+        boolean owner =
+                offering.getIssuerId().equals(userId);
+
+        boolean admin =
+                "ADMIN".equalsIgnoreCase(role);
+
+        if (!owner && !admin) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+    }
+
+    private Offering findOffering(UUID offeringId) {
+        return offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId)
+                .orElseThrow(() ->
+                        new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
+                        )
+                );
     }
 }

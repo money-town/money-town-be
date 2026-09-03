@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.offering.offering.query.repository;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.exception.CommonErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.entity.QOffering;
@@ -14,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -139,13 +142,29 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
     ) {
         if (pageable.getSort().isUnsorted()) {
             return new OrderSpecifier<?>[]{
-                    offering.createdAt.desc()
+                    offering.createdAt.desc(),
+                    offering.offeringId.desc()
             };
         }
 
-        return pageable.getSort().stream()
-                .map(this::toOrderSpecifier)
-                .toArray(OrderSpecifier[]::new);
+        List<OrderSpecifier<?>> orderSpecifiers =
+                new ArrayList<>(
+                        pageable.getSort()
+                                .stream()
+                                .map(this::toOrderSpecifier)
+                                .toList()
+                );
+
+        /*
+         * 동일한 정렬 값을 가진 공모가 여러 건 존재할 경우
+         * offset 기반 페이징에서 항목 순서가 비결정적으로
+         * 바뀌는 것을 방지한다.
+         */
+        orderSpecifiers.add(
+                offering.offeringId.desc()
+        );
+
+        return orderSpecifiers.toArray(OrderSpecifier[]::new);
     }
 
     private OrderSpecifier<?> toOrderSpecifier(
@@ -154,9 +173,8 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
         String property = order.getProperty();
 
         if (!ALLOWED_SORT_FIELDS.contains(property)) {
-            // TODO: OfferingErrorCode 적용 후 잘못된 정렬 기준을 O013으로 변환
-            throw new IllegalArgumentException(
-                    "지원하지 않는 정렬 기준입니다: " + property
+            throw new BusinessException(
+                    CommonErrorCode.INVALID_SORT_PROPERTY
             );
         }
 
@@ -189,8 +207,8 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
                             : offering.remainingQuantity.desc();
 
             default ->
-                    throw new IllegalArgumentException(
-                            "지원하지 않는 정렬 기준입니다: " + property
+                    throw new BusinessException(
+                            CommonErrorCode.INVALID_SORT_PROPERTY
                     );
         };
     }

@@ -1,7 +1,10 @@
 package com.moneykk.moneytown.offering.offering.query.controller;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.query.application.OfferingQueryService;
 import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchCondition;
@@ -28,6 +31,8 @@ public class OfferingQueryController {
 
     /**
      * 공개 공모 목록 조회
+     *
+     * 인증 없이 접근할 수 있다.
      */
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchPublicOfferings(
@@ -61,16 +66,24 @@ public class OfferingQueryController {
 
     /**
      * 내 공모 목록 조회
+     *
+     * ISSUER만 접근할 수 있다.
      */
-    // TODO: Gateway 인증/인가 정책 확정 후 사용자 정보 전달 방식 재검토
-    // TODO: ISSUER 권한 검증 방식 확정 후 적용
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchMyOfferings(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @RequestParam(required = false) OfferingStatus offeringStatus,
             @RequestParam(required = false) String keyword,
             Pageable pageable
     ) {
+
+        if (!"ISSUER".equalsIgnoreCase(role)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
         OfferingSearchCondition condition =
                 new OfferingSearchCondition(
                         offeringStatus,
@@ -98,21 +111,19 @@ public class OfferingQueryController {
 
     /**
      * 관리자 공모 목록 조회
+     *
+     * ADMIN만 접근할 수 있다.
      */
-    // TODO: Gateway 인증/인가 정책 확정 후 사용자 정보 전달 방식 재검토
-    // TODO: ADMIN 권한 검증 방식 확정 후 적용
     @GetMapping("/manage")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchOfferingsForManagement(
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @RequestParam(required = false) OfferingStatus offeringStatus,
             @RequestParam(required = false) String keyword,
             Pageable pageable
     ) {
-        // TODO: OfferingException / OfferingErrorCode 적용 후
-        // 권한 예외 코드로 교체
         if (!"ADMIN".equalsIgnoreCase(role)) {
-            throw new IllegalArgumentException(
-                    "관리자 권한이 필요합니다."
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_MANAGEMENT_ACCESS_DENIED
             );
         }
 
@@ -142,17 +153,19 @@ public class OfferingQueryController {
 
     /**
      * 공모 상품 상세 조회
+     *
+     * 공개 상태의 공모는 인증 없이 조회할 수 있다.
+     * 비공개 상태의 공모는 발행자 본인 또는 ADMIN만 조회할 수 있다.
      */
-    // TODO: Gateway 인증/인가 정책 확정 후 사용자 정보 전달 방식 재검토
     @GetMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingDetailResponse>> getOffering(
             @PathVariable UUID offeringId,
             @RequestHeader(
-                    value = "X-User-Id",
+                    value = AuthHeaderConstants.USER_ID,
                     required = false
             ) UUID userId,
             @RequestHeader(
-                    value = "X-User-Role",
+                    value = AuthHeaderConstants.USER_ROLE,
                     required = false
             ) String role
     ) {

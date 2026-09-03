@@ -63,6 +63,7 @@ public class DividendDisbursementService {
 
             payoutWriter.markPaid(payout.getId());
         } catch (Exception e) {
+            log.error("배당 지급 처리 중 예외 발생. payoutId={}", payout.getId(), e);
             payoutWriter.markFailedAttempt(payout.getId());
         }
     }
