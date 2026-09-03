@@ -17,4 +17,6 @@ public interface SettlementBatchRepository extends JpaRepository<SettlementBatch
             UUID assetId, SettlementStatus status, Long remainderAmount);
 
     Optional<SettlementBatch> findByIdAndIsDeletedFalse(UUID id);
+
+    boolean existsByIdAndIsDeletedFalse(UUID id);
 }

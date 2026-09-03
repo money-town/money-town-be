@@ -1,11 +1,15 @@
 package com.moneykk.moneytown.settlement.query.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
+import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,7 +18,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -101,6 +111,164 @@ class SettlementQueryServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("회차별 개별 지급 내역 조회")
+    class GetPayouts {
+
+        @Test
+        @DisplayName("status 미지정 시 전체 지급 내역을 amount 내림차순으로 반환한다")
+        void returnsAllPayoutsSortedByAmountDescWhenStatusOmitted() {
+            UUID batchId = UUID.randomUUID();
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id")));
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batchId, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<DividendPayoutListItemResponse> response =
+                    settlementQueryService.getPayouts(batchId, null, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            DividendPayoutListItemResponse item = response.content().get(0);
+            assertThat(item.dividendPayoutId()).isEqualTo(payout.getId());
+            assertThat(item.investorId()).isEqualTo(payout.getInvestorId());
+            assertThat(item.shareRatio()).isEqualTo(payout.getShareRatio());
+            assertThat(item.amount()).isEqualTo(payout.getAmount());
+            assertThat(item.status()).isEqualTo(payout.getStatus());
+            assertThat(item.retryCount()).isEqualTo(payout.getRetryCount());
+            assertThat(response.totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("status로 필터링하여 해당 상태의 지급 내역만 반환한다")
+        void filtersPayoutsByStatus() {
+            UUID batchId = UUID.randomUUID();
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
+            payout.markProcessing();
+            payout.markPaid();
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id")));
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.PAID, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<DividendPayoutListItemResponse> response =
+                    settlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
+        }
+
+        @Test
+        @DisplayName("status=DEAD_LETTER로 필터링하면 retryCount 내림차순으로 정렬한다")
+        void sortsByRetryCountDescWhenFilteredByDeadLetter() {
+            UUID batchId = UUID.randomUUID();
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.valueOf(0.00234000), 21_060L);
+            payout.markDeadLetter();
+            Pageable requestedPageable = PageRequest.of(0, 20);
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "retryCount").and(Sort.by(Sort.Direction.ASC, "id")));
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.DEAD_LETTER, expectedPageable))
+                    .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
+
+            PageResponse<DividendPayoutListItemResponse> response =
+                    settlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
+        void throwsWhenBatchNotFound() {
+            UUID batchId = UUID.randomUUID();
+            Pageable pageable = PageRequest.of(0, 20);
+            when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
+
+            assertThatThrownBy(() -> settlementQueryService.getPayouts(batchId, null, pageable))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
+        }
+    }
+
+    @Nested
+    @DisplayName("내 배당 내역·산출 근거 조회")
+    class GetMyDividends {
+
+        @Test
+        @DisplayName("자산 ID로 필터링하여 내 배당 내역을 페이지로 반환한다")
+        void returnsMyDividendPageFilteredByAsset() {
+            UUID investorId = UUID.randomUUID();
+            UUID dividendPayoutId = UUID.randomUUID();
+            UUID settlementBatchId = UUID.randomUUID();
+            LocalDate recordDate = LocalDate.of(2026, 8, 1);
+            Instant paidUpdatedAt = Instant.parse("2026-08-01T09:02:40Z");
+            DividendPayoutRepository.MyDividendPayoutRow row = myDividendRow(
+                    dividendPayoutId, ASSET_ID, settlementBatchId, recordDate,
+                    BigDecimal.valueOf(0.00234000), 21_060L, PayoutStatus.PAID, paidUpdatedAt);
+            Pageable pageable = PageRequest.of(0, 20);
+            when(dividendPayoutRepository.findMyDividendPayouts(investorId, ASSET_ID, pageable))
+                    .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
+
+            PageResponse<MyDividendPayoutListItemResponse> response =
+                    settlementQueryService.getMyDividends(investorId, ASSET_ID, pageable);
+
+            assertThat(response.content()).hasSize(1);
+            MyDividendPayoutListItemResponse item = response.content().get(0);
+            assertThat(item.dividendPayoutId()).isEqualTo(dividendPayoutId);
+            assertThat(item.assetId()).isEqualTo(ASSET_ID);
+            assertThat(item.settlementBatchId()).isEqualTo(settlementBatchId);
+            assertThat(item.recordDate()).isEqualTo(recordDate);
+            assertThat(item.shareRatio()).isEqualTo(BigDecimal.valueOf(0.00234000));
+            assertThat(item.amount()).isEqualTo(21_060L);
+            assertThat(item.status()).isEqualTo(PayoutStatus.PAID);
+            assertThat(item.paidAt()).isEqualTo(paidUpdatedAt);
+            assertThat(response.totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("자산 ID 필터 없이 조회하면 투자자의 전체 배당 내역을 반환한다")
+        void returnsAllAssetsWhenAssetIdOmitted() {
+            UUID investorId = UUID.randomUUID();
+            DividendPayoutRepository.MyDividendPayoutRow row = myDividendRow(
+                    UUID.randomUUID(), ASSET_ID, UUID.randomUUID(), RECORD_DATE,
+                    BigDecimal.valueOf(0.00234000), 21_060L, PayoutStatus.QUEUED, null);
+            Pageable pageable = PageRequest.of(0, 20);
+            when(dividendPayoutRepository.findMyDividendPayouts(investorId, null, pageable))
+                    .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
+
+            PageResponse<MyDividendPayoutListItemResponse> response =
+                    settlementQueryService.getMyDividends(investorId, null, pageable);
+
+            assertThat(response.content()).hasSize(1);
+            assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.QUEUED);
+            assertThat(response.content().get(0).paidAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("지급 완료(PAID) 상태가 아니면 갱신 시각이 있어도 지급 완료 시각(paidAt)은 null이다")
+        void returnsNullPaidAtWhenNotPaidYet() {
+            UUID investorId = UUID.randomUUID();
+            Instant lastRetryAt = Instant.parse("2026-08-02T03:00:00Z");
+            DividendPayoutRepository.MyDividendPayoutRow row = myDividendRow(
+                    UUID.randomUUID(), ASSET_ID, UUID.randomUUID(), RECORD_DATE,
+                    BigDecimal.valueOf(0.00234000), 21_060L, PayoutStatus.RETRYING, lastRetryAt);
+            Pageable pageable = PageRequest.of(0, 20);
+            when(dividendPayoutRepository.findMyDividendPayouts(investorId, ASSET_ID, pageable))
+                    .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
+
+            PageResponse<MyDividendPayoutListItemResponse> response =
+                    settlementQueryService.getMyDividends(investorId, ASSET_ID, pageable);
+
+            assertThat(response.content().get(0).paidAt()).isNull();
+        }
+    }
+
     private DividendPayoutRepository.PayoutStatusCount statusCount(PayoutStatus status, long count) {
         return new DividendPayoutRepository.PayoutStatusCount() {
             @Override
@@ -111,6 +279,52 @@ class SettlementQueryServiceTest {
             @Override
             public long getCount() {
                 return count;
+            }
+        };
+    }
+
+    private DividendPayoutRepository.MyDividendPayoutRow myDividendRow(
+            UUID dividendPayoutId, UUID assetId, UUID settlementBatchId, LocalDate recordDate,
+            BigDecimal shareRatio, Long amount, PayoutStatus status, Instant updatedAt) {
+        return new DividendPayoutRepository.MyDividendPayoutRow() {
+            @Override
+            public UUID getDividendPayoutId() {
+                return dividendPayoutId;
+            }
+
+            @Override
+            public UUID getAssetId() {
+                return assetId;
+            }
+
+            @Override
+            public UUID getSettlementBatchId() {
+                return settlementBatchId;
+            }
+
+            @Override
+            public LocalDate getRecordDate() {
+                return recordDate;
+            }
+
+            @Override
+            public BigDecimal getShareRatio() {
+                return shareRatio;
+            }
+
+            @Override
+            public Long getAmount() {
+                return amount;
+            }
+
+            @Override
+            public PayoutStatus getStatus() {
+                return status;
+            }
+
+            @Override
+            public Instant getUpdatedAt() {
+                return updatedAt;
             }
         };
     }
