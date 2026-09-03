@@ -5,6 +5,11 @@ import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.IdempotencyRequestRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,7 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,7 +40,7 @@ class SubscriptionTransactionServiceTest {
     private SubscriptionTransactionService subscriptionTransactionService;
 
     @Test
-    @DisplayName("선착순 수량 확보에 실패하면 청약을 생성하지 않는다")
+    @DisplayName("선착순 수량 확보에 실패하면 잔여 수량 부족 예외가 발생하고 청약을 생성하지 않는다")
     void createSubscriptionFailsWhenQuantityReservationFails() {
         // given
         UUID offeringId = UUID.randomUUID();
@@ -58,28 +63,52 @@ class SubscriptionTransactionServiceTest {
         ))
                 .thenReturn(0);
 
-        // when & then
-        assertThatThrownBy(() ->
-                subscriptionTransactionService.createSubscription(
+        // when
+        BusinessException exception =
+                assertThrows(
+                        BusinessException.class,
+                        () -> subscriptionTransactionService.createSubscription(
+                                offeringId,
+                                userId,
+                                idempotencyKey,
+                                quantity,
+                                pricePerUnit
+                        )
+                );
+
+        // then
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        SubscriptionErrorCode.INSUFFICIENT_REMAINING_QUANTITY
+                );
+
+        // 중복 청약 검증을 정상적으로 통과했는지 확인
+        verify(subscriptionRepository)
+                .existsByOfferingIdAndUserIdAndIsDeletedFalse(
                         offeringId,
-                        userId,
-                        idempotencyKey,
+                        userId
+                );
+
+        // 선착순 수량 확보를 실제로 시도했는지 확인
+        verify(offeringRepository)
+                .reserveQuantity(
+                        offeringId,
                         quantity,
-                        pricePerUnit
-                )
-        )
-                .isInstanceOf(BusinessException.class);
+                        userId
+                );
 
+        // 수량 확보 실패 이후 Subscription은 생성하지 않는다.
         verify(subscriptionRepository, never())
-                .save(org.mockito.ArgumentMatchers.any());
+                .save(any());
 
+        // 청약 생성에 실패했으므로 멱등 요청 완료 처리도 하지 않는다.
         verify(idempotencyRequestRepository, never())
                 .complete(
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.anyInt()
+                        any(),
+                        any(),
+                        any(),
+                        any(),
+                        anyInt()
                 );
     }
 }
