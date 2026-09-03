@@ -4,12 +4,15 @@ import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.entity.QHolding;
 import com.moneykk.moneytown.asset.entity.QHoldingHistory;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.NumberExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -44,7 +47,8 @@ public class HoldingQueryRepositoryImpl
             UUID assetId,
             Instant cutoffExclusive,
             UUID cursor,
-            int limit
+            int limit,
+            Sort.Direction direction
     ) {
         // ALLOCATE는 더하고 REVOKE는 뺌
         NumberExpression<Long> balanceExpression =
@@ -56,10 +60,23 @@ public class HoldingQueryRepositoryImpl
                         .otherwise(0L)
                         .sum();
 
-        // cursor가 있으면 다음 holdingId부터 조회
-        BooleanExpression cursorCondition = cursor == null
-                ? null
-                : holding.id.gt(cursor);
+        boolean ascending = direction.isAscending();
+        BooleanExpression cursorCondition = null;
+        if (cursor != null) {
+            // 보유지분 최초 등록 시간을 커서 기준으로 사용
+            Instant createdAt = queryFactory.select(holding.createdAt)
+                    .from(holding)
+                    .where(holding.id.eq(cursor), holding.assetId.eq(assetId))
+                    .fetchOne();
+            if (createdAt == null) {
+                throw new BusinessException(AssetErrorCode.INVALID_HOLDING_CURSOR);
+            }
+            cursorCondition = ascending
+                    ? holding.createdAt.gt(createdAt)
+                            .or(holding.createdAt.eq(createdAt).and(holding.id.gt(cursor)))
+                    : holding.createdAt.lt(createdAt)
+                            .or(holding.createdAt.eq(createdAt).and(holding.id.lt(cursor)));
+        }
 
         return queryFactory
                 .select(Projections.constructor(
@@ -82,11 +99,15 @@ public class HoldingQueryRepositoryImpl
                 )
                 .groupBy(
                         holding.id,
-                        holding.userId
+                        holding.userId,
+                        holding.createdAt
                 )
                 // 기준일 보유 수량이 0이면 제외
                 .having(balanceExpression.gt(0L))
-                .orderBy(holding.id.asc())
+                .orderBy(
+                        ascending ? holding.createdAt.asc() : holding.createdAt.desc(),
+                        ascending ? holding.id.asc() : holding.id.desc()
+                )
                 .limit(limit)
                 .fetch();
     }

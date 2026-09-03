@@ -16,7 +16,7 @@ import java.util.UUID;
 
 /** 청약별 지분 처리 상태를 조회하는 내부 API */
 @RestController
-@RequestMapping("/internal/holdings")
+@RequestMapping("/api/v1/internal/holdings")
 @RequiredArgsConstructor
 public class InternalHoldingController {
 
