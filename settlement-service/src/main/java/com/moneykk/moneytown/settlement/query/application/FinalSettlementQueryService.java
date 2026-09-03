@@ -44,8 +44,8 @@ public class FinalSettlementQueryService {
         }
 
         Sort sort = status == PayoutStatus.DEAD_LETTER
-                ? Sort.by(Sort.Direction.DESC, "retryCount")
-                : Sort.by(Sort.Direction.DESC, "amount");
+                ? Sort.by(Sort.Direction.DESC, "retryCount").and(Sort.by(Sort.Direction.ASC, "id"))
+                : Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id"));
         Pageable sortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
 
         Page<FinalSettlementPayout> payouts = status == null
