@@ -3,6 +3,8 @@ package com.moneykk.moneytown.settlement.domain.repository;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -33,4 +35,20 @@ public interface FinalSettlementPayoutRepository extends JpaRepository<FinalSett
 
     List<FinalSettlementPayout> findByFinalSettlementBatchIdAndIdInAndStatusAndIsDeletedFalse(
             UUID finalSettlementBatchId, List<UUID> ids, PayoutStatus status);
+
+    Page<FinalSettlementPayout> findByFinalSettlementBatchIdAndIsDeletedFalse(
+            UUID finalSettlementBatchId, Pageable pageable);
+
+    Page<FinalSettlementPayout> findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(
+            UUID finalSettlementBatchId, PayoutStatus status, Pageable pageable);
+
+    @Query("SELECT p.status AS status, COUNT(p) AS count FROM FinalSettlementPayout p " +
+            "WHERE p.finalSettlementBatchId = :finalSettlementBatchId AND p.isDeleted = false GROUP BY p.status")
+    List<PayoutStatusCount> countByStatusGrouped(@Param("finalSettlementBatchId") UUID finalSettlementBatchId);
+
+    interface PayoutStatusCount {
+        PayoutStatus getStatus();
+
+        long getCount();
+    }
 }

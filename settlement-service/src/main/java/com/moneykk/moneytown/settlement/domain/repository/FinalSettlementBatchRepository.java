@@ -11,4 +11,6 @@ public interface FinalSettlementBatchRepository extends JpaRepository<FinalSettl
     Optional<FinalSettlementBatch> findByAssetIdAndIsDeletedFalse(UUID assetId);
 
     Optional<FinalSettlementBatch> findByIdAndIsDeletedFalse(UUID id);
+
+    boolean existsByIdAndIsDeletedFalse(UUID id);
 }
