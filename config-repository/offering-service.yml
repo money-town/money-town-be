@@ -20,3 +20,6 @@ spring:
           asset-service:
             connect-timeout: ${ASSET_SERVICE_CONNECT_TIMEOUT:1000}
             read-timeout: ${ASSET_SERVICE_READ_TIMEOUT:2000}
+
+subscription:
+  reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
