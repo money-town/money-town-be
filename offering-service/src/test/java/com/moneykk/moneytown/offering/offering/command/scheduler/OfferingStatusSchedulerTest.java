@@ -36,4 +36,13 @@ class OfferingStatusSchedulerTest {
         verify(offeringStatusTransitionService)
                 .closeSoldOutOfferings();
     }
+
+    @Test
+    @DisplayName("스케줄러 실행 시 모집 종료된 OPEN 공모의 모집 미달 취소 전환을 요청한다")
+    void startsUnderSubscribedCancellations() {
+        offeringStatusScheduler.startUnderSubscribedCancellations();
+
+        verify(offeringStatusTransitionService)
+                .startUnderSubscribedCancellations();
+    }
 }
