@@ -120,7 +120,8 @@ class FinalSettlementQueryServiceTest {
             UUID batchId = UUID.randomUUID();
             FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 30L, 30_000_000L);
             Pageable requestedPageable = PageRequest.of(0, 20);
-            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id")));
             when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
             when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batchId, expectedPageable))
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
@@ -147,7 +148,8 @@ class FinalSettlementQueryServiceTest {
             payout.markProcessing();
             payout.markPaid();
             Pageable requestedPageable = PageRequest.of(0, 20);
-            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "amount"));
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "amount").and(Sort.by(Sort.Direction.ASC, "id")));
             when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
             when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.PAID, expectedPageable))
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
@@ -166,7 +168,8 @@ class FinalSettlementQueryServiceTest {
             FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 30L, 30_000_000L);
             payout.markDeadLetter();
             Pageable requestedPageable = PageRequest.of(0, 20);
-            Pageable expectedPageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "retryCount"));
+            Pageable expectedPageable = PageRequest.of(0, 20,
+                    Sort.by(Sort.Direction.DESC, "retryCount").and(Sort.by(Sort.Direction.ASC, "id")));
             when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(true);
             when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(batchId, PayoutStatus.DEAD_LETTER, expectedPageable))
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
