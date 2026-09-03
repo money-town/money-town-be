@@ -22,6 +22,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
@@ -63,6 +64,8 @@ public class WalletService {
         return PageResponse.from(transactions, TransactionListItemResponse::from);
     }
 
+    // 클래스 레벨 readOnly 트랜잭션에 합류하면 Feign 호출/UNIQUE 복구가 다시 트랜잭션에 묶인다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -81,6 +84,7 @@ public class WalletService {
         }
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
