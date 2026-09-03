@@ -16,6 +16,7 @@ import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,7 +61,11 @@ public class WalletService {
 
         requireEligibleForTransaction(userId);
 
-        return walletTransactionService.deposit(userId, idempotencyKey, amount);
+        try {
+            return walletTransactionService.deposit(userId, idempotencyKey, amount);
+        } catch (DataIntegrityViolationException e) {
+            return recoverFromConcurrentDuplicate(e, wallet.getId(), WalletTransactionType.DEPOSIT, idempotencyKey, amount);
+        }
     }
 
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
@@ -74,7 +79,23 @@ public class WalletService {
 
         requireEligibleForTransaction(userId);
 
-        return walletTransactionService.withdraw(userId, idempotencyKey, amount);
+        try {
+            return walletTransactionService.withdraw(userId, idempotencyKey, amount);
+        } catch (DataIntegrityViolationException e) {
+            return recoverFromConcurrentDuplicate(e, wallet.getId(), WalletTransactionType.WITHDRAW, idempotencyKey, amount);
+        }
+    }
+
+    // walletTransactionService.deposit/withdraw는 별도 빈의 @Transactional 메서드라서, 이 예외는
+    // 그 트랜잭션이 완전히 롤백되고 난 뒤(여기, 트랜잭션 밖)에 도착한다. 그래서 바로 이어서 조회해도
+    // "이미 실패한 트랜잭션 안에서 또 쿼리하는" PostgreSQL 문제(current transaction is aborted)가 없다.
+    // 즉, UNIQUE 제약을 "누가 먼저 저장했는지" 가려주는 심판으로 쓰고, 진 쪽은 그 결과를 그대로 반환한다.
+    private TransactionResponse recoverFromConcurrentDuplicate(DataIntegrityViolationException cause, Long walletId,
+                                                                 WalletTransactionType type, String idempotencyKey, long amount) {
+        WalletTransaction winner = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
+                .orElseThrow(() -> cause);
+
+        return buildIdempotentResponse(winner, walletId, type, amount);
     }
 
     // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 그 거래가 "내 지갑" 것이고 타입+금액까지 똑같으면
