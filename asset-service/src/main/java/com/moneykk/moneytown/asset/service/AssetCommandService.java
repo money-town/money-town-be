@@ -42,9 +42,10 @@ public class AssetCommandService {
                 request.valuationAmount(),
                 request.expectedReturnRate(),
                 request.detailData(),
-                request.unitPrice(),
                 request.totalShareQuantity()
         );
+
+        asset.selectOwnerBurdenPaymentMethod(request.ownerBurdenPaymentMethod());
 
         // DRAFT 상태로 저장
         Asset savedAsset = assetRepository.save(asset);

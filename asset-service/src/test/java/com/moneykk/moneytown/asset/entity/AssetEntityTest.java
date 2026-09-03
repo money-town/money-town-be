@@ -19,7 +19,7 @@ class AssetEntityTest {
     void assetCannotAllocateMoreThanRemainingShares() {
         Asset asset = new Asset(
                 UUID.randomUUID(), "테스트 부동산", AssetType.REAL_ESTATE, "테스트 자산",
-                100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L, 100L
+                100_000_000L, BigDecimal.valueOf(5), Map.of(), 100L
         );
         ReflectionTestUtils.setField(asset, "status", AssetStatus.APPROVED);
 

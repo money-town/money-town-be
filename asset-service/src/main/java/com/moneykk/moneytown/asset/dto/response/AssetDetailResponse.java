@@ -3,6 +3,7 @@ package com.moneykk.moneytown.asset.dto.response;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.AssetType;
+import com.moneykk.moneytown.asset.entity.OwnerBurdenPaymentMethod;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -53,7 +54,12 @@ public record AssetDetailResponse(
         Instant createdAt,
 
         // 최종 수정 시간
-        Instant updatedAt
+        Instant updatedAt,
+
+        // 소유주가 선택한 납부 방식과 단가 절사 차액
+        OwnerBurdenPaymentMethod ownerBurdenPaymentMethod,
+        long ownerBurdenAmount,
+        Instant offeringCompletedAt
 ) {
 
     /** 자산 엔티티를 상세 응답으로 변환 */
@@ -72,7 +78,10 @@ public record AssetDetailResponse(
                 asset.getAllocatedQuantity(),
                 asset.getStatus(),
                 asset.getCreatedAt(),
-                asset.getUpdatedAt()
+                asset.getUpdatedAt(),
+                asset.getOwnerBurdenPaymentMethod(),
+                asset.getOwnerBurdenAmount(),
+                asset.getOfferingCompletedAt()
         );
     }
 }

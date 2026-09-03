@@ -222,7 +222,7 @@ class RevenueQueryServiceTest {
 
     private Asset asset(UUID ownerId) {
         return new Asset(ownerId, "테스트 자산", AssetType.REAL_ESTATE, "테스트 부동산",
-                100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L, 10_000L);
+                100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L);
     }
 
     private Revenue revenue(UUID revenueId, String sourceReferenceId) {

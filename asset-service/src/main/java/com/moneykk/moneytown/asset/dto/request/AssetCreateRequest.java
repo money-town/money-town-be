@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.dto.request;
 
 import com.moneykk.moneytown.asset.entity.AssetType;
+import com.moneykk.moneytown.asset.entity.OwnerBurdenPaymentMethod;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -44,14 +45,13 @@ public record AssetCreateRequest(
         @NotNull(message = "자산 상세 정보는 필수입니다.")
         Map<String, Object> detailData,
 
-        // 지분 1개당 가격(원)
-        @NotNull(message = "지분 단가는 필수입니다.")
-        @Positive(message = "지분 단가는 0보다 커야 합니다.")
-        Long unitPrice,
-
         // 전체 지분 수량
         @NotNull(message = "전체 지분 수량은 필수입니다.")
         @Positive(message = "전체 지분 수량은 0보다 커야 합니다.")
-        Long totalShareQuantity
+        Long totalShareQuantity,
+
+        // 매각대금 공제 또는 지갑 납부
+        @NotNull(message = "소유주 차액 납부 방식은 필수입니다.")
+        OwnerBurdenPaymentMethod ownerBurdenPaymentMethod
 ) {
 }

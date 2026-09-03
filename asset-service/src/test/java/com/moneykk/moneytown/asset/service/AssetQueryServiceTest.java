@@ -62,7 +62,6 @@ class AssetQueryServiceTest {
                 100_000_000L,
                 BigDecimal.valueOf(5),
                 Map.of(),
-                10_000L,
                 10_000L
         );
         ReflectionTestUtils.setField(asset, "id", assetId);
@@ -246,7 +245,7 @@ class AssetQueryServiceTest {
 
     private Asset asset(UUID ownerId) {
         Asset asset = new Asset(ownerId, "테스트 자산", AssetType.REAL_ESTATE, "자산 설명",
-                100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L, 10_000L);
+                100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L);
         ReflectionTestUtils.setField(asset, "id", UUID.randomUUID());
         ReflectionTestUtils.setField(asset, "status", AssetStatus.APPROVED);
         return asset;
