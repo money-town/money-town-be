@@ -14,6 +14,12 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
 
     Optional<Offering> findByOfferingIdAndIsDeletedFalse(UUID offeringId);
 
+
+    // TODO: PostgreSQL 기반 DB 통합 테스트 추가
+    // - remainingQuantity == 요청 수량이면 SOLD_OUT 전환 검증
+    // - remainingQuantity > 요청 수량이면 OPEN 유지 검증
+    // - remainingQuantity < 요청 수량이면 UPDATE 0건 검증
+    // - 동시 요청 시 remainingQuantity 음수 및 초과발행 방지 검증
     /**
      * 선착순 청약 수량을 원자적으로 확보한다.
      *
