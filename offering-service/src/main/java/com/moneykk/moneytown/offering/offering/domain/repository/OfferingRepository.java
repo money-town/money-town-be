@@ -58,14 +58,15 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
      * 시작 시간이 도래한 SCHEDULED 공모를 OPEN으로 일괄 전환한다.
      *
      * 스케줄러에서 주기적으로 호출하며,
-     * 상태가 SCHEDULED이고 startAt이 현재 시각 이전인
-     * 삭제되지 않은 공모만 전환한다.
+     * 상태가 SCHEDULED이고 현재 시각이 모집 기간(startAt <= now < endAt)에 포함되며
+     * 삭제되지 않은 공모만 OPEN으로 전환한다.
      *
      * @return OPEN으로 전환된 공모 수
      *
      * TODO: PostgreSQL 기반 DB 통합 테스트 추가
      * - JPQL Bulk Update가 실제 PostgreSQL에서 정상 실행되는지 검증
-     * - SCHEDULED + startAt <= now → OPEN 전환 검증
+     * - SCHEDULED + startAt <= now + endAt > now → OPEN 전환 검증
+    /* - SCHEDULED + endAt <= now → OPEN으로 전환되지 않는지 검증
      * - 미래 startAt / 다른 상태 / 삭제 공모가 변경되지 않는지 검증
      * - updatedAt / updatedBy(SYSTEM_USER_ID) 갱신 검증
      */
@@ -79,6 +80,7 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
          WHERE o.offeringStatus =
                    com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SCHEDULED
            AND o.startAt <= CURRENT_TIMESTAMP
+           AND o.endAt > CURRENT_TIMESTAMP
            AND o.isDeleted = false
     """)
     int openScheduledOfferings(
