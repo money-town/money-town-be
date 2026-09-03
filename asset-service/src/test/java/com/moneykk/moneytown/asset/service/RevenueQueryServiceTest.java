@@ -13,10 +13,12 @@ import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import org.springframework.data.domain.Sort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -102,14 +104,15 @@ class RevenueQueryServiceTest {
         assertEquals(AssetErrorCode.REVENUE_NOT_FOUND, exception.getErrorCode());
     }
 
-    @Test
+    @ParameterizedTest
+    @EnumSource(Sort.Direction.class)
     @DisplayName("READY 상태 수익 목록을 커서 방식으로 조회한다")
-    void getsReadyRevenuesWithCursorPagination() {
+    void getsReadyRevenuesWithCursorPagination(Sort.Direction direction) {
         UUID firstRevenueId = UUID.randomUUID();
         UUID secondRevenueId = UUID.randomUUID();
         UUID extraRevenueId = UUID.randomUUID();
 
-        when(revenueQueryRepository.findReadyRevenues(null, 3))
+        when(revenueQueryRepository.findReadyRevenues(null, 3, direction))
                 .thenReturn(List.of(
                         revenue(firstRevenueId, "RENT-1"),
                         revenue(secondRevenueId, "RENT-2"),
@@ -117,7 +120,7 @@ class RevenueQueryServiceTest {
                 ));
 
         InternalRevenueListResponse response =
-                revenueQueryService.getReadyRevenues(null, 2);
+                revenueQueryService.getReadyRevenues(null, 2, direction);
 
         assertEquals(2, response.revenues().size());
         assertEquals(firstRevenueId, response.revenues().get(0).revenueId());
@@ -142,17 +145,17 @@ class RevenueQueryServiceTest {
             ReflectionTestUtils.setField(item, "assetId", assetId);
         }
         when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.of(asset(ownerId)));
-        when(revenueQueryRepository.findByAssetId(assetId, cursor, 3))
+        when(revenueQueryRepository.findByAssetId(assetId, cursor, 3, Sort.Direction.DESC))
                 .thenReturn(List.of(first, second, extra));
 
         RevenueListResponse response =
-                revenueQueryService.getRevenues(assetId, userId, role, cursor, 2);
+                revenueQueryService.getRevenues(assetId, userId, role, cursor, 2, Sort.Direction.DESC);
 
         assertEquals(List.of(RevenueDetailResponse.from(first), RevenueDetailResponse.from(second)),
                 response.revenues());
         assertTrue(response.hasNext());
         assertEquals(second.getId(), response.nextCursor());
-        verify(revenueQueryRepository).findByAssetId(assetId, cursor, 3);
+        verify(revenueQueryRepository).findByAssetId(assetId, cursor, 3, Sort.Direction.DESC);
     }
 
     @ParameterizedTest
@@ -166,10 +169,10 @@ class RevenueQueryServiceTest {
                 revenue(UUID.randomUUID(), "RENT-2")
         ).subList(0, count);
         when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.of(asset(userId)));
-        when(revenueQueryRepository.findByAssetId(assetId, null, 3)).thenReturn(items);
+        when(revenueQueryRepository.findByAssetId(assetId, null, 3, Sort.Direction.DESC)).thenReturn(items);
 
         RevenueListResponse response =
-                revenueQueryService.getRevenues(assetId, userId, "ISSUER", null, 2);
+                revenueQueryService.getRevenues(assetId, userId, "ISSUER", null, 2, Sort.Direction.DESC);
 
         assertEquals(count, response.revenues().size());
         assertFalse(response.hasNext());
@@ -182,7 +185,7 @@ class RevenueQueryServiceTest {
     void rejectsUnauthorizedRole(String role) {
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> revenueQueryService.getRevenues(
-                        UUID.randomUUID(), UUID.randomUUID(), role, null, 20));
+                        UUID.randomUUID(), UUID.randomUUID(), role, null, 20, Sort.Direction.DESC));
 
         assertEquals(AssetErrorCode.REVENUE_ACCESS_DENIED, exception.getErrorCode());
         verifyNoInteractions(assetQueryRepository, revenueQueryRepository);
@@ -197,7 +200,7 @@ class RevenueQueryServiceTest {
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> revenueQueryService.getRevenues(
-                        assetId, UUID.randomUUID(), "ISSUER", null, 20));
+                        assetId, UUID.randomUUID(), "ISSUER", null, 20, Sort.Direction.DESC));
 
         assertEquals(AssetErrorCode.REVENUE_ACCESS_DENIED, exception.getErrorCode());
         verifyNoInteractions(revenueQueryRepository);
@@ -211,7 +214,7 @@ class RevenueQueryServiceTest {
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> revenueQueryService.getRevenues(
-                        assetId, UUID.randomUUID(), "ADMIN", null, 20));
+                        assetId, UUID.randomUUID(), "ADMIN", null, 20, Sort.Direction.DESC));
 
         assertEquals(AssetErrorCode.ASSET_NOT_FOUND, exception.getErrorCode());
         verifyNoInteractions(revenueQueryRepository);

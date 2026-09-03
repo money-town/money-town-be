@@ -8,6 +8,7 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -44,7 +45,10 @@ public class HoldingController {
             @RequestParam(defaultValue = "100")
             @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
             @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.")
-            int size
+            int size,
+
+            // 기본 정렬은 등록일 내림차순
+            @RequestParam(defaultValue = "DESC") Sort.Direction direction
     ) {
         // 내부 시스템만 스냅샷 조회 가능
         if (!"SYSTEM".equals(role)) {
@@ -55,7 +59,7 @@ public class HoldingController {
 
         // 기준일 보유지분 조회
         HoldingSnapshotResponse response =
-                holdingQueryService.getSnapshot(assetId, asOf, cursor, size);
+                holdingQueryService.getSnapshot(assetId, asOf, cursor, size, direction);
 
         return ApiResponse.success(
                 response,

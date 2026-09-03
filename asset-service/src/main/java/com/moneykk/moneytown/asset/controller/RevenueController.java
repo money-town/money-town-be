@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -100,11 +101,15 @@ public class RevenueController {
             // 첫 요청에는 커서 생략
             @RequestParam(required = false) UUID cursor,
 
+
             // 기본 20건, 최대 100건 조회
             @RequestParam(defaultValue = "20")
             @Min(value = 1, message = "조회 크기는 1 이상이어야 합니다.")
             @Max(value = 100, message = "조회 크기는 100 이하여야 합니다.")
-            int size
+            int size,
+
+            // 기본 정렬은 등록일 내림차순
+            @RequestParam(defaultValue = "DESC") Sort.Direction direction
     ) {
         // 권한과 소유자를 확인한 뒤 목록 조회
         RevenueListResponse response = revenueQueryService.getRevenues(
@@ -112,7 +117,8 @@ public class RevenueController {
                 userId,
                 role,
                 cursor,
-                size
+                size,
+                direction
         );
 
         return ApiResponse.success(

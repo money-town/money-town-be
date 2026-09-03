@@ -13,10 +13,12 @@ import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import org.springframework.data.domain.Sort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
@@ -128,12 +130,12 @@ class HoldingQueryServiceTest {
         UUID assetId = UUID.randomUUID();
         when(assetQueryRepository.findActiveById(assetId))
                 .thenReturn(Optional.of(mock(Asset.class)));
-        when(holdingQueryRepository.findSnapshotByAssetId(assetId, expectedCutoff, null, 101))
+        when(holdingQueryRepository.findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC))
                 .thenReturn(List.of());
 
-        HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, null, 100);
+        HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, null, 100, Sort.Direction.DESC);
 
-        verify(holdingQueryRepository).findSnapshotByAssetId(assetId, expectedCutoff, null, 101);
+        verify(holdingQueryRepository).findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC);
         assertEquals(assetId, response.assetId());
         assertEquals(asOf, response.asOf());
         assertTrue(response.holdings().isEmpty());
@@ -155,15 +157,15 @@ class HoldingQueryServiceTest {
         ).subList(0, count);
         when(assetQueryRepository.findActiveById(assetId))
                 .thenReturn(Optional.of(mock(Asset.class)));
-        when(holdingQueryRepository.findSnapshotByAssetId(assetId, cutoff, cursor, 3))
+        when(holdingQueryRepository.findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC))
                 .thenReturn(rows);
 
-        HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, cursor, 2);
+        HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, cursor, 2, Sort.Direction.DESC);
 
         assertEquals(rows, response.holdings());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
-        verify(holdingQueryRepository).findSnapshotByAssetId(assetId, cutoff, cursor, 3);
+        verify(holdingQueryRepository).findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC);
     }
 
     @Test
@@ -173,15 +175,16 @@ class HoldingQueryServiceTest {
         when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.empty());
 
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> holdingQueryService.getSnapshot(assetId, LocalDate.of(2026, 8, 31), null, 100));
+                () -> holdingQueryService.getSnapshot(assetId, LocalDate.of(2026, 8, 31), null, 100, Sort.Direction.DESC));
 
         assertEquals(AssetErrorCode.ASSET_NOT_FOUND, exception.getErrorCode());
         verifyNoInteractions(holdingQueryRepository);
     }
 
-    @Test
+    @ParameterizedTest
+    @EnumSource(Sort.Direction.class)
     @DisplayName("기준일 보유지분을 커서 방식으로 조회한다")
-    void returnsHoldingSnapshotWithNextCursor() {
+    void returnsHoldingSnapshotWithNextCursor(Sort.Direction direction) {
         UUID assetId = UUID.randomUUID();
         UUID firstHoldingId = UUID.randomUUID();
         UUID secondHoldingId = UUID.randomUUID();
@@ -202,11 +205,11 @@ class HoldingQueryServiceTest {
         when(assetQueryRepository.findActiveById(assetId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(Asset.class)));
         when(holdingQueryRepository.findSnapshotByAssetId(
-                assetId, cutoffExclusive, null, 3
+                assetId, cutoffExclusive, null, 3, direction
         )).thenReturn(List.of(first, second, extra));
 
         HoldingSnapshotResponse response =
-                holdingQueryService.getSnapshot(assetId, asOf, null, 2);
+                holdingQueryService.getSnapshot(assetId, asOf, null, 2, direction);
 
         assertEquals(List.of(first, second), response.holdings());
         assertEquals(secondHoldingId, response.nextCursor());

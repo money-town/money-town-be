@@ -10,6 +10,7 @@ import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,11 +46,12 @@ public class RevenueQueryService {
     @Transactional(readOnly = true)
     public InternalRevenueListResponse getReadyRevenues(
             UUID cursor,
-            int size
+            int size,
+            Sort.Direction direction
     ) {
         // 다음 페이지 존재 여부 확인을 위해 요청 크기보다 1개 더 조회
         List<Revenue> revenues =
-                revenueQueryRepository.findReadyRevenues(cursor, size + 1);
+                revenueQueryRepository.findReadyRevenues(cursor, size + 1, direction);
 
         boolean hasNext = revenues.size() > size;
 
@@ -80,7 +82,8 @@ public class RevenueQueryService {
             UUID userId,
             String role,
             UUID cursor,
-            int size
+            int size,
+            Sort.Direction direction
     ) {
         // 자산운용자와 관리자만 조회 가능
         if (!"ISSUER".equals(role) && !"ADMIN".equals(role)) {
@@ -100,7 +103,7 @@ public class RevenueQueryService {
 
         // 다음 페이지 확인을 위해 1건 더 조회
         List<Revenue> revenues = revenueQueryRepository
-                .findByAssetId(assetId, cursor, size + 1);
+                .findByAssetId(assetId, cursor, size + 1, direction);
 
         boolean hasNext = revenues.size() > size;
 

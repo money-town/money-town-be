@@ -6,6 +6,7 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,10 +32,13 @@ public class InternalRevenueController {
             @RequestParam(defaultValue = "100")
             @Min(value = 1, message = "조회 크기는 1 이상이어야 합니다.")
             @Max(value = 100, message = "조회 크기는 100 이하여야 합니다.")
-            int size
+            int size,
+
+            // 기본 정렬은 등록일 내림차순
+            @RequestParam(defaultValue = "DESC") Sort.Direction direction
     ) {
         InternalRevenueListResponse response =
-                revenueQueryService.getReadyRevenues(cursor, size);
+                revenueQueryService.getReadyRevenues(cursor, size, direction);
 
         return ApiResponse.success(
                 response,

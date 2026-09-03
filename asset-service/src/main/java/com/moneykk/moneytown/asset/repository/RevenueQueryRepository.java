@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.entity.Revenue;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
 import java.util.Optional;
@@ -17,13 +18,15 @@ public interface RevenueQueryRepository {
     // 정산 서비스에 전달할 READY 상태 수익 목록 조회
     List<Revenue> findReadyRevenues(
             UUID cursor,
-            int limit
+            int limit,
+            Sort.Direction direction
     );
 
     // 자산별 수익 목록 조회
     List<Revenue> findByAssetId(
             UUID assetId,
             UUID cursor,
-            int limit
+            int limit,
+            Sort.Direction direction
     );
 }

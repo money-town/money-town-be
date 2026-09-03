@@ -13,6 +13,9 @@ public enum AssetErrorCode implements ErrorCode {
     INVALID_REVENUE_PERIOD(HttpStatus.BAD_REQUEST, "ASSET_400_07", "수익 발생 기간이 올바르지 않습니다."),
     UNSUPPORTED_CURRENCY(HttpStatus.BAD_REQUEST, "ASSET_400_08", "MVP에서는 KRW만 지원합니다."),
     REVENUE_FAILURE_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "ASSET_400_09", "전달 실패 사유가 필요합니다."),
+    INVALID_ASSET_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_10", "유효하지 않은 자산 조회 커서입니다."),
+    INVALID_REVENUE_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_11", "유효하지 않은 수익 조회 커서입니다."),
+    INVALID_HOLDING_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_12", "유효하지 않은 보유지분 조회 커서입니다."),
 
     REVENUE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_01", "해당 자산에 수익을 등록할 권한이 없습니다."),
     HOLDING_SNAPSHOT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_02", "지분 스냅샷은 SYSTEM 권한으로만 조회할 수 있습니다."),
