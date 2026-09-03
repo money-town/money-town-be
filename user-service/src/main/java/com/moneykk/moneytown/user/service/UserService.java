@@ -22,41 +22,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
 
     //CRUD
 
-    // 생성
-    @Transactional
-    public SignupResponse signup(SignupRequest request) {
-        String encodedPassword = passwordEncoder.encode(request.password());
-
-        User user = User.create(request.email(),
-                encodedPassword,
-                request.name(),
-                request.phone());
-
-        User savedUser = userRepository.save(user);
-
-
-        return SignupResponse.from(savedUser);
-    }
-
-    // 이메일 중복 방지
-    private void validateDuplicateEmail(String email) {
-        if (userRepository.existsByEmail(email)) {
-            throw new BusinessException(
-                    UserErrorCode.EMAIL_ALREADY_EXISTS
-            );
-        }
-    }
 
     // 회원 전체 조회
     public List<UserListResponse> userList(){
 
-
-
-        return userRepository.findAll()
+        return userRepository.findAllByIsDeletedFalse()
                 .stream()
                 .map(UserListResponse::from)
                 .toList();
@@ -66,7 +39,7 @@ public class UserService {
     // 회원 단일 조회
     public UserResponse getUser(UUID userId){
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId).
-                orElseThrow();
+                orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         return UserResponse.from(user);
     }
@@ -82,38 +55,38 @@ public class UserService {
 
 
     // 회원 수정
-    public UserResponse getUserMe(UUID userId, UpdateMyInfoRequest request){
+    @Transactional
+    public UserResponse updateUser(UUID userId, UpdateMyInfoRequest request){
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
-                .orElseThrow();
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        if(request.phone() != null
-                && userRepository.existsByPhone(request.phone())) {
-            throw new BusinessException(UserErrorCode.DUPLICATE_PHONE);
-        }
+        validateDuplicatePhoneForUpdate(request.phone(), userId);
 
-        user.updateProfile(
-                request.name(),
-                request.phone()
-        );
+        user.updateProfile(request.name(), request.phone());
 
         return UserResponse.from(user);
 
+    }
+
+    // 기존과 동일한 휴대전화 번호일 경우
+
+    private void validateDuplicatePhoneForUpdate(String phone, UUID userId){
+        if(phone != null && userRepository.existsByPhoneAndUserIdNot(phone, userId)){
+            throw new BusinessException(
+                    UserErrorCode.PHONE_ALREADY_EXISTS);
+        }
     }
 
 
     // 회원 탈퇴
+    @Transactional
     public UserResponse deleteUser(UUID userId){
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
-                .orElseThrow();
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        user.softDelete(userId);
+        user.withdraw(userId);
 
         return UserResponse.from(user);
     }
-
-
-
-
-
 
 }   // UserService

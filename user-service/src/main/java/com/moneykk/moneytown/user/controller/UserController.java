@@ -3,6 +3,7 @@ package com.moneykk.moneytown.user.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.user.dto.request.SignupRequest;
+import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
 import com.moneykk.moneytown.user.dto.response.SignupResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
@@ -47,12 +48,23 @@ public class UserController {
                 "내 정보 조회 성공");
     }
 
-    // 회원 가입
-    @PostMapping("/auth/signup")
-    public ApiResponse<SignupResponse> signUp(@Valid @RequestBody SignupRequest request){
+    
+    @PatchMapping("/users/me")
+    public ApiResponse<UserResponse> updateUser(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
+            ,@Valid @RequestBody UpdateMyInfoRequest request){
+        
+        return ApiResponse.success(userService.updateUser(userId, request),
+                "수정 완료");
+        
+    }
 
-       return ApiResponse.success(userService.signup(request),
-               "회원가입이 완료되었습니다.");
+    @DeleteMapping("/users/me")
+    public ApiResponse<Void> deleteUser(@RequestHeader(AuthHeaderConstants.USER_ID)
+                                            UUID userId){
+        userService.deleteUser(userId);
+
+        return ApiResponse.success(null,
+                "삭제 완료");
     }
 
 
