@@ -82,7 +82,6 @@ public class Offering extends BaseUpdatableEntity {
     @Column(name = "cancellation_type", length = 30)
     private CancellationType cancellationType;
 
-    // TODO 2차 구현범위에서 아래 내용 재검토 예정
     private Offering(
             UUID assetId,
             UUID issuerId,
@@ -174,10 +173,7 @@ public class Offering extends BaseUpdatableEntity {
      *
      * 승인은 공모 시작 시각 이전까지만 가능하며,
      * 승인 완료 후 SCHEDULED 상태로 전환한다.
-     *
-     * TODO:
-     * SCHEDULED 공모는 startAt 도달 시 OPEN 상태로 전환해야 한다.
-     * 스케줄러/배치 또는 별도의 상태 동기화 정책 확정 후 구현한다.
+     * - 스케줄러 처리
      */
     public void approve(UUID reviewerId) {
         if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
