@@ -39,6 +39,7 @@ public class OfferingCommandService {
     ) {
         // TODO: User Service 연동 정책 확정 후 ACTIVE 사용자 검증 여부 결정
 
+        // availableShareQuantity 기준 검증
         AssetOfferingInfoResponse asset =
                 getValidatedAssetForOffering(
                         request.assetId(),
@@ -71,8 +72,6 @@ public class OfferingCommandService {
                 offering.getAssetId(),
                 issuerId
         );
-
-        offering.requestReview();
 
         return offeringTransactionService.requestReview(
                 offeringId,
@@ -127,8 +126,9 @@ public class OfferingCommandService {
                         ? request.totalQuantity()
                         : offering.getTotalQuantity();
 
-        // TODO: Asset.allocatedQuantity에 현재 공모를 통해 이미 배정된 수량이 포함되는지 확인 필요.
-        // 포함된다면 공모 수정 시 availableShareQuantity 계산 정책을 별도로 적용해야 한다.
+        // 공모 수정은 DRAFT 상태에서만 허용되므로,
+        // 현재 공모에서 이미 배정된 청약 수량은 존재하지 않는다.
+        // 따라서 등록과 동일하게 Asset의 현재 가용 수량을 기준으로 검증한다.
         getValidatedAssetForOffering(
                 offering.getAssetId(),
                 offering.getIssuerId(),
