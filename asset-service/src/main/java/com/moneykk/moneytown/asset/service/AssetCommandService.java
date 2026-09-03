@@ -45,8 +45,6 @@ public class AssetCommandService {
                 request.totalShareQuantity()
         );
 
-        asset.selectOwnerBurdenPaymentMethod(request.ownerBurdenPaymentMethod());
-
         // DRAFT 상태로 저장
         Asset savedAsset = assetRepository.save(asset);
 

@@ -20,13 +20,13 @@ class AssetSharePriceTest {
             "100000001, 10000, 10000, 1", "10009, 10, 1000, 9",
             "9223372036854775807, 1, 9223372036854775807, 0",
             "9223372036854775807, 2, 4611686018427387903, 1"})
-    @DisplayName("단가는 소수점 이하를 버리고 차액은 소유주 부담금으로 계산한다")
-    void calculatesUnitPrice(long valuation, long quantity, long expectedPrice, long ownerBurden) {
+    @DisplayName("단가는 소수점 이하를 버리고 차액을 별도 필드에 저장한다")
+    void calculatesUnitPrice(long valuation, long quantity, long expectedPrice, long difference) {
         Asset asset = asset(valuation, quantity);
         assertEquals(expectedPrice, asset.getUnitPrice());
-        assertEquals(ownerBurden, asset.getOwnerBurdenAmount());
+        assertEquals(difference, asset.getRoundingDifferenceAmount());
         assertEquals(valuation, asset.getUnitPrice() * asset.getTotalShareQuantity()
-                + asset.getOwnerBurdenAmount());
+                + asset.getRoundingDifferenceAmount());
     }
 
     @ParameterizedTest

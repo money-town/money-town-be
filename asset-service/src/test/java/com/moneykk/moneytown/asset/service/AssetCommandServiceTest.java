@@ -5,7 +5,6 @@ import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.AssetType;
-import com.moneykk.moneytown.asset.entity.OwnerBurdenPaymentMethod;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
@@ -77,7 +76,8 @@ class AssetCommandServiceTest {
         assertEquals(request.detailData(), saved.getDetailData());
         assertEquals(request.valuationAmount() / request.totalShareQuantity(), saved.getUnitPrice());
         assertEquals(request.totalShareQuantity().longValue(), saved.getTotalShareQuantity());
-        assertEquals(request.ownerBurdenPaymentMethod(), saved.getOwnerBurdenPaymentMethod());
+        assertEquals(request.valuationAmount() - saved.getUnitPrice() * saved.getTotalShareQuantity(),
+                saved.getRoundingDifferenceAmount());
         assertEquals(0L, saved.getAllocatedQuantity());
         assertEquals(AssetStatus.DRAFT, saved.getStatus());
         assertEquals(new AssetCreateResponse(assetId, request.assetName(), AssetStatus.DRAFT, createdAt),
@@ -100,7 +100,7 @@ class AssetCommandServiceTest {
         return new AssetCreateRequest(
                 "테스트 자산", type, "자산 설명", 100_000_000L,
                 new BigDecimal("5.2500"), Map.of("description", "상세 정보"),
-                10_000L, OwnerBurdenPaymentMethod.SALE_DEDUCTION
+                10_000L
         );
     }
 }
