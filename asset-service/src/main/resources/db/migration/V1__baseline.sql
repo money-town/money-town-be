@@ -5,6 +5,7 @@ CREATE TABLE p_assets (
     user_id UUID NOT NULL,
     asset_type VARCHAR(30) NOT NULL CHECK (asset_type IN ('REAL_ESTATE', 'MUSIC_COPYRIGHT')),
     asset_name VARCHAR(200) NOT NULL CHECK (char_length(asset_name) BETWEEN 2 AND 200),
+    owner_name VARCHAR(200),
     description TEXT NOT NULL,
     valuation_amount BIGINT NOT NULL CHECK (valuation_amount > 0),
     expected_return_rate NUMERIC(7, 4) NOT NULL DEFAULT 0 CHECK (expected_return_rate >= 0),

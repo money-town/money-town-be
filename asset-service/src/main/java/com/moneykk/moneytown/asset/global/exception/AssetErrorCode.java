@@ -17,11 +17,14 @@ public enum AssetErrorCode implements ErrorCode {
     INVALID_REVENUE_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_11", "유효하지 않은 수익 조회 커서입니다."),
     INVALID_HOLDING_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_12", "유효하지 않은 보유지분 조회 커서입니다."),
     INVALID_ASSET_SHARE_PRICE(HttpStatus.BAD_REQUEST, "ASSET_400_13", "평가 금액과 전체 지분 수량은 양수이며, 계산된 지분 단가는 최소 1원이어야 합니다."),
+    APPRAISAL_AMOUNT_UPDATE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "ASSET_400_14", "자산 평가금액은 수정 기능은 추후 추가 예정입니다."),
 
     REVENUE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_01", "해당 자산에 수익을 등록할 권한이 없습니다."),
     HOLDING_SNAPSHOT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_02", "지분 스냅샷은 SYSTEM 권한으로만 조회할 수 있습니다."),
     ASSET_CREATE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_03", "자산을 등록할 권한이 없습니다."),
     ASSET_READ_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_04", "자산을 조회할 권한이 없습니다."),
+    REVENUE_TRANSFER_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_05", "수익 전달 상태는 SYSTEM 권한으로만 변경할 수 있습니다."),
+    ASSET_UPDATE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_06", "자산을 수정할 권한이 없습니다."),
 
     ASSET_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_01", "존재하지 않는 자산입니다."),
     REVENUE_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_02", "존재하지 않는 수익입니다."),
@@ -32,8 +35,8 @@ public enum AssetErrorCode implements ErrorCode {
     SHARE_QUANTITY_EXCEEDED(HttpStatus.CONFLICT, "ASSET_409_04", "남은 발행 수량보다 많은 지분을 배정할 수 없습니다."),
     INSUFFICIENT_ALLOCATED_QUANTITY(HttpStatus.CONFLICT, "ASSET_409_05", "현재 배정된 수량보다 많은 지분을 회수할 수 없습니다."),
     DUPLICATE_REVENUE(HttpStatus.CONFLICT, "ASSET_409_06", "이미 등록된 수익 데이터입니다."),
-    REVENUE_TRANSFER_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_05", "수익 전달 상태는 SYSTEM 권한으로만 변경할 수 있습니다."),
-    INVALID_REVENUE_TRANSFER_STATUS(HttpStatus.CONFLICT, "ASSET_409_07", "전달 완료된 수익의 상태는 되돌릴 수 없습니다.");
+    INVALID_REVENUE_TRANSFER_STATUS(HttpStatus.CONFLICT, "ASSET_409_07", "전달 완료된 수익의 상태는 되돌릴 수 없습니다."),
+    ASSET_UPDATE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_08", "현재 상태에서는 자산을 수정할 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;

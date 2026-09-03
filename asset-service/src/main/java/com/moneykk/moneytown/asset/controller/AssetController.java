@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
+import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDetailResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetListResponse;
@@ -102,6 +103,31 @@ public class AssetController {
         return ApiResponse.success(
                 response,
                 "자산 상세 조회가 완료되었습니다."
+        );
+    }
+
+    /**
+     * 자산 정보 수정
+     */
+    @PatchMapping("/{assetId}")
+    public ApiResponse<Void> updateAsset(
+            @PathVariable UUID assetId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role,
+            @Valid @RequestBody AssetUpdateRequest request
+    ) {
+        // 권한 확인 후 자산 정보 수정
+        assetCommandService.updateAsset(
+                assetId,
+                userId,
+                role,
+                request
+        );
+
+        // 수정 성공 응답
+        return ApiResponse.success(
+                null,
+                "자산 정보가 수정되었습니다."
         );
     }
 }

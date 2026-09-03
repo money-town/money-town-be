@@ -40,6 +40,10 @@ public class Asset extends BaseUpdatableEntity {
     @Column(name = "asset_name", nullable = false, length = 200)
     private String assetName;
 
+    // 자산 소유주 이름
+    @Column(name = "owner_name", length = 200)
+    private String ownerName;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "asset_type", nullable = false, length = 30)
     private AssetType type;
@@ -142,5 +146,80 @@ public class Asset extends BaseUpdatableEntity {
         }
 
         allocatedQuantity -= quantity;
+    }
+
+    /** 자산 정보 부분 수정 */
+    public void updateInfo(
+            String name,
+            String description,
+            String ownerName,
+            Map<String, Object> detail,
+            Long valuationAmount,
+            Long totalShareQuantity
+    ) {
+        // 작성 중이거나 반려된 자산만 수정 가능
+        if (status != AssetStatus.DRAFT
+                && status != AssetStatus.REJECTED) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_UPDATE_NOT_ALLOWED
+            );
+        }
+
+        // 전달하지 않은 값은 기존 값 유지
+        long nextValuation = valuationAmount != null
+                ? valuationAmount : this.valuationAmount;
+
+        long nextQuantity = totalShareQuantity != null
+                ? totalShareQuantity : this.totalShareQuantity;
+
+        // 평가금액과 수량은 양수, 지분당 가격은 최소 1원
+        if (nextValuation <= 0
+                || nextQuantity <= 0
+                || nextValuation < nextQuantity) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_SHARE_PRICE
+            );
+        }
+
+        // 이미 배정된 수량보다 줄일 수 없음
+        if (nextQuantity < allocatedQuantity) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_HOLDING_QUANTITY
+            );
+        }
+
+        // 상세 정보는 전달된 항목만 변경
+        Map<String, Object> nextDetail = new HashMap<>(this.detailData);
+
+        if (detail != null) {
+            nextDetail.putAll(detail);
+        }
+
+        // 상세 평가금액과 실제 계산 금액을 일치시킴
+        if (valuationAmount != null) {
+            nextDetail.put("appraisalAmount", nextValuation);
+        }
+
+        // 일반 정보 변경
+        if (name != null) {
+            this.assetName = name;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+        if (ownerName != null) {
+            this.ownerName = ownerName;
+        }
+
+        this.detailData = nextDetail;
+        this.valuationAmount = nextValuation;
+        this.totalShareQuantity = nextQuantity;
+
+        // 1원 미만 버림
+        this.unitPrice = nextValuation / nextQuantity;
+
+        // 절사로 발생한 차액 저장
+        this.roundingDifferenceAmount =
+                nextValuation - (this.unitPrice * nextQuantity);
     }
 }
