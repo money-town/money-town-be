@@ -12,36 +12,31 @@ spring:
               uri: lb://user-service
               predicates:
                 - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**
-              filters:
-                - StripPrefix=2
+
 
             - id: wallet-service-route
               uri: lb://wallet-service
               predicates:
                 - Path=/api/v1/wallets/**
-              filters:
-                - StripPrefix=2
+
 
             - id: asset-service-route
               uri: lb://asset-service
               predicates:
                 - Path=/api/v1/assets/**,/api/v1/holdings/**
-              filters:
-                - StripPrefix=2
+
 
             - id: offering-service-route
               uri: lb://offering-service
               predicates:
                 - Path=/api/v1/offerings/**,/api/v1/subscriptions/**
-              filters:
-                - StripPrefix=2
+
 
             - id: settlement-service-route
               uri: lb://settlement-service
               predicates:
                 - Path=/api/v1/settlements/**,/api/v1/distributions/**
-              filters:
-                - StripPrefix=2
+
           httpclient:
             connect-timeout: 3000
             response-timeout: 10s
@@ -79,6 +74,7 @@ springdoc:
     enabled: ${SWAGGER_ENABLED:true}
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:true}
+
     path: /swagger-ui.html
 
 security:
