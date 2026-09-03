@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,7 +26,7 @@ public class PostFdsCounter {
     private final StringRedisTemplate redisTemplate;
     private final PostFdsRuleProperties ruleProperties;
 
-    public PostFdsCounts recordAndCount(UUID userId, UUID eventId, EventType eventType){
+    public PostFdsCounts recordAndCount(UUID userId, UUID eventId, EventType eventType, Instant occurredAt){
         long failWindowMs = ruleProperties.get(RuleCode.REPEATED_FAILURE).windowSeconds() * 1000L;
         long limitWindowMs = ruleProperties.get(RuleCode.REPEATED_LIMIT_EXCEEDED).windowSeconds() * 1000L;
         int sampleSize = ruleProperties.get(RuleCode.HIGH_CANCEL_RATE).sampleSize();
@@ -37,7 +38,7 @@ public class PostFdsCounter {
                         "fds:post:limit:{" + userId + "}",
                         "fds:post:recent:{" + userId + "}"
                 ),
-                String.valueOf(System.currentTimeMillis()),
+                String.valueOf(occurredAt.toEpochMilli()),
                 eventId.toString(),
                 eventType.name(),
                 String.valueOf(failWindowMs),
@@ -47,5 +48,13 @@ public class PostFdsCounter {
                 String.valueOf(RECENT_TTL_SEC)
         );
         return new PostFdsCounts(r.get(0), r.get(1), r.get(2), r.get(3));
+    }
+
+    public void clear(UUID userId){
+        redisTemplate.delete(List.of(
+                "fds:post:fail:{" + userId + "}",
+                "fds:post:limit:{" + userId + "}",
+                "fds:post:recent:{" + userId + "}"
+        ));
     }
 }

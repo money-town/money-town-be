@@ -60,7 +60,7 @@ public class PostFdsService {
         }
 
         // 4. 누적 집계
-        PostFdsCounts counts = postFdsCounter.recordAndCount(userId, eventId, eventType);
+        PostFdsCounts counts = postFdsCounter.recordAndCount(userId, eventId, eventType, envelope.occurredAt());
 
 
         // 5. 첫 위반 룰

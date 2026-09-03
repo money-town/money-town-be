@@ -30,6 +30,7 @@ public class SubscriptionEventConsumer {
         try{
             envelope = objectMapper.readValue(message, TYPE);
         }catch (JsonProcessingException e){
+            // TODO: RETRY & DLT
             log.error("subscription 이벤트 역직렬화 실패: {}",message, e);
             return;
         }
