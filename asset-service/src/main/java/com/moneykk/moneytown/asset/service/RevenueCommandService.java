@@ -9,6 +9,7 @@ import com.moneykk.moneytown.asset.entity.Revenue;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueRepository;
+import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,15 +25,22 @@ import java.util.UUID;
 public class RevenueCommandService {
 
     private final RevenueRepository revenueRepository;
+    private final RevenueQueryRepository revenueQueryRepository;
     private final AssetQueryRepository assetQueryRepository;
 
     @Transactional
     public RevenueTransferStatusResponse updateTransferStatus(
             UUID revenueId,
+            String role,
             RevenueTransferStatusRequest request
     ) {
-        // 변경할 수익 조회
-        Revenue revenue = revenueRepository.findById(revenueId)
+        // 정산 시스템만 전달 결과 변경 가능
+        if (!"SYSTEM".equals(role)) {
+            throw new BusinessException(AssetErrorCode.REVENUE_TRANSFER_ACCESS_DENIED);
+        }
+
+        // 같은 수익의 상태 변경은 순서대로 처리
+        Revenue revenue = revenueQueryRepository.findByIdForUpdate(revenueId)
                 .orElseThrow(() -> new BusinessException(
                         AssetErrorCode.REVENUE_NOT_FOUND
                 ));

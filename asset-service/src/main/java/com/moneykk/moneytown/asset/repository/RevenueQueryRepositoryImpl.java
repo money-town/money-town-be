@@ -7,6 +7,7 @@ import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
@@ -23,6 +24,15 @@ public class RevenueQueryRepositoryImpl implements RevenueQueryRepository {
     private static final QRevenue revenue = QRevenue.revenue;
 
     private final JPAQueryFactory queryFactory;
+
+    @Override
+    public Optional<Revenue> findByIdForUpdate(UUID revenueId) {
+        return Optional.ofNullable(queryFactory
+                .selectFrom(revenue)
+                .where(revenue.id.eq(revenueId))
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .fetchOne());
+    }
 
     @Override
     public Optional<Revenue> findByAssetIdAndRevenueId(

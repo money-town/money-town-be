@@ -52,10 +52,11 @@ public class RevenueController {
     @PatchMapping("/revenues/{revenueId}/transfer-status")
     public ApiResponse<RevenueTransferStatusResponse> updateTransferStatus(
             @PathVariable UUID revenueId,
+            @RequestHeader("X-User-Role") String role,
             @Valid @RequestBody RevenueTransferStatusRequest request
     ) {
         RevenueTransferStatusResponse response =
-                revenueCommandService.updateTransferStatus(revenueId, request);
+                revenueCommandService.updateTransferStatus(revenueId, role, request);
 
         return ApiResponse.success(
                 response,

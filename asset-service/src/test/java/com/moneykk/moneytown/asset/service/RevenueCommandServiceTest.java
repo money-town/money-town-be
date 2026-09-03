@@ -13,6 +13,7 @@ import com.moneykk.moneytown.asset.entity.RevenueType;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueRepository;
+import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,9 @@ class RevenueCommandServiceTest {
     @Mock
     private AssetQueryRepository assetQueryRepository;
 
+    @Mock
+    private RevenueQueryRepository revenueQueryRepository;
+
     @InjectMocks
     private RevenueCommandService revenueCommandService;
 
@@ -57,11 +61,12 @@ class RevenueCommandServiceTest {
     void marksRevenueAsTransferred() {
         UUID revenueId = UUID.randomUUID();
         Revenue revenue = revenue(revenueId);
-        when(revenueRepository.findById(revenueId)).thenReturn(Optional.of(revenue));
+        when(revenueQueryRepository.findByIdForUpdate(revenueId)).thenReturn(Optional.of(revenue));
 
         RevenueTransferStatusResponse response =
                 revenueCommandService.updateTransferStatus(
                         revenueId,
+                        "SYSTEM",
                         new RevenueTransferStatusRequest(
                                 RevenueTransferStatus.TRANSFERRED,
                                 null
@@ -78,11 +83,12 @@ class RevenueCommandServiceTest {
     void marksRevenueAsFailed() {
         UUID revenueId = UUID.randomUUID();
         Revenue revenue = revenue(revenueId);
-        when(revenueRepository.findById(revenueId)).thenReturn(Optional.of(revenue));
+        when(revenueQueryRepository.findByIdForUpdate(revenueId)).thenReturn(Optional.of(revenue));
 
         RevenueTransferStatusResponse response =
                 revenueCommandService.updateTransferStatus(
                         revenueId,
+                        "SYSTEM",
                         new RevenueTransferStatusRequest(
                                 RevenueTransferStatus.FAILED,
                                 "정산 서비스 응답 시간 초과"
@@ -100,11 +106,12 @@ class RevenueCommandServiceTest {
         UUID revenueId = UUID.randomUUID();
         Revenue revenue = revenue(revenueId);
         revenue.markFailed("일시적인 장애");
-        when(revenueRepository.findById(revenueId)).thenReturn(Optional.of(revenue));
+        when(revenueQueryRepository.findByIdForUpdate(revenueId)).thenReturn(Optional.of(revenue));
 
         RevenueTransferStatusResponse response =
                 revenueCommandService.updateTransferStatus(
                         revenueId,
+                        "SYSTEM",
                         new RevenueTransferStatusRequest(
                                 RevenueTransferStatus.READY,
                                 null
@@ -120,12 +127,13 @@ class RevenueCommandServiceTest {
     @DisplayName("수익이 없으면 REVENUE_NOT_FOUND 예외를 반환한다")
     void throwsWhenRevenueDoesNotExist() {
         UUID revenueId = UUID.randomUUID();
-        when(revenueRepository.findById(revenueId)).thenReturn(Optional.empty());
+        when(revenueQueryRepository.findByIdForUpdate(revenueId)).thenReturn(Optional.empty());
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
                 () -> revenueCommandService.updateTransferStatus(
                         revenueId,
+                        "SYSTEM",
                         new RevenueTransferStatusRequest(
                                 RevenueTransferStatus.TRANSFERRED,
                                 null
@@ -232,6 +240,62 @@ class RevenueCommandServiceTest {
 
         assertEquals(AssetErrorCode.ASSET_NOT_FOUND, exception.getErrorCode());
         verifyNoInteractions(revenueRepository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INVESTOR", "ISSUER", "ADMIN", ""})
+    @DisplayName("SYSTEM 외 역할은 수익 전달 상태를 변경할 수 없다")
+    void rejectsTransferStatusForOtherRoles(String role) {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> revenueCommandService.updateTransferStatus(UUID.randomUUID(), role,
+                        new RevenueTransferStatusRequest(RevenueTransferStatus.TRANSFERRED, null)));
+        assertEquals(AssetErrorCode.REVENUE_TRANSFER_ACCESS_DENIED, exception.getErrorCode());
+        verifyNoInteractions(revenueQueryRepository, revenueRepository);
+    }
+
+    @Test
+    @DisplayName("완료 요청을 재전송해도 최초 완료 시간을 유지한다")
+    void preservesCompletionTimeOnRetry() {
+        UUID revenueId = UUID.randomUUID();
+        Revenue revenue = revenue(revenueId);
+        revenue.markTransferred();
+        java.time.Instant firstTime = revenue.getTransferredAt();
+        when(revenueQueryRepository.findByIdForUpdate(revenueId)).thenReturn(Optional.of(revenue));
+
+        RevenueTransferStatusResponse response = revenueCommandService.updateTransferStatus(
+                revenueId, "SYSTEM",
+                new RevenueTransferStatusRequest(RevenueTransferStatus.TRANSFERRED, null));
+
+        assertEquals(firstTime, response.transferredAt());
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = RevenueTransferStatus.class,
+            names = {"READY", "FAILED"})
+    @DisplayName("전달 완료된 수익을 대기나 실패 상태로 되돌릴 수 없다")
+    void rejectsCompletedRevenueRegression(RevenueTransferStatus target) {
+        UUID revenueId = UUID.randomUUID();
+        Revenue revenue = revenue(revenueId);
+        revenue.markTransferred();
+        java.time.Instant firstTime = revenue.getTransferredAt();
+        when(revenueQueryRepository.findByIdForUpdate(revenueId)).thenReturn(Optional.of(revenue));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> revenueCommandService.updateTransferStatus(revenueId, "SYSTEM",
+                        new RevenueTransferStatusRequest(target, "늦게 도착한 실패 응답")));
+
+        assertEquals(AssetErrorCode.INVALID_REVENUE_TRANSFER_STATUS, exception.getErrorCode());
+        assertEquals(RevenueTransferStatus.TRANSFERRED, revenue.getTransferStatus());
+        assertEquals(firstTime, revenue.getTransferredAt());
+    }
+
+    @Test
+    @DisplayName("실패 요청이 반복되어도 최초 실패 사유를 유지한다")
+    void preservesOriginalFailure() {
+        Revenue revenue = revenue(UUID.randomUUID());
+        revenue.markFailed("최초 실패");
+        revenue.markFailed("재전송 실패");
+        assertEquals("최초 실패", revenue.getFailureReason());
     }
 
     private Asset asset(UUID ownerId) {

@@ -9,6 +9,9 @@ import java.util.UUID;
 
 public interface RevenueQueryRepository {
 
+    // 상태 변경용 행 잠금 조회
+    Optional<Revenue> findByIdForUpdate(UUID revenueId);
+
     // 자산 ID와 수익 ID로 수익 단건 조회
     Optional<Revenue> findByAssetIdAndRevenueId(
             UUID assetId,
