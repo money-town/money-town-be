@@ -39,4 +39,22 @@ class OfferingStatusTransitionServiceTest {
                         JpaAuditingConfig.SYSTEM_USER_ID
                 );
     }
+
+    @Test
+    @DisplayName("SOLD_OUT 공모의 CLOSED 전환 건수를 반환한다")
+    void closesSoldOutOfferings() {
+        when(offeringRepository.closeSoldOutOfferings(
+                JpaAuditingConfig.SYSTEM_USER_ID
+        )).thenReturn(2);
+
+        int result =
+                offeringStatusTransitionService.closeSoldOutOfferings();
+
+        assertThat(result).isEqualTo(2);
+
+        verify(offeringRepository)
+                .closeSoldOutOfferings(
+                        JpaAuditingConfig.SYSTEM_USER_ID
+                );
+    }
 }

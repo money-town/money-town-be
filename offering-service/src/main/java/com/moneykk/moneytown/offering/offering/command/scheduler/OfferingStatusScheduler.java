@@ -20,4 +20,12 @@ public class OfferingStatusScheduler {
     public void openScheduledOfferings() {
         offeringStatusTransitionService.openScheduledOfferings();
     }
+
+    /**
+     * 모집 종료 시간이 도래한 SOLD_OUT 공모를 CLOSED 상태로 전환한다.
+     */
+    @Scheduled(cron = "0 * * * * *")
+    public void closeSoldOutOfferings() {
+        offeringStatusTransitionService.closeSoldOutOfferings();
+    }
 }

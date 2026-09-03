@@ -27,4 +27,13 @@ class OfferingStatusSchedulerTest {
         verify(offeringStatusTransitionService)
                 .openScheduledOfferings();
     }
+
+    @Test
+    @DisplayName("스케줄러 실행 시 종료 시간이 도래한 SOLD_OUT 공모의 CLOSED 전환을 요청한다")
+    void closesSoldOutOfferings() {
+        offeringStatusScheduler.closeSoldOutOfferings();
+
+        verify(offeringStatusTransitionService)
+                .closeSoldOutOfferings();
+    }
 }

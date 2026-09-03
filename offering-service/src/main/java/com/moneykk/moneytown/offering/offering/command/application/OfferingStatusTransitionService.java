@@ -18,4 +18,11 @@ public class OfferingStatusTransitionService {
                 JpaAuditingConfig.SYSTEM_USER_ID
         );
     }
+
+    @Transactional
+    public int closeSoldOutOfferings() {
+        return offeringRepository.closeSoldOutOfferings(
+                JpaAuditingConfig.SYSTEM_USER_ID
+        );
+    }
 }
