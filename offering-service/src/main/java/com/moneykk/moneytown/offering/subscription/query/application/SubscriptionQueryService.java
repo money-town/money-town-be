@@ -1,6 +1,9 @@
 package com.moneykk.moneytown.offering.subscription.query.application;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.exception.CommonErrorCode;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
@@ -71,9 +74,8 @@ public class SubscriptionQueryService {
         Subscription subscription = subscriptionRepository
                 .findBySubscriptionIdAndIsDeletedFalse(subscriptionId)
                 .orElseThrow(() ->
-                        // TODO: SubscriptionErrorCode 적용 후 S010으로 변경
-                        new IllegalArgumentException(
-                                "청약을 찾을 수 없습니다."
+                        new BusinessException(
+                                SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
                         )
                 );
 
@@ -101,14 +103,17 @@ public class SubscriptionQueryService {
                 role != null
                         && "ADMIN".equalsIgnoreCase(role);
 
+        boolean investor =
+                role != null
+                        && "INVESTOR".equalsIgnoreCase(role);
+
         boolean owner =
                 userId != null
                         && subscription.getUserId().equals(userId);
 
         if (!admin && !owner) {
-            // TODO: SubscriptionErrorCode 적용 후 S009로 변경
-            throw new IllegalArgumentException(
-                    "해당 청약을 조회할 권한이 없습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_ACCESS_DENIED
             );
         }
     }
@@ -130,9 +135,8 @@ public class SubscriptionQueryService {
                 && endDate != null
                 && startDate.isAfter(endDate)) {
 
-            // TODO: SubscriptionErrorCode 적용 후 S007로 변경
-            throw new IllegalArgumentException(
-                    "검색 조건이 유효하지 않습니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_SEARCH_CONDITION
             );
         }
     }
@@ -149,10 +153,8 @@ public class SubscriptionQueryService {
 
         for (Sort.Order order : pageable.getSort()) {
             if (!ALLOWED_SORT_FIELDS.contains(order.getProperty())) {
-                // TODO: SubscriptionErrorCode 적용 후 S007로 변경
-                throw new IllegalArgumentException(
-                        "지원하지 않는 정렬 기준입니다: "
-                                + order.getProperty()
+                throw new BusinessException(
+                        CommonErrorCode.INVALID_SORT_PROPERTY
                 );
             }
         }

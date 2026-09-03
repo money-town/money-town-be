@@ -1,5 +1,7 @@
 package com.moneykk.moneytown.offering.subscription.domain.service;
 
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -18,7 +20,6 @@ import java.util.UUID;
 @Component
 public class SubscriptionRequestHasher {
 
-    // TODO: ERROR/EXCEPTION - CODE 처리
     /**
      * 청약 요청을 식별할 SHA-256 해시를 생성한다.
      *
@@ -31,14 +32,14 @@ public class SubscriptionRequestHasher {
             Long quantity
     ) {
         if (offeringId == null) {
-            throw new IllegalArgumentException(
-                    "공모 ID는 필수입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
 
         if (quantity == null) {
-            throw new IllegalArgumentException(
-                    "청약 수량은 필수입니다."
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_QUANTITY
             );
         }
 
@@ -55,9 +56,8 @@ public class SubscriptionRequestHasher {
             return HexFormat.of().formatHex(hashed);
 
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(
-                    "SHA-256 알고리즘을 사용할 수 없습니다.",
-                    e
+            throw new BusinessException(
+                    SubscriptionErrorCode.REQUEST_HASH_GENERATION_FAILED
             );
         }
     }
