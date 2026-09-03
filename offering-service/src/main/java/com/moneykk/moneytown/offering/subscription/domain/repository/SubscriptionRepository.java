@@ -4,6 +4,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,5 +36,16 @@ public interface SubscriptionRepository
             UUID offeringId,
             UUID userId,
             SubscriptionStatus subscriptionStatus
+    );
+
+    /**
+     * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
+     *
+     * PROCESSING, CONFIRMED 상태이면서
+     * 삭제되지 않은 청약만 조회한다.
+     */
+    List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
+            UUID offeringId,
+            List<SubscriptionStatus> subscriptionStatuses
     );
 }

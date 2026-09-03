@@ -200,6 +200,31 @@ public class Subscription extends BaseUpdatableEntity {
     // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
 
     /**
+     * 공모 취소에 따른 청약 보상을 시작한다.
+     *
+     * PROCESSING 또는 CONFIRMED 상태의 청약만
+     * COMPENSATING 상태로 전환할 수 있다.
+     */
+    public void startCompensation(CancellationType cancellationType) {
+
+        if (cancellationType == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                && subscriptionStatus != SubscriptionStatus.CONFIRMED) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
+        this.cancellationType = cancellationType;
+    }
+
+    /**
      * 청약 총 금액을 계산한다.
      *
      * 단위 가격과 청약 수량의 곱이 Long 범위를 초과하는 경우
