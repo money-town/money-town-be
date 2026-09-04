@@ -35,7 +35,7 @@ spring:
             - id: settlement-service-route
               uri: lb://settlement-service
               predicates:
-                - Path=/api/v1/settlements/**,/api/v1/final-settlements/**,/api/v1/investors/**
+                - Path=/api/v1/settlements/**,/api/v1/final-settlements/**,/api/v1/dividends/**
 
 
             - id: analysis-service-route
