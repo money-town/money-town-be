@@ -5,6 +5,7 @@ import com.moneykk.moneytown.settlement.command.application.DividendDisbursement
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
 import com.moneykk.moneytown.settlement.command.dto.OpenSettlementRequest;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +28,7 @@ public class SettlementCommandController {
     //TODO: 인가 코드 추가
     @PostMapping("/settlements")
     public ResponseEntity<ApiResponse<SettlementBatchResponse>> openSettlementBatch(
-            @RequestBody OpenSettlementRequest request) {
+            @Valid @RequestBody OpenSettlementRequest request) {
         SettlementBatchResponse response =
                 settlementCommandService.openBatch(request.assetId(), request.revenueId());
         dividendDisbursementService.disburseAsync(response.settlementBatchId());
