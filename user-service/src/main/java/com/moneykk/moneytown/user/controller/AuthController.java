@@ -22,6 +22,9 @@ public class AuthController {
     private final UserService userService;
     private final AuthService authService;
 
+    // TODO 토큰 재발급 API 구현
+    // TODO 로그아웃 시 Refresh Token 폐기
+
     // 로그인
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request){

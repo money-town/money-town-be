@@ -84,6 +84,7 @@ public class UserService {
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
+        // TODO UserWithdrawn Outbox 이벤트 동일 트랜잭션 저장
         user.withdraw(userId);
 
         return UserResponse.from(user);

@@ -30,13 +30,6 @@ public class UserController {
         );
     }
 
-    // 사용자 단건 조회
-    @GetMapping("users/{userId}")
-    public ApiResponse<UserResponse> getUser(@PathVariable UUID userId){
-        return ApiResponse.success(userService.getUser(userId),
-                "사용자 단건 조회 성공");
-    
-    }
 
     // 내 정보 조회
     @GetMapping("/users/me")
@@ -48,14 +41,14 @@ public class UserController {
                 "내 정보 조회 성공");
     }
 
-    
+
     @PatchMapping("/users/me")
     public ApiResponse<UserResponse> updateUser(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
             ,@Valid @RequestBody UpdateMyInfoRequest request){
-        
+
         return ApiResponse.success(userService.updateUser(userId, request),
                 "수정 완료");
-        
+
     }
 
     @DeleteMapping("/users/me")
@@ -66,6 +59,19 @@ public class UserController {
         return ApiResponse.success(null,
                 "삭제 완료");
     }
+
+    // 관리자
+
+    // 사용자 단건 조회
+    @GetMapping("users/{userId}")
+    public ApiResponse<UserResponse> getUser(@PathVariable UUID userId){
+        return ApiResponse.success(userService.getUser(userId),
+                "사용자 단건 조회 성공");
+    
+    }
+
+    // TODO : 관리자가 사용자의 수정 및 탈퇴
+
 
 
 
