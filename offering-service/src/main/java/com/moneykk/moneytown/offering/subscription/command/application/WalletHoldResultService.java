@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
+import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
@@ -11,6 +12,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldFailedPayload;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldSucceededPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -171,6 +173,152 @@ public class WalletHoldResultService {
         if (!"HELD".equals(payload.status())) {
             throw new IllegalArgumentException(
                     "동결 성공 이벤트의 status는 HELD여야 합니다."
+            );
+        }
+    }
+
+    /**
+     * 동결 실패 이벤트를 처리한다.
+     *
+     * 처리 이력, 공모 수량 복원, 청약 거절을
+     * ProcessedEventService가 시작한 동일 트랜잭션에서 처리한다.
+     */
+    public boolean handleFailed(
+            EventEnvelope<WalletHoldFailedPayload> envelope,
+            String consumerGroup
+    ) {
+        validateFailedEvent(envelope);
+
+        UUID subscriptionId = parseSubscriptionId(envelope.aggregateId());
+
+        return processedEventService.processOnce(
+                envelope,
+                consumerGroup,
+                () -> rejectSubscription(subscriptionId, envelope)
+        );
+    }
+
+    private void rejectSubscription(
+            UUID subscriptionId,
+            EventEnvelope<WalletHoldFailedPayload> envelope
+    ) {
+        UUID offeringId = subscriptionRepository
+                .findOfferingIdBySubscriptionId(subscriptionId)
+                .orElseThrow(() -> new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+                ));
+
+        // 모집 미달 처리와 동일하게 공모 → 청약 순서로 잠근다.
+        offeringRepository.findByIdForUpdate(offeringId)
+                .orElseThrow(() -> new BusinessException(
+                        OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
+
+        Subscription subscription = subscriptionRepository
+                .findByIdForUpdate(subscriptionId)
+                .orElseThrow(() -> new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+                ));
+
+        if (!subscription.getUserId().equals(envelope.userId())) {
+            throw new IllegalArgumentException(
+                    "동결 실패 이벤트의 userId가 청약자와 일치하지 않습니다."
+            );
+        }
+
+        /*
+         * 다른 eventId로 동일한 실패 결과가 다시 도착해도
+         * 이미 복원한 수량을 다시 증가시키지 않는다.
+         */
+        if (subscription.getSubscriptionStatus()
+                == SubscriptionStatus.REJECTED
+                && !subscription.isQuantityReserved()) {
+            log.info(
+                    "이미 거절된 청약의 동결 실패 이벤트. "
+                            + "subscriptionId={}, eventId={}",
+                    subscriptionId,
+                    envelope.eventId()
+            );
+            return;
+        }
+
+        /*
+         * 확정된 청약이나 취소·타임아웃 보상 중인 청약은
+         * 일반 동결 실패 경로에서 거절 처리하지 않는다.
+         * 예외 발생 시 처리 이력도 함께 롤백된다.
+         */
+        if (subscription.getSubscriptionStatus()
+                != SubscriptionStatus.PROCESSING) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED
+            );
+        }
+
+        subscription.startHoldFailureCompensation(
+                envelope.payload().reason()
+        );
+
+        int restoredRows = offeringRepository.restoreQuantity(
+                offeringId,
+                subscription.getQuantity(),
+                JpaAuditingConfig.SYSTEM_USER_ID
+        );
+
+        if (restoredRows != 1) {
+            throw new IllegalStateException(
+                    "동결 실패에 따른 공모 수량 복원에 실패했습니다. "
+                            + "subscriptionId=" + subscriptionId
+                            + ", offeringId=" + offeringId
+            );
+        }
+
+        subscription.completeHoldFailureRejection();
+    }
+
+    private void validateFailedEvent(
+            EventEnvelope<WalletHoldFailedPayload> envelope
+    ) {
+        Objects.requireNonNull(envelope, "envelope은 필수입니다.");
+        Objects.requireNonNull(envelope.eventId(), "eventId는 필수입니다.");
+        Objects.requireNonNull(envelope.userId(), "userId는 필수입니다.");
+        Objects.requireNonNull(envelope.occurredAt(), "occurredAt은 필수입니다.");
+
+        if (!"WalletHoldFailed".equals(envelope.eventType())) {
+            throw new IllegalArgumentException(
+                    "WalletHoldFailed 이벤트만 처리할 수 있습니다."
+            );
+        }
+
+        if (envelope.correlationId() == null
+                || envelope.correlationId().isBlank()) {
+            throw new IllegalArgumentException(
+                    "correlationId는 필수입니다."
+            );
+        }
+
+        WalletHoldFailedPayload payload = Objects.requireNonNull(
+                envelope.payload(),
+                "payload는 필수입니다."
+        );
+
+        if (!"FAILED".equals(payload.status())) {
+            throw new IllegalArgumentException(
+                    "동결 실패 이벤트의 status는 FAILED여야 합니다."
+            );
+        }
+
+        if (payload.reason() == null
+                || payload.reason().isBlank()
+                || payload.reason().length() > 50) {
+            throw new IllegalArgumentException(
+                    "reason은 필수이며 50자를 초과할 수 없습니다."
+            );
+        }
+
+        // 지갑이 존재하지 않는 실패는 walletId가 없을 수 있다.
+        if (payload.walletId() != null && payload.walletId() <= 0) {
+            throw new IllegalArgumentException(
+                    "walletId가 있으면 양수여야 합니다."
             );
         }
     }

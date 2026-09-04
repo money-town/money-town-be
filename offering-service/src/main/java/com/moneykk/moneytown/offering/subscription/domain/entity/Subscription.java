@@ -219,14 +219,60 @@ public class Subscription extends BaseUpdatableEntity {
         this.confirmedAt = confirmedAt;
     }
 
+    /**
+     * 지갑 동결 실패에 따른 수량 복원을 시작한다.
+     *
+     * 수량이 확보된 PROCESSING 청약만 처리할 수 있다.
+     * reason은 WalletHoldFailed payload의 실패 사유다.
+     */
+    public void startHoldFailureCompensation(String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 50) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                || !quantityReserved
+                || cancellationType != null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
+        this.failureCode = reason;
+    }
+
+    /**
+     * 지갑 동결 실패에 따른 수량 복원을 마친 청약을 거절한다.
+     *
+     * 서비스에서 공모 수량 복원에 성공한 뒤 호출해야 한다.
+     * 수량 복원과 이 상태 변경은 같은 트랜잭션에서 처리한다.
+     */
+    public void completeHoldFailureRejection() {
+        if (subscriptionStatus != SubscriptionStatus.COMPENSATING
+                || !quantityReserved
+                || cancellationType != null
+                || failureCode == null
+                || failureCode.isBlank()) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED
+            );
+        }
+
+        this.quantityReserved = false;
+        this.subscriptionStatus = SubscriptionStatus.REJECTED;
+    }
+
     // TODO 3차 구현:
     // Wallet 동결 결과 이벤트 처리 및 보상 흐름 구현
     // - 동결 실패: 보상 정책에 따라 COMPENSATING 전환 후 수량 복원
     // - 수량 복원 완료 시 quantityReserved = false
-    // - 최종 실패 처리 시 REJECTED
-    // - 취소 완료 시 CANCELLED
+    // - WalletHoldFailed 처리 서비스에서 공모 수량 복원과 상태 변경 연결
+    // - Kafka Consumer 연결
+    // - 타임아웃 및 공모 취소에 따른 Wallet 보상 처리 연결
     // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
-
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
