@@ -119,9 +119,10 @@ public class OutboxPublishScheduler {
 
         String eventType = envelope.path("eventType").asText();
 
-        // 현재 계약이 확정된 이벤트만 처리한다.
+        // userId를 Kafka 메시지 key로 사용하는 이벤트
         if (!"SubscriptionReserved".equals(eventType)
-                && !"SubscriptionConfirmed".equals(eventType)) {
+                && !"SubscriptionConfirmed".equals(eventType)
+                && !"SubscriptionCompensationRequested".equals(eventType)) {
             throw new IllegalArgumentException(
                     "Kafka key 규칙이 정의되지 않은 이벤트입니다: " + eventType
             );

@@ -8,9 +8,11 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
+import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +34,9 @@ class OfferingStatusTransitionServiceTest {
     private OfferingRepository offeringRepository;
     @Mock
     private SubscriptionRepository subscriptionRepository;
+
+    @Mock
+    private SubscriptionEventPublisher subscriptionEventPublisher;
 
     @InjectMocks
     private OfferingStatusTransitionService offeringStatusTransitionService;
@@ -77,14 +82,14 @@ class OfferingStatusTransitionServiceTest {
     void startsUnderSubscribedCancellations() {
         // given
         UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
 
         Offering offering = mock(Offering.class);
         Subscription processingSubscription = mock(Subscription.class);
         Subscription confirmedSubscription = mock(Subscription.class);
 
-        when(offering.getOfferingId())
-                .thenReturn(offeringId);
-
+        when(offering.getOfferingId()).thenReturn(offeringId);
+        when(offering.getAssetId()).thenReturn(assetId);
         when(offeringRepository.findUnderSubscribedOfferingsForUpdate(
                 any(),
                 any()
@@ -122,6 +127,27 @@ class OfferingStatusTransitionServiceTest {
         verify(confirmedSubscription)
                 .startCompensation(
                         CancellationType.OFFERING_UNDER_SUBSCRIBED
+                );
+
+        ArgumentCaptor<String> correlationIdCaptor =
+                ArgumentCaptor.forClass(String.class);
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        eq(processingSubscription),
+                        eq(assetId),
+                        correlationIdCaptor.capture()
+                );
+
+        String correlationId = correlationIdCaptor.getValue();
+
+        assertThat(correlationId).isNotBlank();
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        eq(confirmedSubscription),
+                        eq(assetId),
+                        eq(correlationId)
                 );
     }
 }

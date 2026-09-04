@@ -21,6 +21,9 @@ public class SubscriptionEventPublisher {
     private static final String CONFIRMED_EVENT_TYPE = "SubscriptionConfirmed";
     private static final String CONFIRMED_TOPIC = "subscription-confirmed";
 
+    private static final String COMPENSATION_REQUESTED_EVENT_TYPE = "SubscriptionCompensationRequested";
+    private static final String COMPENSATION_REQUESTED_TOPIC = "subscription-compensation-requested";
+
     private final OutboxEventStore outboxEventStore;
 
     /**
@@ -105,6 +108,64 @@ public class SubscriptionEventPublisher {
         outboxEventStore.save(
                 AGGREGATE_TYPE,
                 CONFIRMED_TOPIC,
+                envelope
+        );
+    }
+
+    /**
+     * 공모 중단 또는 모집 미달에 따른 보상 요청을 Outbox에 저장한다.
+     *
+     * 호출 서비스에서 청약을 COMPENSATING으로 전환하고,
+     * 동일 트랜잭션 안에서 호출해야 한다.
+     *
+     * @param assetId 해당 청약의 공모에 저장된 자산 ID
+     * @param correlationId 보상을 시작한 요청 또는 작업의 추적 ID
+     */
+    public void publishCompensationRequested(
+            Subscription subscription,
+            UUID assetId,
+            String correlationId
+    ) {
+        validateCommon(subscription, correlationId);
+
+        Objects.requireNonNull(
+                subscription.getOfferingId(),
+                "offeringId는 필수입니다."
+        );
+        Objects.requireNonNull(assetId, "assetId는 필수입니다.");
+
+        if (subscription.getSubscriptionStatus()
+                != SubscriptionStatus.COMPENSATING) {
+            throw new IllegalStateException(
+                    "COMPENSATING 청약만 보상 요청 이벤트를 생성할 수 있습니다."
+            );
+        }
+
+        if (subscription.getCancellationType() == null) {
+            throw new IllegalStateException(
+                    "공모 중단 또는 모집 미달에 따른 취소 사유가 필요합니다."
+            );
+        }
+
+        SubscriptionCompensationRequestedPayload payload =
+                new SubscriptionCompensationRequestedPayload(
+                        subscription.getOfferingId(),
+                        assetId,
+                        subscription.getCancellationType().name()
+                );
+
+        EventEnvelope<SubscriptionCompensationRequestedPayload> envelope =
+                EventEnvelope.of(
+                        COMPENSATION_REQUESTED_EVENT_TYPE,
+                        subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(),
+                        correlationId,
+                        payload
+                );
+
+        outboxEventStore.save(
+                AGGREGATE_TYPE,
+                COMPENSATION_REQUESTED_TOPIC,
                 envelope
         );
     }
