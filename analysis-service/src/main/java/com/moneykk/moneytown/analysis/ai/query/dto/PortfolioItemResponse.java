@@ -19,6 +19,6 @@ public record PortfolioItemResponse(
 ) {
 
     public static PortfolioItemResponse from(Portfolio p){
-        return new PortfolioItemResponse(p.getId(), p.getInvestmentAmount(), p.getRiskType(), p.getAssetType(), p.getStatus(), p.getCompletedAt(), p.getCreatedAt());
+        return new PortfolioItemResponse(p.getId(), p.getInvestmentAmount(), p.getRiskType(), p.getAssetType(), p.getStatus(), p.getCreatedAt(), p.getCompletedAt());
     }
 }

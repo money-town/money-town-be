@@ -32,7 +32,7 @@ public class PortfolioQueryRepositoryImpl implements PortfolioQueryRepository{
                 .selectFrom(portfolio)
                 .where(search)
                 .offset(pageable.getOffset())
-                .orderBy(portfolio.createdAt.desc())
+                .orderBy(portfolio.createdAt.desc(), portfolio.id.desc())
                 .limit(pageable.getPageSize())
                 .fetch();
 
@@ -54,7 +54,7 @@ public class PortfolioQueryRepositoryImpl implements PortfolioQueryRepository{
                 .selectFrom(portfolio)
                 .where(search)
                 .offset(pageable.getOffset())
-                .orderBy(portfolio.createdAt.desc())
+                .orderBy(portfolio.createdAt.desc(), portfolio.id.desc())
                 .limit(pageable.getPageSize())
                 .fetch();
 
