@@ -35,7 +35,13 @@ spring:
             - id: settlement-service-route
               uri: lb://settlement-service
               predicates:
-                - Path=/api/v1/settlements/**,/api/v1/distributions/**
+                - Path=/api/v1/settlements/**,/api/v1/final-settlements/**,/api/v1/investors/**
+
+
+            - id: analysis-service-route
+              uri: lb://analysis-service
+              predicates:
+                - Path=/api/v1/analysis/**
 
           httpclient:
             connect-timeout: 3000

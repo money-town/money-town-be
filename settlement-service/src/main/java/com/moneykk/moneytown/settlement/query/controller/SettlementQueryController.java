@@ -46,7 +46,7 @@ public class SettlementQueryController {
     }
 
     // TODO: Gateway 인증/인가 정책 확정 후 INVESTOR 권한 및 사용자 정보 전달 방식 재검토
-    @GetMapping("/investors/me/dividends")
+    @GetMapping("/dividends/me")
     public ResponseEntity<ApiResponse<PageResponse<MyDividendPayoutListItemResponse>>> getMyDividends(
             @RequestHeader("X-User-Id") UUID investorId,
             @RequestParam(required = false) UUID assetId,
