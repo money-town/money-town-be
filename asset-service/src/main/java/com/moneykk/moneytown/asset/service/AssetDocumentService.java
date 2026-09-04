@@ -56,47 +56,35 @@ public class AssetDocumentService {
             DocumentType documentType,
             MultipartFile file
     ) {
-        // 자산운용자와 관리자만 등록 가능
-        if (userId == null
-                || (!"ISSUER".equals(role) && !"ADMIN".equals(role))) {
-            throw new BusinessException(
-                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
-            );
-        }
+        // 권한과 자산 소유권 확인
+        validateDocumentManageAccess(
+                assetId,
+                userId,
+                role
+        );
 
+        // 파일 내용과 기본 정보 읽기
         byte[] content = readFile(file);
         String contentType = file.getContentType();
         String originalFilename = cleanFilename(
                 file.getOriginalFilename()
         );
 
+        // 파일 크기와 형식 확인
         validateFile(
                 content,
                 contentType,
                 originalFilename
         );
 
-        // 자산 잠금으로 문서 버전 충돌 방지
-        Asset asset = assetQueryRepository
-                .findActiveByIdForUpdate(assetId)
-                .orElseThrow(() -> new BusinessException(
-                        AssetErrorCode.ASSET_NOT_FOUND
-                ));
-
-        // 운용자는 본인이 등록한 자산만 관리 가능
-        if (!"ADMIN".equals(role)
-                && !userId.equals(asset.getUserId())) {
-            throw new BusinessException(
-                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
-            );
-        }
-
+        // 같은 자산·문서 유형의 다음 버전 계산
         int nextVersion =
                 assetDocumentQueryRepository.findNextVersion(
                         assetId,
                         documentType
                 );
 
+        // 원본 파일명을 경로에 사용하지 않고 UUID로 생성
         String objectKey = "assets/"
                 + assetId
                 + "/documents/"
@@ -117,7 +105,7 @@ public class AssetDocumentService {
         AssetDocument saved =
                 assetDocumentRepository.saveAndFlush(document);
 
-        // DB 저장 성공 후 S3 업로드
+        // DB 저장 성공 후 S3에 파일 업로드
         s3StorageService.upload(
                 objectKey,
                 content,
@@ -214,6 +202,73 @@ public class AssetDocumentService {
                 downloadUrl,
                 expiresAt
         );
+    }
+
+    /**
+     * 자산 문서 삭제
+     */
+    @Transactional
+    public void deleteDocument(
+            UUID assetId,
+            UUID documentId,
+            UUID userId,
+            String role
+    ) {
+        // 관리자 또는 자산 소유자인지 확인
+        validateDocumentManageAccess(
+                assetId,
+                userId,
+                role
+        );
+
+        // 해당 자산의 삭제되지 않은 문서 조회
+        AssetDocument document =
+                assetDocumentQueryRepository.findActiveById(
+                        assetId,
+                        documentId
+                ).orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_DOCUMENT_NOT_FOUND
+                ));
+
+        // DB에서 소프트 삭제 처리
+        document.softDelete(userId);
+
+        // S3 파일 삭제
+        s3StorageService.delete(
+                document.getS3ObjectKey()
+        );
+    }
+
+    /**
+     * 문서 등록·삭제 권한 확인
+     */
+    private void validateDocumentManageAccess(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        if (userId == null
+                || (!"ISSUER".equals(role)
+                && !"ADMIN".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
+            );
+        }
+
+        // 등록 버전 충돌과 동시 삭제를 막기 위해 자산 잠금
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 운용자는 본인이 등록한 자산만 관리 가능
+        if (!"ADMIN".equals(role)
+                && !userId.equals(asset.getUserId())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
+            );
+        }
     }
 
     /**

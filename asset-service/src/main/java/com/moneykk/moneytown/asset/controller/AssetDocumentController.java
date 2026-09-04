@@ -121,4 +121,27 @@ public class AssetDocumentController {
                 "자산 문서 다운로드 URL이 발급되었습니다."
         );
     }
+
+    /**
+     * 자산 문서 삭제
+     */
+    @DeleteMapping("/{documentId}")
+    public ApiResponse<Void> deleteDocument(
+            @PathVariable UUID assetId,
+            @PathVariable UUID documentId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
+    ) {
+        assetDocumentService.deleteDocument(
+                assetId,
+                documentId,
+                userId,
+                role
+        );
+
+        return ApiResponse.success(
+                null,
+                "자산 문서가 삭제되었습니다."
+        );
+    }
 }

@@ -25,6 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -128,5 +129,25 @@ class AssetDocumentControllerTest {
 
         verify(service).createDownloadUrl(
                 assetId, documentId, userId, "INVESTOR");
+    }
+
+    @Test
+    @DisplayName("자산 문서 삭제 요청을 서비스에 전달한다")
+    void deletesDocument() throws Exception {
+        UUID documentId = UUID.randomUUID();
+
+        mvc.perform(delete(
+                        "/api/v1/assets/{assetId}/documents/{documentId}",
+                        assetId,
+                        documentId)
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message")
+                        .value("자산 문서가 삭제되었습니다."));
+
+        verify(service).deleteDocument(
+                assetId, documentId, userId, "ISSUER");
     }
 }

@@ -222,6 +222,45 @@ class AssetDocumentServiceTest {
         verifyNoInteractions(s3StorageService);
     }
 
+    @Test
+    @DisplayName("자산 문서를 소프트 삭제하고 S3 파일을 제거한다")
+    void deletesDocument() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        AssetDocument document = document(assetId, 1, "appraisal.pdf");
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset(ownerId)));
+        when(assetDocumentQueryRepository.findActiveById(assetId, document.getId()))
+                .thenReturn(Optional.of(document));
+
+        assetDocumentService.deleteDocument(
+                assetId, document.getId(), ownerId, "ISSUER");
+
+        assertTrue(document.isDeleted());
+        assertEquals(ownerId, document.getDeletedBy());
+        assertNotNull(document.getDeletedAt());
+        verify(s3StorageService).delete(document.getS3ObjectKey());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 문서는 삭제하지 않는다")
+    void rejectsMissingDocumentDeletion() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset(ownerId)));
+        when(assetDocumentQueryRepository.findActiveById(assetId, documentId))
+                .thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetDocumentService.deleteDocument(
+                        assetId, documentId, ownerId, "ISSUER"));
+
+        assertEquals(AssetErrorCode.ASSET_DOCUMENT_NOT_FOUND, exception.getErrorCode());
+        verifyNoInteractions(s3StorageService);
+    }
+
     private AssetDocument document(
             UUID assetId,
             int version,
