@@ -63,12 +63,10 @@ public class OfferingStatusTransitionService {
     public int startUnderSubscribedCancellations() {
 
         List<Offering> offerings =
-                offeringRepository
-                        .findAllByOfferingStatusAndEndAtLessThanEqualAndIsDeletedFalse(
-                                OfferingStatus.OPEN,
-                                Instant.now(),
-                                PageRequest.of(0, TRANSITION_BATCH_SIZE)
-                        );
+                offeringRepository.findUnderSubscribedOfferingsForUpdate(
+                        Instant.now(),
+                        PageRequest.of(0, TRANSITION_BATCH_SIZE)
+                );
 
         for (Offering offering : offerings) {
             offering.startUnderSubscribedCancellation();

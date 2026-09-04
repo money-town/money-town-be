@@ -2,7 +2,6 @@ package com.moneykk.moneytown.offering.offering.command.application;
 
 import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
-import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
@@ -74,7 +73,7 @@ class OfferingStatusTransitionServiceTest {
     }
 
     @Test
-    @DisplayName("모집 종료된 OPEN 공모와 보상 대상 청약을 보상 진행 상태로 전환한다")
+    @DisplayName("모집 미달 공모와 보상 대상 청약을 보상 진행 상태로 전환한다")
     void startsUnderSubscribedCancellations() {
         // given
         UUID offeringId = UUID.randomUUID();
@@ -86,13 +85,10 @@ class OfferingStatusTransitionServiceTest {
         when(offering.getOfferingId())
                 .thenReturn(offeringId);
 
-        when(offeringRepository
-                .findAllByOfferingStatusAndEndAtLessThanEqualAndIsDeletedFalse(
-                        eq(OfferingStatus.OPEN),
-                        any(),
-                        any()
-                ))
-                .thenReturn(List.of(offering));
+        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(
+                any(),
+                any()
+        )).thenReturn(List.of(offering));
 
         when(subscriptionRepository
                 .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(

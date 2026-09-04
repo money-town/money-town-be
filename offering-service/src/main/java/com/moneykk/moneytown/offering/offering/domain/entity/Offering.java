@@ -328,14 +328,22 @@ public class Offering extends BaseUpdatableEntity {
     /**
      * 모집 미달로 공모 취소 보상 절차를 시작한다.
      *
-     * 모집 종료 후에도 잔여 수량이 존재하는 OPEN 공모만
+     * 모집 종료 후 잔여 수량이 존재하는 OPEN 공모를
      * CANCELLING 상태로 전환할 수 있다.
+     *
+     * CLOSED 이후 동결 실패로 수량이 복원된 경우도 포함한다.
      *
      * 최종 CANCELLED 전환 및 cancelledAt 기록은
      * 필요한 보상이 모두 완료된 이후 수행한다.
      */
     public void startUnderSubscribedCancellation() {
-        if (offeringStatus != OfferingStatus.OPEN) {
+
+        boolean allowedStatus =
+                offeringStatus == OfferingStatus.OPEN
+                        || offeringStatus == OfferingStatus.SOLD_OUT
+                        || offeringStatus == OfferingStatus.CLOSED;
+
+        if (!allowedStatus) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_CANCELLATION_NOT_ALLOWED
             );
