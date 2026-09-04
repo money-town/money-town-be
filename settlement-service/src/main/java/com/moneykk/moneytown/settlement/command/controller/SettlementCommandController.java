@@ -3,12 +3,14 @@ package com.moneykk.moneytown.settlement.command.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.command.application.DividendDisbursementService;
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
+import com.moneykk.moneytown.settlement.command.dto.OpenSettlementRequest;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,11 +25,11 @@ public class SettlementCommandController {
     private final DividendDisbursementService dividendDisbursementService;
 
     //TODO: 인가 코드 추가
-    @PostMapping("/assets/{assetId}/dividends/{revenueId}/settle")
+    @PostMapping("/settlements")
     public ResponseEntity<ApiResponse<SettlementBatchResponse>> openSettlementBatch(
-            @PathVariable UUID assetId,
-            @PathVariable UUID revenueId) {
-        SettlementBatchResponse response = settlementCommandService.openBatch(assetId, revenueId);
+            @RequestBody OpenSettlementRequest request) {
+        SettlementBatchResponse response =
+                settlementCommandService.openBatch(request.assetId(), request.revenueId());
         dividendDisbursementService.disburseAsync(response.settlementBatchId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "정산 회차가 개시되었습니다."));
