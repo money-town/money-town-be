@@ -125,7 +125,7 @@ CREATE TABLE p_revenues (
     CONSTRAINT ck_revenues_transfer
         CHECK ((transfer_status = 'READY' AND transferred_at IS NULL AND failure_reason IS NULL)
             OR (transfer_status = 'TRANSFERRED' AND transferred_at IS NOT NULL AND failure_reason IS NULL)
-            OR (transfer_status = 'FAILED' AND failure_reason IS NOT NULL))
+            OR (transfer_status = 'FAILED' AND transferred_at IS NULL AND failure_reason IS NOT NULL))
 );
 
 CREATE INDEX idx_assets_user_id ON p_assets(user_id);

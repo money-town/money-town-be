@@ -103,6 +103,10 @@ public class Asset extends BaseUpdatableEntity {
         this.valuationAmount = valuationAmount;
         this.expectedReturnRate = expectedReturnRate;
         this.detailData = new HashMap<>(detailData);
+        // 상세 정보에 평가금액이 있으면 기준 평가금액과 같은 값으로 저장
+        if (this.detailData.containsKey("appraisalAmount")) {
+            this.detailData.put("appraisalAmount", valuationAmount);
+        }
         // 지분당 가격은 1원 미만 버림
         this.unitPrice = valuationAmount / totalShareQuantity;
         this.totalShareQuantity = totalShareQuantity;

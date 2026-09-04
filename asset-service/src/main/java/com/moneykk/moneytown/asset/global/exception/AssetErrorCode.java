@@ -17,7 +17,7 @@ public enum AssetErrorCode implements ErrorCode {
     INVALID_REVENUE_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_11", "유효하지 않은 수익 조회 커서입니다."),
     INVALID_HOLDING_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_12", "유효하지 않은 보유지분 조회 커서입니다."),
     INVALID_ASSET_SHARE_PRICE(HttpStatus.BAD_REQUEST, "ASSET_400_13", "평가 금액과 전체 지분 수량은 양수이며, 계산된 지분 단가는 최소 1원이어야 합니다."),
-    APPRAISAL_AMOUNT_UPDATE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "ASSET_400_14", "자산 평가금액은 수정 기능은 추후 추가 예정입니다."),
+    APPRAISAL_AMOUNT_UPDATE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "ASSET_400_14", "자산 평가금액은 수정할 수 없습니다."),
 
     REVENUE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_01", "해당 자산에 수익을 등록할 권한이 없습니다."),
     HOLDING_SNAPSHOT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_02", "지분 스냅샷은 SYSTEM 권한으로만 조회할 수 있습니다."),
