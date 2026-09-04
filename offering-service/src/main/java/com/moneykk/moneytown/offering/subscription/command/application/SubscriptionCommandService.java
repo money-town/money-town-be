@@ -52,9 +52,9 @@ public class SubscriptionCommandService {
             UUID offeringId,
             UUID userId,
             String idempotencyKey,
-            SubscriptionCreateRequest request
+            SubscriptionCreateRequest request,
+            String correlationId
     ) {
-        // TODO: SubscriptionReserved Outbox 저장 추가
 
         validateIdempotencyKey(idempotencyKey);
 
@@ -158,14 +158,15 @@ public class SubscriptionCommandService {
              * - remainingQuantity 조건부 UPDATE
              * - Subscription PROCESSING 생성
              * - Idempotency COMPLETED 처리
-             * - 추후 SubscriptionReserved Outbox 저장
+             * - SubscriptionReserved Outbox 저장
              */
             return subscriptionTransactionService.createSubscription(
                     offering.getOfferingId(),
                     userId,
                     idempotencyKey,
                     request.quantity(),
-                    offering.getPricePerUnit()
+                    offering.getPricePerUnit(),
+                    correlationId
             );
 
         } catch (BusinessException e) {
