@@ -1,4 +1,10 @@
 package com.moneykk.moneytown.user.global.security.jwt;
 
-public class IssuedToken {
+import java.time.Instant;
+
+public record IssuedToken(
+        String value,
+        Instant expiresAt,
+        String tokenId
+) {
 }
