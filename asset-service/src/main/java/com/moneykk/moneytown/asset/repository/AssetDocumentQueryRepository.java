@@ -5,6 +5,7 @@ import com.moneykk.moneytown.asset.entity.DocumentType;
 import org.springframework.data.domain.Sort;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface AssetDocumentQueryRepository {
@@ -21,5 +22,11 @@ public interface AssetDocumentQueryRepository {
             UUID cursor,
             int limit,
             Sort.Direction direction
+    );
+
+    // 삭제되지 않은 문서 단건 조회
+    Optional<AssetDocument> findActiveById(
+            UUID assetId,
+            UUID documentId
     );
 }

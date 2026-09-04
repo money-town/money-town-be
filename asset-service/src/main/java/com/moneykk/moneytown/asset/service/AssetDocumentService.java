@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.service;
 
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentCreateResponse;
+import com.moneykk.moneytown.asset.dto.response.AssetDocumentDownloadResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentListItemResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentListResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
@@ -22,6 +23,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -137,36 +140,11 @@ public class AssetDocumentService {
             Sort.Direction direction
     ) {
         // 자산 문서 조회 권한 확인
-        if (userId == null
-                || (!"ADMIN".equals(role)
-                && !"ISSUER".equals(role)
-                && !"INVESTOR".equals(role))) {
-            throw new BusinessException(
-                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
-            );
-        }
-
-        Asset asset = assetQueryRepository
-                .findActiveById(assetId)
-                .orElseThrow(() -> new BusinessException(
-                        AssetErrorCode.ASSET_NOT_FOUND
-                ));
-
-        // 자산운용자는 본인 자산만 조회 가능
-        if ("ISSUER".equals(role)
-                && !userId.equals(asset.getUserId())) {
-            throw new BusinessException(
-                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
-            );
-        }
-
-        // 투자자는 승인된 자산만 조회 가능
-        if ("INVESTOR".equals(role)
-                && asset.getStatus() != AssetStatus.APPROVED) {
-            throw new BusinessException(
-                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
-            );
-        }
+        validateDocumentReadAccess(
+                assetId,
+                userId,
+                role
+        );
 
         // 다음 페이지 확인을 위해 한 건 더 조회
         List<AssetDocument> documents =
@@ -194,6 +172,88 @@ public class AssetDocumentService {
                 nextCursor,
                 hasNext
         );
+    }
+
+    /**
+     * 문서 다운로드 URL 발급
+     */
+    @Transactional(readOnly = true)
+    public AssetDocumentDownloadResponse createDownloadUrl(
+            UUID assetId,
+            UUID documentId,
+            UUID userId,
+            String role
+    ) {
+        // 문서 조회 권한 확인
+        validateDocumentReadAccess(
+                assetId,
+                userId,
+                role
+        );
+
+        AssetDocument document =
+                assetDocumentQueryRepository.findActiveById(
+                        assetId,
+                        documentId
+                ).orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_DOCUMENT_NOT_FOUND
+                ));
+
+        // 실제 URL 만료 시각보다 조금 이르게 안내
+        Instant expiresAt = Instant.now()
+                .plus(Duration.ofMinutes(10));
+
+        String downloadUrl =
+                s3StorageService.createDownloadUrl(
+                        document.getS3ObjectKey()
+                );
+
+        return new AssetDocumentDownloadResponse(
+                document.getId(),
+                document.getOriginalFilename(),
+                downloadUrl,
+                expiresAt
+        );
+    }
+
+    /**
+     * 문서 조회 권한 확인
+     */
+    private void validateDocumentReadAccess(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        if (userId == null
+                || (!"ADMIN".equals(role)
+                && !"ISSUER".equals(role)
+                && !"INVESTOR".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
+            );
+        }
+
+        Asset asset = assetQueryRepository
+                .findActiveById(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 운용자는 본인이 등록한 자산만 조회 가능
+        if ("ISSUER".equals(role)
+                && !userId.equals(asset.getUserId())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
+            );
+        }
+
+        // 투자자는 승인된 자산만 조회 가능
+        if ("INVESTOR".equals(role)
+                && asset.getStatus() != AssetStatus.APPROVED) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED
+            );
+        }
     }
 
     /**

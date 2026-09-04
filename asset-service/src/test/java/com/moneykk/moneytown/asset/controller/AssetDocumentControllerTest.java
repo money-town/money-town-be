@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentCreateResponse;
+import com.moneykk.moneytown.asset.dto.response.AssetDocumentDownloadResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentListItemResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentListResponse;
 import com.moneykk.moneytown.asset.entity.DocumentType;
@@ -97,5 +98,35 @@ class AssetDocumentControllerTest {
 
         verify(service).getDocuments(
                 assetId, userId, "INVESTOR", null, 20, Sort.Direction.DESC);
+    }
+
+    @Test
+    @DisplayName("문서 다운로드 URL 발급 결과를 반환한다")
+    void createsDownloadUrl() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        AssetDocumentDownloadResponse response = new AssetDocumentDownloadResponse(
+                documentId,
+                "appraisal.pdf",
+                "https://example.com/download",
+                Instant.parse("2026-09-04T01:10:00Z")
+        );
+        when(service.createDownloadUrl(
+                assetId, documentId, userId, "INVESTOR"))
+                .thenReturn(response);
+
+        mvc.perform(get(
+                        "/api/v1/assets/{assetId}/documents/{documentId}/download-url",
+                        assetId,
+                        documentId)
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "INVESTOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.documentId")
+                        .value(documentId.toString()))
+                .andExpect(jsonPath("$.data.downloadUrl")
+                        .value("https://example.com/download"));
+
+        verify(service).createDownloadUrl(
+                assetId, documentId, userId, "INVESTOR");
     }
 }

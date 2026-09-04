@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -103,5 +104,23 @@ public class AssetDocumentQueryRepositoryImpl
                 )
                 .limit(limit)
                 .fetch();
+    }
+
+    @Override
+    public Optional<AssetDocument> findActiveById(
+            UUID assetId,
+            UUID documentId
+    ) {
+        // 해당 자산에 연결된 삭제되지 않은 문서 조회
+        AssetDocument result = queryFactory
+                .selectFrom(document)
+                .where(
+                        document.id.eq(documentId),
+                        document.assetId.eq(assetId),
+                        document.deleted.isFalse()
+                )
+                .fetchOne();
+
+        return Optional.ofNullable(result);
     }
 }

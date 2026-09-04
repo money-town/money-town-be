@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentCreateResponse;
+import com.moneykk.moneytown.asset.dto.response.AssetDocumentDownloadResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentListResponse;
 import com.moneykk.moneytown.asset.entity.DocumentType;
 import com.moneykk.moneytown.asset.service.AssetDocumentService;
@@ -94,6 +95,30 @@ public class AssetDocumentController {
         return ApiResponse.success(
                 response,
                 "자산 문서 목록 조회가 완료되었습니다."
+        );
+    }
+
+    /**
+     * 자산 문서 다운로드 URL 발급
+     */
+    @GetMapping("/{documentId}/download-url")
+    public ApiResponse<AssetDocumentDownloadResponse> createDownloadUrl(
+            @PathVariable UUID assetId,
+            @PathVariable UUID documentId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
+    ) {
+        AssetDocumentDownloadResponse response =
+                assetDocumentService.createDownloadUrl(
+                        assetId,
+                        documentId,
+                        userId,
+                        role
+                );
+
+        return ApiResponse.success(
+                response,
+                "자산 문서 다운로드 URL이 발급되었습니다."
         );
     }
 }

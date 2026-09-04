@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.service;
 
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentCreateResponse;
+import com.moneykk.moneytown.asset.dto.response.AssetDocumentDownloadResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDocumentListResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetDocument;
@@ -32,6 +33,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -176,6 +178,48 @@ class AssetDocumentServiceTest {
 
         assertEquals(AssetErrorCode.ASSET_DOCUMENT_ACCESS_DENIED, exception.getErrorCode());
         verifyNoInteractions(assetDocumentQueryRepository);
+    }
+
+    @Test
+    @DisplayName("자산 문서의 S3 다운로드 URL을 발급한다")
+    void createsDownloadUrl() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        AssetDocument document = document(assetId, 1, "appraisal.pdf");
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(asset(ownerId)));
+        when(assetDocumentQueryRepository.findActiveById(assetId, document.getId()))
+                .thenReturn(Optional.of(document));
+        when(s3StorageService.createDownloadUrl(document.getS3ObjectKey()))
+                .thenReturn("https://example.com/download");
+
+        AssetDocumentDownloadResponse response = assetDocumentService.createDownloadUrl(
+                assetId, document.getId(), ownerId, "ISSUER");
+
+        assertEquals(document.getId(), response.documentId());
+        assertEquals("appraisal.pdf", response.originalFilename());
+        assertEquals("https://example.com/download", response.downloadUrl());
+        assertNotNull(response.expiresAt());
+        verify(s3StorageService).createDownloadUrl(document.getS3ObjectKey());
+    }
+
+    @Test
+    @DisplayName("다른 자산이거나 삭제된 문서는 다운로드 URL을 발급하지 않는다")
+    void rejectsMissingDocumentDownload() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(asset(ownerId)));
+        when(assetDocumentQueryRepository.findActiveById(assetId, documentId))
+                .thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetDocumentService.createDownloadUrl(
+                        assetId, documentId, ownerId, "ISSUER"));
+
+        assertEquals(AssetErrorCode.ASSET_DOCUMENT_NOT_FOUND, exception.getErrorCode());
+        verifyNoInteractions(s3StorageService);
     }
 
     private AssetDocument document(
