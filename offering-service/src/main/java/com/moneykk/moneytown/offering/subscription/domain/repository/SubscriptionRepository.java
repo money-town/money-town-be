@@ -48,6 +48,30 @@ public interface SubscriptionRepository
             SubscriptionStatus subscriptionStatus
     );
 
+    /**
+     * 공모 취소 완료를 막는 미해결 청약이 있는지 확인한다.
+     *
+     * REJECTED 또는 CANCELLED이면서 확보 수량이 없는 청약만 완료로 본다.
+     * 논리 삭제 여부와 관계없이 미해결 청약은 확인 대상에 포함한다.
+     * 호출 서비스는 같은 트랜잭션에서 공모 잠금을 먼저 획득해야 한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query("""
+    SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END
+      FROM Subscription s
+     WHERE s.offeringId = :offeringId
+       AND (
+           s.quantityReserved = true
+           OR s.subscriptionStatus NOT IN (
+               com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.REJECTED,
+               com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.CANCELLED
+           )
+       )
+    """)
+    boolean existsUnresolvedByOfferingId(
+            @Param("offeringId") UUID offeringId
+    );
+
     // 3. 단일 청약 상태 변경을 위한 조회
     /**
      * 공모를 먼저 잠그기 위해 청약의 공모 ID만 조회한다.

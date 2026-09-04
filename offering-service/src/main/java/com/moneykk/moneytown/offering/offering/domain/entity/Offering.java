@@ -365,6 +365,37 @@ public class Offering extends BaseUpdatableEntity {
         this.cancellationType = CancellationType.UNDER_SUBSCRIBED;
     }
 
+    /**
+     * 필요한 청약 보상이 모두 끝난 공모의 취소를 완료한다.
+     *
+     * 서비스에서 미해결 청약이 없는지 확인한 뒤 호출한다.
+     * 기존 취소 사유는 유지한다.
+     */
+    public void completeCancellation(Instant cancelledAt) {
+        if (cancelledAt == null) {
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
+            );
+        }
+
+        if (offeringStatus != OfferingStatus.CANCELLING
+                || cancellationType == null) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_CANCELLATION_COMPLETION_NOT_ALLOWED
+            );
+        }
+
+        // 공모 취소 완료 시 모든 확보 수량이 복원되어 있어야 한다.
+        if (totalQuantity == null
+                || !totalQuantity.equals(remainingQuantity)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_QUANTITY_STATE_INVALID
+            );
+        }
+
+        this.offeringStatus = OfferingStatus.CANCELLED;
+        this.cancelledAt = cancelledAt;
+    }
 
     /**
      * 심사 요청 및 승인은 공모 시작 시각 이전까지만 허용한다.

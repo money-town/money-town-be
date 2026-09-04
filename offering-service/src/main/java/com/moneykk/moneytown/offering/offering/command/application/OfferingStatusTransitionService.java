@@ -28,6 +28,7 @@ public class OfferingStatusTransitionService {
 
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final SubscriptionCompensationRepository subscriptionCompensationRepository;
+    private final OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     private static final int TRANSITION_BATCH_SIZE = 100;
 
@@ -111,6 +112,10 @@ public class OfferingStatusTransitionService {
                         correlationId
                 );
             }
+            // 청약이 없거나 모든 청약이 이미 해결된 공모도 완료 여부를 확인한다.
+            offeringCompensationCompletionService.completeIfReady(
+                    offering.getOfferingId()
+            );
         }
 
         return offerings.size();

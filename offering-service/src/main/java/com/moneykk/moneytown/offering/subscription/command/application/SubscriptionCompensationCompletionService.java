@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
+import com.moneykk.moneytown.offering.offering.command.application.OfferingCompensationCompletionService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -30,8 +31,8 @@ public class SubscriptionCompensationCompletionService {
 
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
-    private final SubscriptionCompensationRepository
-            subscriptionCompensationRepository;
+    private final SubscriptionCompensationRepository subscriptionCompensationRepository;
+    private final OfferingCompensationCompletionService offeringCompensationCompletionService;
     private final EntityManager entityManager;
 
     /**
@@ -126,6 +127,8 @@ public class SubscriptionCompensationCompletionService {
         }
 
         subscription.completeCancellation(Instant.now());
+
+        offeringCompensationCompletionService.completeIfReady(offeringId);
 
         log.info(
                 "청약 보상 완료. subscriptionId={}, offeringId={}",
