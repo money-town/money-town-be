@@ -4,6 +4,8 @@ spring:
   config:
     import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:19093}
 
+
+
 security:
   jwt:
     secret: ${JWT_SECRET}

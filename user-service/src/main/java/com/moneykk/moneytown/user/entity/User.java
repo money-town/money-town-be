@@ -66,22 +66,33 @@ public class User extends BaseUpdatableEntity {
         return user;
     }
 
+    // 내 정보 수정
     public void updateProfile(String name, String phone){
-        if(name != null) {
-            this.name = name;
-        }
+        if(name != null) {this.name = name;}
 
-        if(phone != null) {
-            this.phone = phone;
-        }
+        if(phone != null) {this.phone = phone;}
     }
 
-    // 회원 삭제
+    // 탈퇴
     public void withdraw(UUID deletedBy){
         this.accountStatus = AccountStatus.WITHDRAWN;
         softDelete(deletedBy);
     }
 
+
+    // 관리자 회원 단건 수정
+
+    public void updateUserByAdmin(String name, String phone, AccountStatus accountStatus,
+                                  UserRole role){
+        if (name != null) {this.name = name;}
+
+        if (phone != null) {this.phone = phone;}
+
+        if (accountStatus != null) {this.accountStatus = accountStatus;}
+
+        if (role != null) {this.role = role;}
+
+    }
 
 
 

@@ -2,6 +2,7 @@ package com.moneykk.moneytown.user.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
 import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
 import com.moneykk.moneytown.user.dto.response.SignupResponse;
@@ -27,6 +28,7 @@ public class UserService {
 
 
     // 회원 전체 조회
+    @Transactional(readOnly = true)
     public List<UserListResponse> userList(){
 
         return userRepository.findAllByIsDeletedFalse()
@@ -37,6 +39,7 @@ public class UserService {
     }
 
     // 회원 단일 조회
+    @Transactional(readOnly = true)
     public UserResponse getUser(UUID userId){
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId).
                 orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
@@ -45,6 +48,7 @@ public class UserService {
     }
 
     // 내 정보 조회
+    @Transactional(readOnly = true)
     public UserResponse getUserMe(UUID userId){
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
@@ -89,5 +93,42 @@ public class UserService {
 
         return UserResponse.from(user);
     }
+
+
+    // 관리자 회원 수정
+    @Transactional
+    public UserResponse updateUserByAdmin(UUID userId, AdminUpdateUserRequest request) {
+        User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        validateDuplicatePhoneForUpdate(request.phone(), userId);
+
+        user.updateUserByAdmin(request.name(),
+                request.phone(),
+                request.accountStatus(),
+                request.role());
+
+        return UserResponse.from(user);
+
+    }
+
+    // 관리자 회원 탈퇴
+    @Transactional
+    public void deleteUserByAdmin(UUID adminId,UUID userId){
+        if(adminId.equals(userId)){
+            throw new BusinessException(UserErrorCode.ADMIN_SELF_WITHDRAWAL_NOT_ALLOWED);
+        }
+
+        User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        user.withdraw(adminId);
+
+        // TODO UserWithdrawn Outbox 이벤트 동일 트랜잭션 저장
+
+    }
+
+
+
 
 }   // UserService

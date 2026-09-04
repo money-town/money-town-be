@@ -2,6 +2,7 @@ package com.moneykk.moneytown.user.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
 import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
 import com.moneykk.moneytown.user.dto.response.SignupResponse;
@@ -9,6 +10,7 @@ import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.service.UserService;
 import jakarta.validation.Valid;
+import jakarta.ws.rs.PATCH;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -71,6 +73,29 @@ public class UserController {
     }
 
     // TODO : 관리자가 사용자의 수정 및 탈퇴
+
+    // 관리자 단건 수정
+    @PatchMapping("/users/{userId}")
+    public ApiResponse<UserResponse> updateUserByAdmin(
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminUpdateUserRequest request
+    ){
+        return ApiResponse.success(userService.updateUserByAdmin(userId, request),
+                "사용자 정보 수정 성공");
+
+    }
+
+    @DeleteMapping("/users/{userId}")
+    public ApiResponse<Void> deleteUserByAdmin(@RequestHeader(AuthHeaderConstants.USER_ID)
+            UUID adminId,
+            @PathVariable("userId")
+            UUID userId){
+        userService.deleteUserByAdmin(adminId,userId);
+
+
+
+        return ApiResponse.success(null,"사용자 탈퇴 처리 성공");
+    }
 
 
 

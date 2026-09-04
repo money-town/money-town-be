@@ -201,6 +201,8 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/user_db
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-money-town-user-service}
     ports: ["19092:19092"]
     depends_on:
       config-server: { condition: service_healthy }
