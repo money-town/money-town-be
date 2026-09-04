@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.wallet.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
+import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
@@ -53,5 +55,37 @@ public class WalletTransactionService {
         ));
 
         return TransactionResponse.from(transaction);
+    }
+
+    @Transactional
+    public DividendDepositResponse depositDividend(UUID userId, String idempotencyKey, UUID settlementBatchId, long amount) {
+        Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
+        long balanceBefore = wallet.getBalance();
+        wallet.deposit(amount);
+
+        WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
+                wallet.getId(), WalletTransactionType.DIVIDEND, amount,
+                balanceBefore, wallet.getBalance(), idempotencyKey, settlementBatchId.toString()
+        ));
+
+        return DividendDepositResponse.from(transaction);
+    }
+
+    @Transactional
+    public SettlementDepositResponse depositSettlement(UUID userId, String idempotencyKey, UUID finalSettlementBatchId, long amount) {
+        Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
+        long balanceBefore = wallet.getBalance();
+        wallet.deposit(amount);
+
+        WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
+                wallet.getId(), WalletTransactionType.SETTLEMENT, amount,
+                balanceBefore, wallet.getBalance(), idempotencyKey, finalSettlementBatchId.toString()
+        ));
+
+        return SettlementDepositResponse.from(transaction);
     }
 }
