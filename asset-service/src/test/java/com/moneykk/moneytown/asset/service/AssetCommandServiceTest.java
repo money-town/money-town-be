@@ -36,7 +36,10 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -301,6 +304,137 @@ class AssetCommandServiceTest {
         assertEquals(AssetErrorCode.INVALID_ASSET_SHARE_PRICE, exception.getErrorCode());
         assertEquals("기존 자산", asset.getAssetName());
         assertEquals(10_000L, asset.getTotalShareQuantity());
+    }
+
+    @Test
+    @DisplayName("자산운용자는 본인 자산의 심사를 요청한다")
+    void issuerRequestsAssetReview() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        assetCommandService.changeAssetStatus(
+                assetId, ownerId, "ISSUER", AssetStatus.REVIEW_REQUESTED, null);
+
+        assertEquals(AssetStatus.REVIEW_REQUESTED, asset.getStatus());
+        assertEquals(null, asset.getRejectionReason());
+    }
+
+    @Test
+    @DisplayName("관리자는 심사 요청된 자산을 사유와 함께 반려한다")
+    void adminRejectsAssetWithReason() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.REVIEW_REQUESTED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        assetCommandService.changeAssetStatus(
+                assetId, UUID.randomUUID(), "ADMIN", AssetStatus.REJECTED, " 서류 보완 필요 ");
+
+        assertEquals(AssetStatus.REJECTED, asset.getStatus());
+        assertEquals("서류 보완 필요", asset.getRejectionReason());
+    }
+
+    @Test
+    @DisplayName("관리자가 반려 사유를 입력하지 않으면 상태를 변경하지 않는다")
+    void rejectsMissingRejectionReason() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.REVIEW_REQUESTED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.changeAssetStatus(
+                        assetId, UUID.randomUUID(), "ADMIN", AssetStatus.REJECTED, " "));
+
+        assertEquals(AssetErrorCode.ASSET_REJECTION_REASON_REQUIRED, exception.getErrorCode());
+        assertEquals(AssetStatus.REVIEW_REQUESTED, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("허용되지 않은 상태 전이는 거부한다")
+    void rejectsInvalidStatusTransition() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.changeAssetStatus(
+                        assetId, UUID.randomUUID(), "ADMIN", AssetStatus.APPROVED, null));
+
+        assertEquals(AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION, exception.getErrorCode());
+        assertEquals(AssetStatus.DRAFT, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("자산운용자는 다른 사람의 자산 상태를 변경할 수 없다")
+    void rejectsOtherIssuersStatusChange() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.changeAssetStatus(
+                        assetId, UUID.randomUUID(), "ISSUER", AssetStatus.REVIEW_REQUESTED, null));
+
+        assertEquals(AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED, exception.getErrorCode());
+        assertEquals(AssetStatus.DRAFT, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("자산운용자는 본인이 등록한 작성 중 자산을 삭제한다")
+    void issuerDeletesOwnDraftAsset() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        assetCommandService.deleteAsset(assetId, ownerId, "ISSUER");
+
+        assertTrue(asset.isDeleted());
+        assertEquals(ownerId, asset.getDeletedBy());
+        assertNotNull(asset.getDeletedAt());
+    }
+
+    @Test
+    @DisplayName("관리자는 반려된 자산을 삭제한다")
+    void adminDeletesRejectedAsset() {
+        UUID assetId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.REJECTED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        assetCommandService.deleteAsset(assetId, adminId, "ADMIN");
+
+        assertTrue(asset.isDeleted());
+        assertEquals(adminId, asset.getDeletedBy());
+    }
+
+    @Test
+    @DisplayName("자산운용자는 다른 사람이 등록한 자산을 삭제할 수 없다")
+    void rejectsOtherOwnersAssetDeletion() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.deleteAsset(assetId, UUID.randomUUID(), "ISSUER"));
+
+        assertEquals(AssetErrorCode.ASSET_DELETE_ACCESS_DENIED, exception.getErrorCode());
+        assertFalse(asset.isDeleted());
+    }
+
+    @Test
+    @DisplayName("승인된 자산은 관리자도 삭제할 수 없다")
+    void rejectsApprovedAssetDeletion() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(UUID.randomUUID(), AssetStatus.APPROVED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.deleteAsset(assetId, UUID.randomUUID(), "ADMIN"));
+
+        assertEquals(AssetErrorCode.ASSET_DELETE_NOT_ALLOWED, exception.getErrorCode());
+        assertFalse(asset.isDeleted());
     }
 
     @Test

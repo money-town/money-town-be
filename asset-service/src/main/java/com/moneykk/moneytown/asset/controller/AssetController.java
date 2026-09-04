@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
+import com.moneykk.moneytown.asset.dto.request.AssetStatusUpdateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDetailResponse;
@@ -129,6 +130,53 @@ public class AssetController {
         return ApiResponse.success(
                 null,
                 "자산 정보가 수정되었습니다."
+        );
+    }
+
+    /**
+     * 자산 상태 변경
+     */
+    @PatchMapping("/{assetId}/status")
+    public ApiResponse<Void> changeAssetStatus(
+            @PathVariable UUID assetId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Valid @RequestBody AssetStatusUpdateRequest request
+    ) {
+        // 권한과 상태 전이를 확인한 후 변경
+        assetCommandService.changeAssetStatus(
+                assetId,
+                userId,
+                role,
+                request.status(),
+                request.rejectionReason()
+        );
+
+        return ApiResponse.success(
+                null,
+                "자산 상태가 변경되었습니다."
+        );
+    }
+
+    /**
+     * 자산 삭제
+     */
+    @DeleteMapping("/{assetId}")
+    public ApiResponse<Void> deleteAsset(
+            @PathVariable UUID assetId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
+    ) {
+        // 권한과 상태를 확인한 후 소프트 삭제
+        assetCommandService.deleteAsset(
+                assetId,
+                userId,
+                role
+        );
+
+        return ApiResponse.success(
+                null,
+                "자산이 삭제되었습니다."
         );
     }
 }

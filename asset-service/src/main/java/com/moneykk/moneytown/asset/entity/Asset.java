@@ -116,7 +116,9 @@ public class Asset extends BaseUpdatableEntity {
         this.status = AssetStatus.DRAFT;
     }
 
-    /** 지분 배정 */
+    /**
+     * 지분 배정
+     */
     public void allocateShares(long quantity) {
         if (quantity <= 0) {
             throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
@@ -135,7 +137,9 @@ public class Asset extends BaseUpdatableEntity {
         allocatedQuantity += quantity;
     }
 
-    /** 지분 회수 */
+    /**
+     * 지분 회수
+     */
     public void revokeShares(long quantity) {
         if (quantity <= 0) {
             throw new BusinessException(
@@ -152,7 +156,9 @@ public class Asset extends BaseUpdatableEntity {
         allocatedQuantity -= quantity;
     }
 
-    /** 자산 정보 부분 수정 */
+    /**
+     * 자산 정보 부분 수정
+     */
     public void updateInfo(
             String name,
             String description,
@@ -225,5 +231,64 @@ public class Asset extends BaseUpdatableEntity {
         // 절사로 발생한 차액 저장
         this.roundingDifferenceAmount =
                 nextValuation - (this.unitPrice * nextQuantity);
+    }
+
+    /**
+     * 자산 상태 변경
+     */
+    public void changeStatus(
+            AssetStatus nextStatus,
+            String rejectionReason
+    ) {
+        // 허용된 상태 변경인지 확인
+        boolean allowed = switch (this.status) {
+            case DRAFT, REJECTED -> nextStatus == AssetStatus.REVIEW_REQUESTED;
+
+            case REVIEW_REQUESTED -> nextStatus == AssetStatus.APPROVED
+                    || nextStatus == AssetStatus.REJECTED;
+
+            case APPROVED -> nextStatus == AssetStatus.SUSPENDED;
+
+            case SUSPENDED -> nextStatus == AssetStatus.APPROVED;
+
+            case TERMINATED -> false;
+        };
+
+        if (!allowed) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION
+            );
+        }
+
+        // 반려 상태는 반려 사유 필수
+        if (nextStatus == AssetStatus.REJECTED
+                && (rejectionReason == null || rejectionReason.isBlank())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_REJECTION_REASON_REQUIRED
+            );
+        }
+
+        this.status = nextStatus;
+
+        // 반려 상태가 아니면 이전 반려 사유 제거
+        this.rejectionReason = nextStatus == AssetStatus.REJECTED
+                ? rejectionReason.trim()
+                : null;
+    }
+
+    /**
+     * 자산 소프트 삭제
+     */
+    public void delete(UUID deletedBy) {
+        // 작성 중이거나 반려된 자산만 삭제 가능
+        if (status != AssetStatus.DRAFT
+                && status != AssetStatus.REJECTED) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DELETE_NOT_ALLOWED
+            );
+        }
+
+        // 삭제 시간과 삭제 사용자 기록
+        softDelete(deletedBy);
     }
 }

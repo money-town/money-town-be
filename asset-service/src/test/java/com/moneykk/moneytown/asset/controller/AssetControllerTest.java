@@ -3,6 +3,7 @@ package com.moneykk.moneytown.asset.controller;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.entity.Asset;
+import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.AssetRepository;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -153,6 +155,54 @@ class AssetControllerTest {
         assertEquals(100_000_000L, asset.getValuationAmount());
         assertEquals(10_000L, asset.getTotalShareQuantity());
         assertEquals(10_000L, asset.getUnitPrice());
+    }
+
+    @Test
+    @DisplayName("자산 상태 변경 요청을 서비스에 전달한다")
+    void changesAssetStatus() throws Exception {
+        mvc.perform(patch(url + "/status")
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "status": "REJECTED",
+                                  "rejectionReason": "서류 보완 필요"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("자산 상태가 변경되었습니다."));
+
+        verify(service).changeAssetStatus(
+                assetId, userId, "ADMIN", AssetStatus.REJECTED, "서류 보완 필요");
+    }
+
+    @Test
+    @DisplayName("변경할 상태가 없으면 400을 반환한다")
+    void rejectsMissingAssetStatus() throws Exception {
+        mvc.perform(patch(url + "/status")
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON_400"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    @DisplayName("자산 삭제 요청을 서비스에 전달한다")
+    void deletesAsset() throws Exception {
+        mvc.perform(delete(url)
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("자산이 삭제되었습니다."));
+
+        verify(service).deleteAsset(assetId, userId, "ISSUER");
     }
 
     private MockHttpServletRequestBuilder request(String body) {

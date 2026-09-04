@@ -18,6 +18,7 @@ public enum AssetErrorCode implements ErrorCode {
     INVALID_HOLDING_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_12", "유효하지 않은 보유지분 조회 커서입니다."),
     INVALID_ASSET_SHARE_PRICE(HttpStatus.BAD_REQUEST, "ASSET_400_13", "평가 금액과 전체 지분 수량은 양수이며, 계산된 지분 단가는 최소 1원이어야 합니다."),
     APPRAISAL_AMOUNT_UPDATE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "ASSET_400_14", "자산 평가금액은 수정할 수 없습니다."),
+    ASSET_REJECTION_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "ASSET_400_15", "자산 반려 시 반려 사유는 필수입니다."),
 
     REVENUE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_01", "해당 자산에 수익을 등록할 권한이 없습니다."),
     HOLDING_SNAPSHOT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_02", "지분 스냅샷은 SYSTEM 권한으로만 조회할 수 있습니다."),
@@ -25,6 +26,8 @@ public enum AssetErrorCode implements ErrorCode {
     ASSET_READ_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_04", "자산을 조회할 권한이 없습니다."),
     REVENUE_TRANSFER_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_05", "수익 전달 상태는 SYSTEM 권한으로만 변경할 수 있습니다."),
     ASSET_UPDATE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_06", "자산을 수정할 권한이 없습니다."),
+    ASSET_STATUS_CHANGE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_07", "자산 상태를 변경할 권한이 없습니다."),
+    ASSET_DELETE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_08", "자산을 삭제할 권한이 없습니다."),
 
     ASSET_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_01", "존재하지 않는 자산입니다."),
     REVENUE_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_02", "존재하지 않는 수익입니다."),
@@ -36,7 +39,9 @@ public enum AssetErrorCode implements ErrorCode {
     INSUFFICIENT_ALLOCATED_QUANTITY(HttpStatus.CONFLICT, "ASSET_409_05", "현재 배정된 수량보다 많은 지분을 회수할 수 없습니다."),
     DUPLICATE_REVENUE(HttpStatus.CONFLICT, "ASSET_409_06", "이미 등록된 수익 데이터입니다."),
     INVALID_REVENUE_TRANSFER_STATUS(HttpStatus.CONFLICT, "ASSET_409_07", "전달 완료된 수익의 상태는 되돌릴 수 없습니다."),
-    ASSET_UPDATE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_08", "현재 상태에서는 자산을 수정할 수 없습니다.");
+    ASSET_UPDATE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_08", "현재 상태에서는 자산을 수정할 수 없습니다."),
+    INVALID_ASSET_STATUS_TRANSITION(HttpStatus.CONFLICT, "ASSET_409_09", "허용되지 않은 자산 상태 변경입니다."),
+    ASSET_DELETE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_10", "작성 중이거나 반려된 자산만 삭제할 수 있습니다.");
 
     private final HttpStatus status;
     private final String code;
