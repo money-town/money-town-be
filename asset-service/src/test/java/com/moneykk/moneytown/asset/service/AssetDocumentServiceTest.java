@@ -108,18 +108,52 @@ class AssetDocumentServiceTest {
     @Test
     @DisplayName("파일 내용과 확장자가 일치하지 않으면 등록하지 않는다")
     void rejectsInvalidFileSignature() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
         MockMultipartFile file = new MockMultipartFile(
                 "file", "fake.pdf", "application/pdf",
                 "not-pdf".getBytes(StandardCharsets.UTF_8));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset(ownerId)));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> assetDocumentService.createDocument(
-                        UUID.randomUUID(), UUID.randomUUID(), "ISSUER",
+                        assetId, ownerId, "ISSUER",
                         DocumentType.APPRAISAL, file));
 
         assertEquals(AssetErrorCode.INVALID_ASSET_DOCUMENT, exception.getErrorCode());
-        verifyNoInteractions(assetQueryRepository, assetDocumentRepository,
+        verifyNoInteractions(assetDocumentRepository,
                 assetDocumentQueryRepository, s3StorageService);
+    }
+
+    @Test
+    @DisplayName("파일명에 포함된 경로는 제거하고 원본 파일명만 저장한다")
+    void removesPathFromOriginalFilename() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        byte[] content = "%PDF-1.7 test".getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "C:\\fakepath\\appraisal.pdf",
+                "application/pdf", content);
+
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset(ownerId)));
+        when(assetDocumentQueryRepository.findNextVersion(
+                assetId, DocumentType.APPRAISAL))
+                .thenReturn(1);
+        when(assetDocumentRepository.saveAndFlush(any(AssetDocument.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assetDocumentService.createDocument(
+                assetId, ownerId, "ISSUER",
+                DocumentType.APPRAISAL, file);
+
+        ArgumentCaptor<AssetDocument> documentCaptor =
+                ArgumentCaptor.forClass(AssetDocument.class);
+        verify(assetDocumentRepository)
+                .saveAndFlush(documentCaptor.capture());
+        assertEquals("appraisal.pdf",
+                documentCaptor.getValue().getOriginalFilename());
     }
 
     @Test

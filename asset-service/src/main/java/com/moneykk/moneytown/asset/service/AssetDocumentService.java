@@ -14,9 +14,12 @@ import com.moneykk.moneytown.asset.repository.AssetDocumentRepository;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -35,6 +38,7 @@ import java.util.UUID;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AssetDocumentService {
 
     private static final long MAX_FILE_SIZE =
@@ -104,6 +108,9 @@ public class AssetDocumentService {
         // DB 제약조건을 먼저 확인
         AssetDocument saved =
                 assetDocumentRepository.saveAndFlush(document);
+
+        // 최종 DB 커밋 실패 시 업로드된 파일 제거
+        registerRollbackCleanup(objectKey);
 
         // DB 저장 성공 후 S3에 파일 업로드
         s3StorageService.upload(
@@ -233,10 +240,8 @@ public class AssetDocumentService {
         // DB에서 소프트 삭제 처리
         document.softDelete(userId);
 
-        // S3 파일 삭제
-        s3StorageService.delete(
-                document.getS3ObjectKey()
-        );
+        // DB 삭제가 확정된 뒤 S3 파일 삭제
+        deleteAfterCommit(document.getS3ObjectKey());
     }
 
     /**
@@ -340,9 +345,12 @@ public class AssetDocumentService {
             );
         }
 
-        String cleaned = StringUtils.cleanPath(filename);
+        String cleaned = StringUtils.getFilename(
+                StringUtils.cleanPath(filename)
+        );
 
-        if (cleaned.contains("..")
+        if (!StringUtils.hasText(cleaned)
+                || cleaned.contains("..")
                 || cleaned.length() > 255) {
             throw new BusinessException(
                     AssetErrorCode.INVALID_ASSET_DOCUMENT
@@ -350,6 +358,66 @@ public class AssetDocumentService {
         }
 
         return cleaned;
+    }
+
+    /**
+     * DB 롤백 시 이미 업로드된 S3 파일 정리
+     */
+    private void registerRollbackCleanup(String objectKey) {
+        if (!TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status != STATUS_ROLLED_BACK) {
+                            return;
+                        }
+
+                        try {
+                            s3StorageService.delete(objectKey);
+                        } catch (RuntimeException exception) {
+                            log.error(
+                                    "롤백된 문서의 S3 파일 정리에 실패했습니다. objectKey={}",
+                                    objectKey,
+                                    exception
+                            );
+                        }
+                    }
+                }
+        );
+    }
+
+    /**
+     * DB 커밋이 완료된 뒤 S3 파일 삭제
+     */
+    private void deleteAfterCommit(String objectKey) {
+        if (!TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            // 트랜잭션 프록시가 없는 단위 테스트에서만 즉시 실행
+            s3StorageService.delete(objectKey);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            s3StorageService.delete(objectKey);
+                        } catch (RuntimeException exception) {
+                            log.error(
+                                    "커밋된 문서의 S3 파일 삭제에 실패했습니다. objectKey={}",
+                                    objectKey,
+                                    exception
+                            );
+                        }
+                    }
+                }
+        );
     }
 
     /**
