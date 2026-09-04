@@ -265,14 +265,9 @@ public class Subscription extends BaseUpdatableEntity {
         this.subscriptionStatus = SubscriptionStatus.REJECTED;
     }
 
-    // TODO 3차 구현:
-    // Wallet 동결 결과 이벤트 처리 및 보상 흐름 구현
-    // - 동결 실패: 보상 정책에 따라 COMPENSATING 전환 후 수량 복원
-    // - 수량 복원 완료 시 quantityReserved = false
-    // - WalletHoldFailed 처리 서비스에서 공모 수량 복원과 상태 변경 연결
-    // - Kafka Consumer 연결
-    // - 타임아웃 및 공모 취소에 따른 Wallet 보상 처리 연결
-    // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
+    // TODO: Wallet·Holding 결과 처리에 공통 보상 완료 서비스 연결
+    // TODO: 모든 대상 청약 완료 시 Offering CANCELLED 전환 연결
+    // TODO 다음 PR: 타임아웃 자동 보상, 관리자 공모 중단, 운영 재처리
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
@@ -299,6 +294,49 @@ public class Subscription extends BaseUpdatableEntity {
     }
 
     /**
+     * 공모 취소 보상에 따른 확보 수량 복원 완료를 기록한다.
+     *
+     * 서비스에서 실제 공모 수량 복원에 성공한 뒤,
+     * 같은 트랜잭션 안에서 호출해야 한다.
+     */
+    public void markCompensationQuantityRestored() {
+        if (subscriptionStatus != SubscriptionStatus.COMPENSATING
+                || cancellationType == null
+                || !quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.quantityReserved = false;
+    }
+
+    /**
+     * 공모 취소 보상을 완료하고 청약을 취소한다.
+     *
+     * 서비스에서 Wallet·Holding 보상 완료를 확인한 뒤 호출한다.
+     * 기존 취소 유형과 확정 이력은 보존한다.
+     */
+    public void completeCancellation(Instant cancelledAt) {
+        if (cancelledAt == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.COMPENSATING
+                || cancellationType == null
+                || quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.CANCELLED;
+        this.cancelledAt = cancelledAt;
+    }
+
+    /**
      * PROCESSING 상태의 청약 예약 유효시간이 만료되었는지 확인한다.
      */
     public boolean isReservationExpired(Instant now) {
@@ -316,12 +354,7 @@ public class Subscription extends BaseUpdatableEntity {
     /**
      * 예약 유효시간이 만료된 PROCESSING 청약을 보상 처리 상태로 전환한다.
      *
-     * TODO 실제 Wallet 상태 확인 및 수량 복원 등 후속 보상 처리는
-     * Kafka 보상 흐름 구현 이후 연계한다.
-     *
-     * TODO 향후 Consumer에서는 반드시: 아래 정책이 필요하다.
-     * 현재 Subscription = COMPENSATING + 늦게 WalletHoldSucceeded 도착
-     * → CONFIRMED로 되돌리지 않음 → 실제 Wallet 상태 확인/보상 흐름으로 연결
+     * TODO 다음 PR: 타임아웃 자동 보상 및 수량 복원 연결.
      */
     public void startExpirationCompensation(Instant now) {
         if (!isReservationExpired(now)) {

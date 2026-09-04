@@ -2,8 +2,10 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
+import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CompensationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
@@ -30,15 +32,19 @@ public class WalletCompensationResultService {
             "WalletCompensationFailed";
 
     private final ProcessedEventService processedEventService;
+    private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionCompensationRepository
             subscriptionCompensationRepository;
+    private final SubscriptionCompensationCompletionService
+            subscriptionCompensationCompletionService;
 
     /**
-     * Wallet 보상 성공 결과를 처리한다.
+     * Wallet 보상 성공을 반영하고 전체 보상 완료 여부를 확인한다.
+     * 수신 처리 이력, 보상 상태, 수량 복원 및 취소는 같은 트랜잭션으로 처리한다.
      *
-     * @return 새로운 이벤트를 처리했으면 true,
-     *         동일 eventId가 이미 처리됐으면 false
+     * @return 신규 이벤트를 처리했으면 true,
+     *         같은 Consumer Group에서 이미 처리한 eventId이면 false
      */
     public boolean handleSucceeded(
             EventEnvelope<WalletCompensationResultPayload> envelope,
@@ -59,10 +65,8 @@ public class WalletCompensationResultService {
     }
 
     /**
-     * Wallet 보상 실패 결과를 처리한다.
-     *
-     * 실패 결과를 기록하는 것 자체는 정상적인 이벤트 처리다.
-     * 실제 보상 재요청은 별도 재처리 로직에서 수행한다.
+     * 실패 결과와 처리 이력을 저장한다.
+     * 업무 실패 결과를 받았다는 이유만으로 예외를 던지거나 재요청하지 않는다.
      */
     public boolean handleFailed(
             EventEnvelope<WalletCompensationResultPayload> envelope,
@@ -83,14 +87,25 @@ public class WalletCompensationResultService {
     }
 
     /**
-     * ProcessedEventService가 시작한 트랜잭션 안에서 실행된다.
-     * 청약 → 보상 진행 행 순서로 잠금 조회한다.
+     * 완료 서비스의 수량 복원과 잠금 순서를 맞추기 위해
+     * 공모 → 청약 → 보상 진행 행 순서로 잠근다.
      */
     private void applyResult(
             UUID subscriptionId,
             EventEnvelope<WalletCompensationResultPayload> envelope,
             boolean succeeded
     ) {
+        UUID offeringId = subscriptionRepository
+                .findOfferingIdBySubscriptionId(subscriptionId)
+                .orElseThrow(() -> new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+                ));
+
+        offeringRepository.findByIdForUpdate(offeringId)
+                .orElseThrow(() -> new BusinessException(
+                        OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
+
         Subscription subscription = subscriptionRepository
                 .findByIdForUpdate(subscriptionId)
                 .orElseThrow(() -> new BusinessException(
@@ -113,8 +128,7 @@ public class WalletCompensationResultService {
 
         WalletCompensationResultPayload payload = envelope.payload();
 
-        // 실제 해제·환불 금액이 해당 청약의 금액과 일치하는지 확인한다.
-        // NONE은 신규 금융 처리가 없어 amount가 null이다.
+        // NONE은 신규 금융 처리가 없어 금액 비교에서 제외한다.
         if (succeeded
                 && !"NONE".equals(payload.compensationType())
                 && !Objects.equals(
@@ -127,8 +141,8 @@ public class WalletCompensationResultService {
         }
 
         /*
-         * 다른 eventId로 성공이 재전달되거나 늦은 실패가 도착해도
-         * 이미 반영한 Wallet 성공 상태는 유지한다.
+         * 다른 eventId의 성공 재전달이나 늦은 실패로
+         * 이미 기록한 Wallet 성공 상태를 되돌리지 않는다.
          */
         if (compensation.getWalletStatus()
                 == CompensationStatus.SUCCEEDED) {
@@ -139,13 +153,19 @@ public class WalletCompensationResultService {
                     envelope.eventId(),
                     envelope.eventType()
             );
+
+            // 성공 재전달 시에도 미완료된 청약의 완료 조건은 다시 확인한다.
+            if (succeeded) {
+                subscriptionCompensationCompletionService.completeIfReady(
+                        subscriptionId
+                );
+            }
             return;
         }
 
         SubscriptionStatus status = subscription.getSubscriptionStatus();
 
-        // 수동 확인 중에 늦게 도착한 결과도 기록하되,
-        // 이 서비스에서는 청약 상태를 자동으로 변경하지 않는다.
+        // 수동 확인 중 도착한 결과도 저장하되 자동 취소는 완료 서비스에서 제외한다.
         if (status != SubscriptionStatus.COMPENSATING
                 && status != SubscriptionStatus.MANUAL_REVIEW) {
             throw new IllegalStateException(
@@ -157,6 +177,10 @@ public class WalletCompensationResultService {
 
         if (succeeded) {
             compensation.markWalletSucceeded();
+
+            subscriptionCompensationCompletionService.completeIfReady(
+                    subscriptionId
+            );
         } else {
             compensation.markWalletFailed(payload.reason());
 
@@ -168,14 +192,6 @@ public class WalletCompensationResultService {
                     payload.reason()
             );
         }
-
-        /*
-         * 잠금 조회한 관리 엔티티이므로 dirty checking으로 저장된다.
-         * 처리 이력과 보상 결과가 동일 트랜잭션으로 커밋된다.
-         *
-         * 수량 복원과 최종 CANCELLED 판정은
-         * Holding 결과 처리와 함께 후속 단계에서 연결한다.
-         */
     }
 
     private UUID validateEnvelope(
