@@ -78,7 +78,7 @@ public class WalletHoldService {
     {
         UUID subscriptionId = UUID.fromString(event.aggregateId());
 
-        WalletHold hold = walletHoldRepository.findBySubscriptionId(subscriptionId).orElse(null);
+        WalletHold hold = walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId).orElse(null);
         // hold가 없거나 이미 COMMITTED면 중복 수신 — 조용히 종료 (재차감 방지)
         if (hold == null || hold.getStatus() != WalletHoldStatus.HELD) {
             return;
@@ -103,7 +103,7 @@ public class WalletHoldService {
         String aggregateId = event.aggregateId();
         UUID subscriptionId = UUID.fromString(aggregateId);
 
-        Optional<WalletHold> holdOpt = walletHoldRepository.findBySubscriptionId(subscriptionId);
+        Optional<WalletHold> holdOpt = walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId);
         if (holdOpt.isEmpty()) {
             walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.failed(
                     aggregateId, event.userId(), event.correlationId(), null, null, "HOLD_NOT_FOUND"));

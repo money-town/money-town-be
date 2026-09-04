@@ -82,7 +82,7 @@ class WalletHoldServiceTest {
     void confirmHold_alreadyCommitted_isIdempotent() {
         WalletHold hold = walletHoldWithId(1L, 1L, subscriptionId, 1_000L);
         hold.commit();
-        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.of(hold));
 
         walletHoldService.confirmHold(confirmedEvent());
 
@@ -95,7 +95,7 @@ class WalletHoldServiceTest {
         Wallet wallet = walletWithId(1L, 1_000L);
         wallet.hold(1_000L);
         WalletHold hold = walletHoldWithId(1L, wallet.getId(), subscriptionId, 1_000L);
-        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.of(hold));
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -118,7 +118,7 @@ class WalletHoldServiceTest {
         wallet.deductHold(1_000L);
         WalletHold hold = walletHoldWithId(1L, wallet.getId(), subscriptionId, 1_000L);
         hold.commit();
-        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.of(hold));
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -140,7 +140,7 @@ class WalletHoldServiceTest {
         WalletHold hold = walletHoldWithId(1L, wallet.getId(), subscriptionId, 1_000L);
         hold.commit();
         hold.refund();
-        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.of(hold));
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
 
         walletHoldService.compensateHold(compensationEvent());
