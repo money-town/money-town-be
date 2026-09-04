@@ -5,7 +5,9 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
@@ -26,6 +28,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class OfferingStatusTransitionServiceTest {
@@ -37,6 +40,8 @@ class OfferingStatusTransitionServiceTest {
 
     @Mock
     private SubscriptionEventPublisher subscriptionEventPublisher;
+    @Mock
+    private SubscriptionCompensationRepository subscriptionCompensationRepository;
 
     @InjectMocks
     private OfferingStatusTransitionService offeringStatusTransitionService;
@@ -83,35 +88,27 @@ class OfferingStatusTransitionServiceTest {
         // given
         UUID offeringId = UUID.randomUUID();
         UUID assetId = UUID.randomUUID();
+        UUID processingSubscriptionId = UUID.randomUUID();
+        UUID confirmedSubscriptionId = UUID.randomUUID();
 
         Offering offering = mock(Offering.class);
         Subscription processingSubscription = mock(Subscription.class);
         Subscription confirmedSubscription = mock(Subscription.class);
 
+
+        when(processingSubscription.getSubscriptionId()).thenReturn(processingSubscriptionId);
+        when(confirmedSubscription.getSubscriptionId()).thenReturn(confirmedSubscriptionId);
         when(offering.getOfferingId()).thenReturn(offeringId);
         when(offering.getAssetId()).thenReturn(assetId);
-        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(
-                any(),
-                any()
-        )).thenReturn(List.of(offering));
-
-        when(subscriptionRepository
-                .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
+        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(any(),any())).thenReturn(List.of(offering));
+        when(subscriptionRepository.findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
                         eq(offeringId),
-                        eq(List.of(
-                                SubscriptionStatus.PROCESSING,
-                                SubscriptionStatus.CONFIRMED
-                        ))
+                        eq(List.of(SubscriptionStatus.PROCESSING, SubscriptionStatus.CONFIRMED))
                 ))
-                .thenReturn(List.of(
-                        processingSubscription,
-                        confirmedSubscription
-                ));
+                .thenReturn(List.of(processingSubscription, confirmedSubscription));
 
         // when
-        int result =
-                offeringStatusTransitionService
-                        .startUnderSubscribedCancellations();
+        int result = offeringStatusTransitionService.startUnderSubscribedCancellations();
 
         // then
         assertThat(result).isEqualTo(1);
@@ -148,6 +145,19 @@ class OfferingStatusTransitionServiceTest {
                         eq(confirmedSubscription),
                         eq(assetId),
                         eq(correlationId)
+                );
+
+        ArgumentCaptor<SubscriptionCompensation> compensationCaptor =
+                ArgumentCaptor.forClass(SubscriptionCompensation.class);
+
+        verify(subscriptionCompensationRepository, times(2))
+                .save(compensationCaptor.capture());
+
+        assertThat(compensationCaptor.getAllValues())
+                .extracting(SubscriptionCompensation::getSubscriptionId)
+                .containsExactlyInAnyOrder(
+                        processingSubscriptionId,
+                        confirmedSubscriptionId
                 );
     }
 }

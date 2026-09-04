@@ -5,7 +5,9 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ public class OfferingStatusTransitionService {
     private final SubscriptionRepository subscriptionRepository;
 
     private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final SubscriptionCompensationRepository subscriptionCompensationRepository;
 
     private static final int TRANSITION_BATCH_SIZE = 100;
 
@@ -94,6 +97,13 @@ public class OfferingStatusTransitionService {
                 subscription.startCompensation(
                         CancellationType.OFFERING_UNDER_SUBSCRIBED
                 );
+
+                SubscriptionCompensation compensation =
+                        SubscriptionCompensation.create(
+                                subscription.getSubscriptionId()
+                        );
+
+                subscriptionCompensationRepository.save(compensation);
 
                 subscriptionEventPublisher.publishCompensationRequested(
                         subscription,
