@@ -132,6 +132,11 @@ public enum OfferingErrorCode implements ErrorCode {
             "OFFERING_409_10",
             "공모 모집 수량이 현재 공모 가능한 지분 수량을 초과했습니다."
     ),
+    OFFERING_CANCELLATION_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "OFFERING_409_11",
+            "현재 상태에서는 공모 취소 처리를 시작할 수 없습니다."
+    ),
 
     // 500
     ASSET_RESPONSE_INVALID(
