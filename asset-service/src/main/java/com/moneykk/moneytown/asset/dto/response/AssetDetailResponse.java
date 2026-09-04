@@ -53,7 +53,10 @@ public record AssetDetailResponse(
         Instant createdAt,
 
         // 최종 수정 시간
-        Instant updatedAt
+        Instant updatedAt,
+
+        // 단가 절사로 발생한 차액(원)
+        long roundingDifferenceAmount
 ) {
 
     /** 자산 엔티티를 상세 응답으로 변환 */
@@ -72,7 +75,8 @@ public record AssetDetailResponse(
                 asset.getAllocatedQuantity(),
                 asset.getStatus(),
                 asset.getCreatedAt(),
-                asset.getUpdatedAt()
+                asset.getUpdatedAt(),
+                asset.getRoundingDifferenceAmount()
         );
     }
 }

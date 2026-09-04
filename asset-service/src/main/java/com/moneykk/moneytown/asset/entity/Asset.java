@@ -40,6 +40,10 @@ public class Asset extends BaseUpdatableEntity {
     @Column(name = "asset_name", nullable = false, length = 200)
     private String assetName;
 
+    // 자산 소유주 이름
+    @Column(name = "owner_name", length = 200)
+    private String ownerName;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "asset_type", nullable = false, length = 30)
     private AssetType type;
@@ -80,9 +84,18 @@ public class Asset extends BaseUpdatableEntity {
     @Column(name = "version", nullable = false)
     private Long version;
 
+    // 단가 절사로 발생한 차액(원). 소유주 채무가 아님
+    @Column(name = "rounding_difference_amount", nullable = false)
+    private long roundingDifferenceAmount;
+
     public Asset(UUID userId, String assetName, AssetType type, String description,
                  long valuationAmount, BigDecimal expectedReturnRate,
-                 Map<String, Object> detailData, long unitPrice, long totalShareQuantity) {
+                 Map<String, Object> detailData, long totalShareQuantity) {
+        // 평가 금액과 수량은 양수, 지분 단가는 최소 1원
+        if (valuationAmount <= 0 || totalShareQuantity <= 0
+                || valuationAmount < totalShareQuantity) {
+            throw new BusinessException(AssetErrorCode.INVALID_ASSET_SHARE_PRICE);
+        }
         this.userId = userId;
         this.assetName = assetName;
         this.type = type;
@@ -90,8 +103,15 @@ public class Asset extends BaseUpdatableEntity {
         this.valuationAmount = valuationAmount;
         this.expectedReturnRate = expectedReturnRate;
         this.detailData = new HashMap<>(detailData);
-        this.unitPrice = unitPrice;
+        // 상세 정보에 평가금액이 있으면 기준 평가금액과 같은 값으로 저장
+        if (this.detailData.containsKey("appraisalAmount")) {
+            this.detailData.put("appraisalAmount", valuationAmount);
+        }
+        // 지분당 가격은 1원 미만 버림
+        this.unitPrice = valuationAmount / totalShareQuantity;
         this.totalShareQuantity = totalShareQuantity;
+        // 평가금액과 전체 지분 가격 합계의 차이를 저장
+        this.roundingDifferenceAmount = valuationAmount - this.unitPrice * totalShareQuantity;
         this.allocatedQuantity = 0;
         this.status = AssetStatus.DRAFT;
     }
@@ -130,5 +150,80 @@ public class Asset extends BaseUpdatableEntity {
         }
 
         allocatedQuantity -= quantity;
+    }
+
+    /** 자산 정보 부분 수정 */
+    public void updateInfo(
+            String name,
+            String description,
+            String ownerName,
+            Map<String, Object> detail,
+            Long valuationAmount,
+            Long totalShareQuantity
+    ) {
+        // 작성 중이거나 반려된 자산만 수정 가능
+        if (status != AssetStatus.DRAFT
+                && status != AssetStatus.REJECTED) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_UPDATE_NOT_ALLOWED
+            );
+        }
+
+        // 전달하지 않은 값은 기존 값 유지
+        long nextValuation = valuationAmount != null
+                ? valuationAmount : this.valuationAmount;
+
+        long nextQuantity = totalShareQuantity != null
+                ? totalShareQuantity : this.totalShareQuantity;
+
+        // 평가금액과 수량은 양수, 지분당 가격은 최소 1원
+        if (nextValuation <= 0
+                || nextQuantity <= 0
+                || nextValuation < nextQuantity) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_SHARE_PRICE
+            );
+        }
+
+        // 이미 배정된 수량보다 줄일 수 없음
+        if (nextQuantity < allocatedQuantity) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_HOLDING_QUANTITY
+            );
+        }
+
+        // 상세 정보는 전달된 항목만 변경
+        Map<String, Object> nextDetail = new HashMap<>(this.detailData);
+
+        if (detail != null) {
+            nextDetail.putAll(detail);
+        }
+
+        // 상세 평가금액과 실제 계산 금액을 일치시킴
+        if (valuationAmount != null) {
+            nextDetail.put("appraisalAmount", nextValuation);
+        }
+
+        // 일반 정보 변경
+        if (name != null) {
+            this.assetName = name;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+        if (ownerName != null) {
+            this.ownerName = ownerName;
+        }
+
+        this.detailData = nextDetail;
+        this.valuationAmount = nextValuation;
+        this.totalShareQuantity = nextQuantity;
+
+        // 1원 미만 버림
+        this.unitPrice = nextValuation / nextQuantity;
+
+        // 절사로 발생한 차액 저장
+        this.roundingDifferenceAmount =
+                nextValuation - (this.unitPrice * nextQuantity);
     }
 }

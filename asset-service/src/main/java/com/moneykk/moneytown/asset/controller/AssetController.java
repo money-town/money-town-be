@@ -1,12 +1,14 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
+import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDetailResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetListResponse;
 import com.moneykk.moneytown.asset.service.AssetCommandService;
 import com.moneykk.moneytown.asset.service.AssetQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -34,8 +36,8 @@ public class AssetController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<AssetCreateResponse> createAsset(
-            @RequestHeader("X-User-Id") java.util.UUID userId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody AssetCreateRequest request
     ) {
         // 권한 확인 후 자산 저장
@@ -53,8 +55,8 @@ public class AssetController {
      */
     @GetMapping
     public ApiResponse<AssetListResponse> getAssets(
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
 
             // 첫 요청에는 커서 생략
             @RequestParam(required = false) UUID cursor,
@@ -89,8 +91,8 @@ public class AssetController {
     @GetMapping("/{assetId}")
     public ApiResponse<AssetDetailResponse> getAsset(
             @PathVariable UUID assetId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
         // 조회 권한 확인 후 자산 상세 반환
         AssetDetailResponse response = assetQueryService.getAsset(
@@ -102,6 +104,31 @@ public class AssetController {
         return ApiResponse.success(
                 response,
                 "자산 상세 조회가 완료되었습니다."
+        );
+    }
+
+    /**
+     * 자산 정보 수정
+     */
+    @PatchMapping("/{assetId}")
+    public ApiResponse<Void> updateAsset(
+            @PathVariable UUID assetId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Valid @RequestBody AssetUpdateRequest request
+    ) {
+        // 권한 확인 후 자산 정보 수정
+        assetCommandService.updateAsset(
+                assetId,
+                userId,
+                role,
+                request
+        );
+
+        // 수정 성공 응답
+        return ApiResponse.success(
+                null,
+                "자산 정보가 수정되었습니다."
         );
     }
 }

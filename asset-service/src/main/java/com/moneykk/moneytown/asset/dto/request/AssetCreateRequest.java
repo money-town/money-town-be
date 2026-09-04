@@ -44,11 +44,6 @@ public record AssetCreateRequest(
         @NotNull(message = "자산 상세 정보는 필수입니다.")
         Map<String, Object> detailData,
 
-        // 지분 1개당 가격(원)
-        @NotNull(message = "지분 단가는 필수입니다.")
-        @Positive(message = "지분 단가는 0보다 커야 합니다.")
-        Long unitPrice,
-
         // 전체 지분 수량
         @NotNull(message = "전체 지분 수량은 필수입니다.")
         @Positive(message = "전체 지분 수량은 0보다 커야 합니다.")
