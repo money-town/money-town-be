@@ -130,6 +130,8 @@ public class AuthService {
     }
 
 
+    @Transactional
+    // 재발급
     public TokenResponse reissue(ReissueRequest request) {
         // 1. Refresh Token 서명·Issuer·만료 검증
         Jwt jwt = decodeRefreshToken(request.refreshToken());
