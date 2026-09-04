@@ -16,7 +16,7 @@ spring:
         "[enable.idempotence]": true
 
     consumer:
-      group-id: offering-service
+      group-id: ${spring.application.name}
       enable-auto-commit: false
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
