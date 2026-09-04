@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -30,6 +31,9 @@ public class SubscriptionTransactionService {
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final IdempotencyRequestRepository idempotencyRequestRepository;
+
+    @Value("${subscription.reservation-timeout-minutes:10}")
+    private long reservationTimeoutMinutes;
 
     /**
      * 청약 수량 확보부터 Subscription 생성,
@@ -60,9 +64,11 @@ public class SubscriptionTransactionService {
             );
         }
 
-        // TODO: 수량 확보 유효시간 정책 확정 후 설정값으로 분리
         Instant reservationExpiresAt =
-                Instant.now().plus(10, ChronoUnit.MINUTES);
+                Instant.now().plus(
+                        reservationTimeoutMinutes,
+                        ChronoUnit.MINUTES
+                );
 
         Subscription subscription = Subscription.create(
                 offeringId,

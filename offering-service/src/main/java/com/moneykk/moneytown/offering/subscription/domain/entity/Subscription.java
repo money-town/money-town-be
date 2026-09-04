@@ -200,6 +200,67 @@ public class Subscription extends BaseUpdatableEntity {
     // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
 
     /**
+     * 공모 취소에 따른 청약 보상을 시작한다.
+     *
+     * PROCESSING 또는 CONFIRMED 상태의 청약만
+     * COMPENSATING 상태로 전환할 수 있다.
+     */
+    public void startCompensation(CancellationType cancellationType) {
+
+        if (cancellationType == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                && subscriptionStatus != SubscriptionStatus.CONFIRMED) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
+        this.cancellationType = cancellationType;
+    }
+
+    /**
+     * PROCESSING 상태의 청약 예약 유효시간이 만료되었는지 확인한다.
+     */
+    public boolean isReservationExpired(Instant now) {
+        if (now == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        return subscriptionStatus == SubscriptionStatus.PROCESSING
+                && reservationExpiresAt != null
+                && !reservationExpiresAt.isAfter(now);
+    }
+
+    /**
+     * 예약 유효시간이 만료된 PROCESSING 청약을 보상 처리 상태로 전환한다.
+     *
+     * TODO 실제 Wallet 상태 확인 및 수량 복원 등 후속 보상 처리는
+     * Kafka 보상 흐름 구현 이후 연계한다.
+     *
+     * TODO 향후 Consumer에서는 반드시: 아래 정책이 필요하다.
+     * 현재 Subscription = COMPENSATING + 늦게 WalletHoldSucceeded 도착
+     * → CONFIRMED로 되돌리지 않음 → 실제 Wallet 상태 확인/보상 흐름으로 연결
+     */
+    public void startExpirationCompensation(Instant now) {
+        if (!isReservationExpired(now)) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
+        this.failureCode = "RESERVATION_EXPIRED";
+    }
+
+    /**
      * 청약 총 금액을 계산한다.
      *
      * 단위 가격과 청약 수량의 곱이 Long 범위를 초과하는 경우

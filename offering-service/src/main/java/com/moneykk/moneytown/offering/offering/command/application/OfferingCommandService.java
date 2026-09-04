@@ -17,6 +17,7 @@ import com.moneykk.moneytown.offering.offering.domain.repository.OfferingReposit
 import com.moneykk.moneytown.offering.offering.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOfferingInfoResponse;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -177,7 +178,7 @@ public class OfferingCommandService {
             UUID issuerId
     ) {
         ApiResponse<AssetOfferingInfoResponse> assetResponse =
-                assetServiceClient.getAsset(assetId);
+                getAsset(assetId);
 
         AssetOfferingInfoResponse asset =
                 assetResponse != null
@@ -214,7 +215,7 @@ public class OfferingCommandService {
         }
 
         ApiResponse<AssetOfferingInfoResponse> assetResponse =
-                assetServiceClient.getAsset(assetId);
+                getAsset(assetId);
 
         AssetOfferingInfoResponse asset =
                 assetResponse != null
@@ -285,6 +286,24 @@ public class OfferingCommandService {
                 || asset.assetStatus() == null) {
             throw new BusinessException(
                     OfferingErrorCode.ASSET_RESPONSE_INVALID
+            );
+        }
+    }
+
+    private ApiResponse<AssetOfferingInfoResponse> getAsset(
+            UUID assetId
+    ) {
+        try {
+            return assetServiceClient.getAsset(assetId);
+
+        } catch (FeignException.NotFound e) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ASSET_NOT_FOUND
+            );
+
+        } catch (FeignException e) {
+            throw new BusinessException(
+                    OfferingErrorCode.ASSET_SERVICE_UNAVAILABLE
             );
         }
     }

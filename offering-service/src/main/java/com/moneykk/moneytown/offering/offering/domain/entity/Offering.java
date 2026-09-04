@@ -82,7 +82,6 @@ public class Offering extends BaseUpdatableEntity {
     @Column(name = "cancellation_type", length = 30)
     private CancellationType cancellationType;
 
-    // TODO 2차 구현범위에서 아래 내용 재검토 예정
     private Offering(
             UUID assetId,
             UUID issuerId,
@@ -174,10 +173,7 @@ public class Offering extends BaseUpdatableEntity {
      *
      * 승인은 공모 시작 시각 이전까지만 가능하며,
      * 승인 완료 후 SCHEDULED 상태로 전환한다.
-     *
-     * TODO:
-     * SCHEDULED 공모는 startAt 도달 시 OPEN 상태로 전환해야 한다.
-     * 스케줄러/배치 또는 별도의 상태 동기화 정책 확정 후 구현한다.
+     * - 스케줄러 처리
      */
     public void approve(UUID reviewerId) {
         if (offeringStatus != OfferingStatus.REVIEW_REQUESTED) {
@@ -327,6 +323,38 @@ public class Offering extends BaseUpdatableEntity {
         }
 
         softDelete(deletedBy);
+    }
+
+    /**
+     * 모집 미달로 공모 취소 보상 절차를 시작한다.
+     *
+     * 모집 종료 후에도 잔여 수량이 존재하는 OPEN 공모만
+     * CANCELLING 상태로 전환할 수 있다.
+     *
+     * 최종 CANCELLED 전환 및 cancelledAt 기록은
+     * 필요한 보상이 모두 완료된 이후 수행한다.
+     */
+    public void startUnderSubscribedCancellation() {
+        if (offeringStatus != OfferingStatus.OPEN) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_CANCELLATION_NOT_ALLOWED
+            );
+        }
+
+        if (endAt.isAfter(Instant.now())) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_CANCELLATION_NOT_ALLOWED
+            );
+        }
+
+        if (remainingQuantity <= 0) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_QUANTITY_STATE_INVALID
+            );
+        }
+
+        this.offeringStatus = OfferingStatus.CANCELLING;
+        this.cancellationType = CancellationType.UNDER_SUBSCRIBED;
     }
 
 

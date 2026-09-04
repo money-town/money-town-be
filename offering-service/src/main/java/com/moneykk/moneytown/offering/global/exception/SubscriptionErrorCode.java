@@ -92,6 +92,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_409_06",
             "청약 가능한 잔여 수량이 부족합니다."
     ),
+    SUBSCRIPTION_COMPENSATION_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "SUBSCRIPTION_409_07",
+            "현재 상태에서는 청약 보상 처리를 시작할 수 없습니다."
+    ),
 
     // 503 SERVICE_UNAVAILABLE
     FDS_SERVICE_UNAVAILABLE(
