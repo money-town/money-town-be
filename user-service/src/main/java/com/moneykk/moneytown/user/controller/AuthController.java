@@ -3,9 +3,11 @@ package com.moneykk.moneytown.user.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.user.dto.request.LoginRequest;
+import com.moneykk.moneytown.user.dto.request.ReissueRequest;
 import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.response.LoginResponse;
 import com.moneykk.moneytown.user.dto.response.SignupResponse;
+import com.moneykk.moneytown.user.dto.response.TokenResponse;
 import com.moneykk.moneytown.user.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -54,7 +56,15 @@ public class AuthController {
     }
 
 
-    // TODO : 토근 재발급
+    @PostMapping("/reissue")
+    public ApiResponse<TokenResponse> reissue(
+            @Valid @RequestBody ReissueRequest request
+    ) {
+        return ApiResponse.success(
+                authService.reissue(request),
+                "토큰 재발급 성공"
+        );
+    }
 
 
 

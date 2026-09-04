@@ -4,7 +4,8 @@ import com.moneykk.moneytown.common.exception.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum AuthErrorCode implements ErrorCode {
-    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_401_01", "이메일 또는 비밀번호가 올바르지 않습니다.");
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_401_01", "이메일 또는 비밀번호가 올바르지 않습니다."),
+    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED,"AUTH_401_02","유효하지 않은 Refresh Token입니다.");
 
 
 
