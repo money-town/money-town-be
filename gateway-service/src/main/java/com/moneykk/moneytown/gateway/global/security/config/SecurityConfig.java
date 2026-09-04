@@ -24,6 +24,8 @@ public class SecurityConfig {
     private final GatewayAuthenticationEntryPoint authenticationEntryPoint;
     private final GatewayAccessDeniedHandler accessDeniedHandler;
 
+    // TODO 사용자 목록·단건 조회 ADMIN 권한 제한
+
 
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(
