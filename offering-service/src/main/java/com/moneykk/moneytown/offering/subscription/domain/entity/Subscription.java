@@ -335,6 +335,24 @@ public class Subscription extends BaseUpdatableEntity {
     }
 
     /**
+     * 늦은 동결 성공 등 자동 처리하기 어려운 상황을 수동 확인 대상으로 기록한다.
+     * 기존 실패 사유, 취소 유형, 확정·취소 시각 및 수량 확보 여부는 보존한다.
+     */
+    public void requireManualReview(String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 50) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.MANUAL_REVIEW;
+
+        if (this.failureCode == null || this.failureCode.isBlank()) {
+            this.failureCode = reason;
+        }
+    }
+
+    /**
      * 청약 총 금액을 계산한다.
      *
      * 단위 가격과 청약 수량의 곱이 Long 범위를 초과하는 경우
