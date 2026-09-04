@@ -5,6 +5,7 @@ import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionCompensationRequest
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletHold;
+import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
@@ -124,9 +125,31 @@ class WalletHoldServiceTest {
         walletHoldService.compensateHold(compensationEvent());
 
         assertEquals(1_000L, wallet.getBalance());
+        assertEquals(WalletHoldStatus.REFUNDED, hold.getStatus());
         ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishCompensationResult(captor.capture());
         assertEquals("REFUND", captor.getValue().payload().compensationType());
+    }
+
+    @Test
+    @DisplayName("이미 환불된 보상 요청이 재전송돼도 잔액을 다시 건드리지 않는다 (멱등)")
+    void compensateHold_alreadyRefunded_doesNotDoubleRefund() {
+        Wallet wallet = walletWithId(1L, 1_000L);
+        wallet.hold(1_000L);
+        wallet.deductHold(1_000L);
+        WalletHold hold = walletHoldWithId(1L, wallet.getId(), subscriptionId, 1_000L);
+        hold.commit();
+        hold.refund();
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        walletHoldService.compensateHold(compensationEvent());
+
+        assertEquals(0L, wallet.getBalance());
+        verify(walletTransactionRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("NONE", captor.getValue().payload().compensationType());
     }
 
     private Wallet walletWithId(Long id, long depositAmount) {

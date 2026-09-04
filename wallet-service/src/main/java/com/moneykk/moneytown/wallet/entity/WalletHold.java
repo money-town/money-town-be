@@ -20,7 +20,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import java.time.Instant;
 import java.util.UUID;
 
-// HELD -> RELEASED 또는 HELD -> COMMITTED만 허용. 상태값이 종료를 표현하므로
+// HELD -> RELEASED, HELD -> COMMITTED, COMMITTED -> REFUNDED만 허용. 상태값이 종료를 표현하므로
 // BaseUpdatableEntity의 소프트삭제 필드는 쓰지 않고 updated_at/by만 직접 선언.
 @Getter
 @Entity
@@ -74,8 +74,19 @@ public class WalletHold extends BaseEntity {
         this.status = WalletHoldStatus.COMMITTED;
     }
 
+    public void refund() {
+        requireCommitted();
+        this.status = WalletHoldStatus.REFUNDED;
+    }
+
     private void requireHeld() {
         if (this.status != WalletHoldStatus.HELD) {
+            throw new BusinessException(WalletErrorCode.INVALID_HOLD_STATUS_TRANSITION);
+        }
+    }
+
+    private void requireCommitted() {
+        if (this.status != WalletHoldStatus.COMMITTED) {
             throw new BusinessException(WalletErrorCode.INVALID_HOLD_STATUS_TRANSITION);
         }
     }

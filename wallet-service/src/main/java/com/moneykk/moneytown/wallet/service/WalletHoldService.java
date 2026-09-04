@@ -117,9 +117,9 @@ public class WalletHoldService {
         switch (hold.getStatus()) {
             case HELD -> releaseHold(aggregateId, event.userId(), event.correlationId(), wallet, hold); // UNHOLD
             case COMMITTED -> refundHold(aggregateId, event.userId(), event.correlationId(), wallet, hold); // REFUND
-            case RELEASED -> walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
+            case RELEASED, REFUNDED -> walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
                     aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
-            ); // 이미 처리됨
+            ); // 이미 처리됨 (재전송된 보상 요청)
         }
     }
 
@@ -140,6 +140,7 @@ public class WalletHoldService {
     private void refundHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
         long balanceBefore = wallet.getBalance();
         wallet.deposit(hold.getAmount());
+        hold.refund();
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
                 wallet.getId(), WalletTransactionType.REFUND, hold.getAmount(), balanceBefore, wallet.getBalance(),
