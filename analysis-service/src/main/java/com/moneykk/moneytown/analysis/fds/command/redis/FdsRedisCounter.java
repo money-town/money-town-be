@@ -37,5 +37,10 @@ public class FdsRedisCounter {
         );
         return new FdsCounts(r.get(0), r.get(1), r.get(2));
     }
-
+    public void clear(UUID userId) {
+        redisTemplate.delete(List.of(
+                "fds:req:{" + userId + "}",
+                "fds:offering:{" + userId + "}"
+        ));
+    }
 }

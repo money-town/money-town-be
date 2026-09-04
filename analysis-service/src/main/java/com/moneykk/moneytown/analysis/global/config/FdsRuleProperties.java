@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.Map;
 
-@ConfigurationProperties(prefix = "fds")
+@ConfigurationProperties(prefix = "fds.pre")
 public record FdsRuleProperties(Map<RuleCode, Threshold> rules) {
 
     public record Threshold(int windowSeconds, int normal, int suspicious){

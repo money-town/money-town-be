@@ -31,6 +31,9 @@ public class FdsUserState extends BaseUpdatableEntity {
     @Column(name = "status", length = 20, nullable = false)
     private UserStatus status;
 
+    @Column(name = "suspicious_at")
+    private Instant suspiciousAt;
+
     @Column(name = "blocked_at")
     private Instant blockedAt;
 
@@ -62,9 +65,14 @@ public class FdsUserState extends BaseUpdatableEntity {
         this.status = UserStatus.NORMAL;
         this.blockedAt = null;
         this.blockedReason = null;
+        this.suspiciousAt = null;
     }
 
     public void markSuspicious(){
+        if(this.status != UserStatus.NORMAL){
+            throw new BusinessException(AnalysisErrorCode.FDS_INVALID_REQUEST);
+        }
         this.status = UserStatus.SUSPICIOUS;
+        this.suspiciousAt = Instant.now();
     }
 }
