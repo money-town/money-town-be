@@ -189,14 +189,42 @@ public class Subscription extends BaseUpdatableEntity {
         );
     }
 
+    /**
+     * Wallet 동결 성공을 확인한 청약을 확정한다.
+     *
+     * 수량이 확보된 PROCESSING 청약만 확정할 수 있다.
+     * 중복 이벤트와 늦게 도착한 이벤트의 처리는
+     * 호출하는 서비스에서 잠금 조회 후 판단한다.
+     *
+     * 동결 성공: PROCESSING -> CONFIRMED
+     * CONFIRMED 전환 시 confirmedAt 기록
+     *
+     * @param confirmedAt 청약 확정 처리 시각
+     */
+    public void confirm(Instant confirmedAt) {
+        if (confirmedAt == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                || !quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.CONFIRMED;
+        this.confirmedAt = confirmedAt;
+    }
+
     // TODO 3차 구현:
     // Wallet 동결 결과 이벤트 처리 및 보상 흐름 구현
-    // - 동결 성공: PROCESSING -> CONFIRMED
     // - 동결 실패: 보상 정책에 따라 COMPENSATING 전환 후 수량 복원
     // - 수량 복원 완료 시 quantityReserved = false
     // - 최종 실패 처리 시 REJECTED
     // - 취소 완료 시 CANCELLED
-    // - CONFIRMED 전환 시 confirmedAt 기록
     // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
 
     /**

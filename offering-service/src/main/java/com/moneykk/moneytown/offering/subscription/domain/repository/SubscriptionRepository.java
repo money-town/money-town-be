@@ -5,6 +5,13 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionSta
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +35,22 @@ public interface SubscriptionRepository
     boolean existsByOfferingId(UUID offeringId);
 
     /**
+     * 청약 상태 변경을 위해 해당 행을 잠금 조회한다.
+     * 호출한 트랜잭션이 끝날 때까지 잠금을 유지한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT s
+          FROM Subscription s
+         WHERE s.subscriptionId = :subscriptionId
+           AND s.isDeleted = false
+        """)
+    Optional<Subscription> findByIdForUpdate(
+            @Param("subscriptionId") UUID subscriptionId
+    );
+
+    /**
      * CANCELLED 공모 상세 조회 시
      * 해당 투자자가 실제 공모 취소 보상 대상이었는지 확인한다.
      *
@@ -46,6 +69,8 @@ public interface SubscriptionRepository
      * PROCESSING, CONFIRMED 상태이면서
      * 삭제되지 않은 청약만 조회한다.
      */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
             UUID offeringId,
             List<SubscriptionStatus> subscriptionStatuses
@@ -57,6 +82,8 @@ public interface SubscriptionRepository
      * 장시간 처리 중인 청약의 timeout 처리를 위해
      * Pageable을 사용하여 배치 단위로 조회한다.
      */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Subscription> findAllBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
             SubscriptionStatus subscriptionStatus,
             Instant reservationExpiresAt,

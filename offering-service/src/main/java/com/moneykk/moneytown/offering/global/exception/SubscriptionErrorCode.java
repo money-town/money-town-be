@@ -97,6 +97,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_409_07",
             "현재 상태에서는 청약 보상 처리를 시작할 수 없습니다."
     ),
+    SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "SUBSCRIPTION_409_08",
+            "현재 상태에서는 청약을 확정할 수 없습니다."
+    ),
 
     // 503 SERVICE_UNAVAILABLE
     FDS_SERVICE_UNAVAILABLE(
