@@ -4,7 +4,9 @@ x-app-common: &app-common
   restart: unless-stopped
   init: true
   networks: [moneytown]
+  mem_limit: 512m
   environment: &common-environment
+    JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=${JVM_MAX_RAM_PERCENTAGE:-65}
     EUREKA_URL: http://discovery-server:19090/eureka
     CONFIG_SERVER_URL: http://config-server:19093
     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -23,6 +25,7 @@ x-app-common: &app-common
 services:
   postgres:
     image: pgvector/pgvector:pg18
+    mem_limit: 768m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moneytown}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moneytown}
@@ -41,6 +44,7 @@ services:
 
   redis:
     image: redis:7.4.7
+    mem_limit: 256m
     command:
       - redis-server
       - --appendonly
@@ -62,6 +66,7 @@ services:
 
   redisinsight:
     image: redis/redisinsight:2.56
+    mem_limit: 256m
     ports:
       - "${REDISINSIGHT_HOST_PORT:-8001}:5540"
     volumes:
@@ -88,6 +93,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    mem_limit: 768m
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
@@ -101,6 +108,7 @@ services:
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2
+    mem_limit: 512m
     environment:
       KAFKA_CLUSTERS_0_NAME: moneytown
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
@@ -123,6 +131,7 @@ services:
 
   discovery-server:
     <<: *app-common
+    mem_limit: 512m
     build:
       context: ..
       dockerfile: infrastructure/Dockerfile
@@ -137,6 +146,7 @@ services:
 
   config-server:
     <<: *app-common
+    mem_limit: 512m
     build:
       context: ..
       dockerfile: infrastructure/Dockerfile
@@ -184,6 +194,7 @@ services:
   nginx:
     image: nginx:1.31.3
     restart: unless-stopped
+    mem_limit: 64m
     ports:
       - "${NGINX_HOST_PORT:-8002}:80"
     volumes:
