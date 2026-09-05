@@ -20,11 +20,14 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # workflow_run 은 CI 가 실패했을 때도 발동하므로 여기서 걸러낸다.
-    # DEPLOY_ENABLED 는 EC2 와 시크릿 등록이 끝난 뒤에 'true' 로 켠다 (Settings > Variables).
     if: >-
-      vars.DEPLOY_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      vars.DEPLOY_ENABLED == 'true' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main'
+        )
+      )
 
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
