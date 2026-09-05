@@ -16,10 +16,13 @@ concurrency:
 
 permissions:
   contents: read
+  # OIDC 토큰 발급용. 이게 있어야 AWS에 장기 액세스 키 없이 역할을 위임받는다.
+  id-token: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     if: >-
       vars.DEPLOY_ENABLED == 'true' && (
         github.event_name == 'workflow_dispatch' || (
@@ -29,9 +32,12 @@ jobs:
         )
       )
 
+    # job-level 에는 비밀이 아닌 값만 둔다.
+    # job env 는 서드파티 액션을 포함한 모든 step 의 환경변수가 되기 때문
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       SSH_OPTS: -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts
+      SG_ID: ${{ vars.EC2_SECURITY_GROUP_ID }}
 
     steps:
       - name: 배포 대상 확인
@@ -39,23 +45,85 @@ jobs:
           echo "trigger : ${{ github.event_name }}"
           echo "commit  : ${DEPLOY_SHA:-(수동 실행 — main 최신을 배포)}"
 
+      # ── 보안 그룹 22번은 평소 "내 IP"로만 열려 있다. Actions 러너는 매번 IP가 달라서 배포 직전에 러너 IP만 열고, 끝나면 반드시 닫는다.
+      - name: AWS 자격 (OIDC — 장기 키 없음)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: money-town-cd-${{ github.run_id }}
+
+      - name: 보안 그룹 22번 임시 개방 (러너 IP만)
+        run: |
+          set -euo pipefail
+          SG="${SG_ID:?EC2_SECURITY_GROUP_ID 변수가 비어 있다 (production 환경에 등록했는지 확인)}"
+          NOW=$(date +%s)
+
+          aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SG" \
+            --query "SecurityGroupRules[?IsEgress==\`false\` && FromPort==\`22\`].[SecurityGroupRuleId,Description]" \
+            --output text > /tmp/sg22.tsv
+
+          while IFS=$'\t' read -r RID RDESC; do
+            [ -n "${RID:-}" ] || continue
+            case "$RDESC" in gh-cd\ run=*\ exp=*) ;; *) continue ;; esac
+
+            EXP=${RDESC##*exp=}; EXP=${EXP%% *}
+            case "$EXP" in ''|*[!0-9]*) echo "::warning::만료 시각을 못 읽음: $RID '$RDESC'"; continue ;; esac
+
+            if [ "$EXP" -le "$NOW" ]; then
+              echo "::warning::이전 실행이 남긴 만료 규칙 삭제: $RID ($RDESC) — 그 배포가 강제 취소됐을 가능성이 높다"
+              aws ec2 revoke-security-group-ingress --group-id "$SG" --security-group-rule-ids "$RID" || true
+            fi
+          done < /tmp/sg22.tsv
+
+          RUNNER_IP=$(curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')
+          case "$RUNNER_IP" in
+            *.*.*.*) ;;
+            *) echo "::error::러너 공인 IP를 못 얻었다: '$RUNNER_IP'"; exit 1 ;;
+          esac
+
+          EXPIRES_AT=$(( NOW + 3600 ))
+          DESC="gh-cd run=${{ github.run_id }} exp=${EXPIRES_AT}"
+
+          echo "러너 IP: ${RUNNER_IP}/32 / 만료: $(date -u -d "@${EXPIRES_AT}" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          RULE_ID=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$SG" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=\"${DESC}\"}]" \
+            --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text)
+
+          if [ -z "$RULE_ID" ] || [ "$RULE_ID" = "None" ]; then
+            echo "::error::규칙 ID를 못 받았다. 정리를 보장할 수 없으므로 배포를 중단한다"
+            exit 1
+          fi
+          echo "SG_RULE_ID=${RULE_ID}" >> "$GITHUB_ENV"
+          echo "생성된 규칙: ${RULE_ID}"
+
       - name: SSH 자격 준비
+        # 개인키와 호스트 키는 이 step 밖으로 나가지 않는다.
+        # 이 step 이 끝나면 키는 ~/.ssh/ 파일로만 남고, 환경변수로는 어디에도 없다.
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
 
-          if [ -z "${{ secrets.EC2_HOST_KEY }}" ]; then
+          if [ -z "${EC2_HOST_KEY:-}" ]; then
             echo "::error::EC2_HOST_KEY 시크릿이 없다. EC2 콘솔 시스템 로그의 호스트 키를 등록할 것"
             exit 1
           fi
-          printf '%s\n' "${{ secrets.EC2_HOST_KEY }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$EC2_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy.pem
           chmod 600 ~/.ssh/deploy.pem
 
       - name: 배포 전 검증 (커밋 · Compose 버전 · 병합 설정)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
             "bash -s -- '${DEPLOY_SHA}'" <<'REMOTE'
           set -euo pipefail
           TARGET="${1:-}"
@@ -96,8 +164,11 @@ jobs:
           REMOTE
 
       - name: EC2에서 빌드 · 기동
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd ~/money-town
 
@@ -112,8 +183,11 @@ jobs:
           REMOTE
 
       - name: 기동 후 확인 (실제로 열린 포트 · 컨테이너 상태)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd ~/money-town
           COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml"
@@ -131,9 +205,32 @@ jobs:
 
       - name: 실패 시 컨테이너 로그
         if: failure()
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
             'cd ~/money-town && docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml logs --no-color --tail=200' || true
+
+      - name: 보안 그룹 22번 원복
+        if: always()
+        run: |
+          set -uo pipefail
+          SG="${SG_ID:?EC2_SECURITY_GROUP_ID 변수가 비어 있다}"
+
+          if [ -z "${SG_RULE_ID:-}" ]; then
+            echo "이 실행이 만든 규칙이 없다 (개방 전에 실패). 지울 것 없음."
+          else
+            aws ec2 revoke-security-group-ingress \
+              --group-id "$SG" --security-group-rule-ids "$SG_RULE_ID" \
+              && echo "규칙 ${SG_RULE_ID} 삭제 완료" \
+              || echo "::warning::규칙 ${SG_RULE_ID} 삭제 실패 — 만료(1시간) 후 다음 배포가 청소한다"
+          fi
+
+          echo "── 현재 남아 있는 22번 규칙 ──"
+          aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SG" \
+            --query "SecurityGroupRules[?IsEgress==\`false\` && FromPort==\`22\`].[SecurityGroupRuleId,CidrIpv4,Description]" \
+            --output table
 
       - name: SSH 키 삭제
         if: always()
