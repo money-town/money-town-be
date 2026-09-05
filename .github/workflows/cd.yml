@@ -1,0 +1,94 @@
+name: CD
+
+# main 에 머지된 것만 배포한다.
+#   workflow_run 은 main 브랜치에서 CI 가 success 로 끝난 뒤에만 발동한다.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# 배포가 겹치면 EC2에서 gradle 빌드와 docker up 이 서로를 덮어쓴다. 항상 1개만 돈다.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # workflow_run 은 CI 가 실패했을 때도 발동하므로 여기서 걸러낸다.
+    # DEPLOY_ENABLED 는 EC2 와 시크릿 등록이 끝난 뒤에 'true' 로 켠다 (Settings > Variables).
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: 배포 대상 커밋 확인
+        run: |
+          echo "trigger : ${{ github.event_name }}"
+          echo "commit  : ${{ github.event.workflow_run.head_sha || github.sha }}"
+
+      - name: SSH 키 준비
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          chmod 600 ~/.ssh/deploy.pem
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: EC2에서 배포
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/money-town
+
+          # 배포 대상은 언제나 origin/main. 서버에서 손댄 흔적이 있어도 강제로 맞춘다.
+          git fetch --prune origin
+          git checkout main
+          git reset --hard origin/main
+          git log --oneline -1
+
+          # EC2에서 직접 빌드한다(ECR 미사용). --no-daemon: 2 vCPU 서버에 gradle 데몬을 남기지 않는다.
+          ./gradlew clean bootJar --no-daemon
+
+          # prod 오버레이가 반드시 함께 들어가야 한다. 빠뜨리면 모든 포트가 호스트에 열린다.
+          docker compose --env-file .env \
+            -f infrastructure/docker-compose.yml \
+            -f infrastructure/docker-compose.prod.yml \
+            up -d --build --remove-orphans --wait --wait-timeout 900
+
+          docker image prune -f      # 30GiB 디스크라 이전 빌드 레이어를 남기지 않는다
+          REMOTE
+
+      - name: 배포 검증 (포트 폐쇄 + 컨테이너 상태)
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/money-town
+          COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml"
+
+          # nginx(80/443) 외에 호스트로 나간 포트가 있으면 배포를 실패로 본다.
+          # prod 오버레이의 `!reset` 은 Compose 2.24 미만에서 조용히 무시되므로, 결과를 매 배포마다 확인한다.
+          published=$(docker ps --format '{{.Ports}}' | tr ',' '\n' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | sort -u)
+          echo "publish된 포트: ${published:-없음}"
+          bad=$(printf '%s\n' "$published" | grep -vE '^(80|443)$' | grep -v '^$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::nginx(80/443) 외 포트가 열려 있다: $(echo $bad)"
+            exit 1
+          fi
+
+          $COMPOSE ps
+          REMOTE
+
+      - name: 실패 시 컨테이너 로그
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'cd ~/money-town && docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml logs --no-color --tail=200' || true
+
+      - name: SSH 키 삭제
+        if: always()
+        run: rm -f ~/.ssh/deploy.pem
