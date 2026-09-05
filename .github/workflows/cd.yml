@@ -35,6 +35,11 @@ jobs:
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       SSH_OPTS: -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts
+      SG_ID: ${{ vars.EC2_SECURITY_GROUP_ID }}
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+      EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
 
     steps:
       - name: 배포 대상 확인
@@ -53,7 +58,7 @@ jobs:
       - name: 보안 그룹 22번 임시 개방 (러너 IP만)
         run: |
           set -euo pipefail
-          SG="${{ vars.EC2_SECURITY_GROUP_ID }}"
+          SG="${SG_ID:?EC2_SECURITY_GROUP_ID 변수가 비어 있다 (production 환경에 등록했는지 확인)}"
           NOW=$(date +%s)
 
           aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SG" \
@@ -100,19 +105,19 @@ jobs:
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
 
-          if [ -z "${{ secrets.EC2_HOST_KEY }}" ]; then
+          if [ -z "${EC2_HOST_KEY:-}" ]; then
             echo "::error::EC2_HOST_KEY 시크릿이 없다. EC2 콘솔 시스템 로그의 호스트 키를 등록할 것"
             exit 1
           fi
-          printf '%s\n' "${{ secrets.EC2_HOST_KEY }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$EC2_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy.pem
           chmod 600 ~/.ssh/deploy.pem
 
       - name: 배포 전 검증 (커밋 · Compose 버전 · 병합 설정)
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
             "bash -s -- '${DEPLOY_SHA}'" <<'REMOTE'
           set -euo pipefail
           TARGET="${1:-}"
@@ -154,7 +159,7 @@ jobs:
 
       - name: EC2에서 빌드 · 기동
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd ~/money-town
 
@@ -170,7 +175,7 @@ jobs:
 
       - name: 기동 후 확인 (실제로 열린 포트 · 컨테이너 상태)
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd ~/money-town
           COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml"
@@ -189,14 +194,14 @@ jobs:
       - name: 실패 시 컨테이너 로그
         if: failure()
         run: |
-          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
             'cd ~/money-town && docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml logs --no-color --tail=200' || true
 
       - name: 보안 그룹 22번 원복
         if: always()
         run: |
           set -uo pipefail
-          SG="${{ vars.EC2_SECURITY_GROUP_ID }}"
+          SG="${SG_ID:?EC2_SECURITY_GROUP_ID 변수가 비어 있다}"
 
           if [ -z "${SG_RULE_ID:-}" ]; then
             echo "이 실행이 만든 규칙이 없다 (개방 전에 실패). 지울 것 없음."
