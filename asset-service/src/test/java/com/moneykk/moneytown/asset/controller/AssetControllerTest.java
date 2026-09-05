@@ -36,6 +36,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class AssetControllerTest {
@@ -206,6 +207,21 @@ class AssetControllerTest {
                 .andExpect(jsonPath("$.message").value("자산이 삭제되었습니다."));
 
         verify(service).deleteAsset(assetId, userId, "ISSUER");
+    }
+
+    @Test
+    @DisplayName("자산 종료 요청을 서비스에 전달한다")
+    void requestsAssetTermination() throws Exception {
+        mvc.perform(post(url + "/termination-requests")
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message")
+                        .value("자산 운영 종료가 요청되었습니다."));
+
+        verify(service).requestAssetTermination(
+                assetId, userId, "ISSUER");
     }
 
     @Test

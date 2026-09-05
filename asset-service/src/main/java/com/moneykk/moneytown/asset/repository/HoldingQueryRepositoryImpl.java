@@ -3,9 +3,8 @@ package com.moneykk.moneytown.asset.repository;
 import com.moneykk.moneytown.asset.dto.response.HoldingHistoryItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
-import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
-import com.moneykk.moneytown.asset.entity.QHolding;
-import com.moneykk.moneytown.asset.entity.QHoldingHistory;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingItemResponse;
+import com.moneykk.moneytown.asset.entity.*;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.querydsl.core.types.Projections;
@@ -13,6 +12,7 @@ import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.NumberExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
@@ -29,7 +29,7 @@ public class HoldingQueryRepositoryImpl
 
     private static final QHolding holding = QHolding.holding;
     private static final QHoldingHistory history = QHoldingHistory.holdingHistory;
-
+    private static final QAsset asset = QAsset.asset;
     private final JPAQueryFactory queryFactory;
 
     @Override
@@ -205,6 +205,74 @@ public class HoldingQueryRepositoryImpl
     }
 
     @Override
+    public List<MyHoldingItemResponse> findMyHoldings(
+            UUID userId,
+            UUID cursor,
+            int limit,
+            Sort.Direction direction
+    ) {
+        boolean ascending = direction.isAscending();
+        BooleanExpression cursorCondition = null;
+
+        if (cursor != null) {
+            // 내 보유지분에 해당하는 커서의 등록 시간 조회
+            Instant cursorCreatedAt = queryFactory
+                    .select(holding.createdAt)
+                    .from(holding)
+                    .where(
+                            holding.id.eq(cursor),
+                            holding.userId.eq(userId)
+                    )
+                    .fetchOne();
+
+            if (cursorCreatedAt == null) {
+                throw new BusinessException(
+                        AssetErrorCode.INVALID_HOLDING_CURSOR
+                );
+            }
+
+            // 등록 시간과 ID를 함께 사용해 중복·누락 방지
+            cursorCondition = ascending
+                    ? holding.createdAt.gt(cursorCreatedAt)
+                    .or(holding.createdAt.eq(cursorCreatedAt)
+                            .and(holding.id.gt(cursor)))
+                    : holding.createdAt.lt(cursorCreatedAt)
+                    .or(holding.createdAt.eq(cursorCreatedAt)
+                            .and(holding.id.lt(cursor)));
+        }
+
+        return queryFactory
+                .select(Projections.constructor(
+                        MyHoldingItemResponse.class,
+                        holding.id,
+                        holding.assetId,
+                        asset.assetName,
+                        asset.type,
+                        holding.quantity,
+                        holding.updatedAt
+                ))
+                .from(holding)
+                .join(asset)
+                .on(holding.assetId.eq(asset.id))
+                .where(
+                        holding.userId.eq(userId),
+                        holding.quantity.gt(0L),
+                        asset.isDeleted.isFalse(),
+                        cursorCondition
+                )
+                .orderBy(
+                        ascending
+                                ? holding.createdAt.asc()
+                                : holding.createdAt.desc(),
+                        ascending
+                                ? holding.id.asc()
+                                : holding.id.desc()
+                )
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
     public Optional<UUID> findUserIdByHoldingId(UUID holdingId) {
         // 보유지분의 소유자 조회
         UUID userId = queryFactory
@@ -214,5 +282,17 @@ public class HoldingQueryRepositoryImpl
                 .fetchOne();
 
         return Optional.ofNullable(userId);
+    }
+
+    @Override
+    public Optional<Holding> findByIdForUpdate(UUID holdingId) {
+        // 동시에 같은 지분을 변경하지 못하도록 잠금
+        Holding result = queryFactory
+                .selectFrom(holding)
+                .where(holding.id.eq(holdingId))
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .fetchOne();
+
+        return Optional.ofNullable(result);
     }
 }

@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.dto.request.HoldingAdjustmentRequest;
 import com.moneykk.moneytown.asset.dto.request.HoldingAllocationRequest;
 import com.moneykk.moneytown.asset.dto.request.HoldingRevocationRequest;
 import com.moneykk.moneytown.asset.dto.response.HoldingAllocationResponse;
@@ -230,6 +231,104 @@ public class HoldingCommandService {
         );
     }
 
+    /**
+     * 관리자 보유지분 수량 조정
+     */
+    @Transactional
+    public void adjust(
+            UUID holdingId,
+            UUID adminId,
+            String role,
+            HoldingAdjustmentRequest request
+    ) {
+        // 관리자만 조정 가능
+        if (adminId == null || !"ADMIN".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_ADJUSTMENT_ACCESS_DENIED
+            );
+        }
+
+        // 자산 ID 조회
+        UUID assetId = holdingQueryRepository
+                .findAssetIdByHoldingId(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_NOT_FOUND
+                ));
+
+        // 자산 전체 배정량 변경을 위해 잠금
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 사용자 보유지분 변경을 위해 잠금
+        Holding holding = holdingQueryRepository
+                .findByIdForUpdate(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_NOT_FOUND
+                ));
+
+        // 같은 요청이 이미 처리되었는지 확인
+        Optional<HoldingHistory> existingHistory =
+                holdingHistoryRepository.findByIdempotencyKey(
+                        request.idempotencyKey()
+                );
+
+        if (existingHistory.isPresent()) {
+            HoldingHistory history = existingHistory.get();
+
+            // 같은 요청이면 추가 처리하지 않음
+            if (history.getHoldingId().equals(holdingId)
+                    && history.getBalanceAfter()
+                    == request.targetQuantity()) {
+                return;
+            }
+
+            // 같은 키로 다른 내용을 요청한 경우
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_DATA_CONFLICT
+            );
+        }
+
+        long balanceBefore = holding.getQuantity();
+        long balanceAfter = request.targetQuantity();
+
+        // 수량 변화가 없으면 조정할 필요 없음
+        if (balanceBefore == balanceAfter) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_HOLDING_QUANTITY
+            );
+        }
+
+        long changedQuantity =
+                Math.abs(balanceAfter - balanceBefore);
+
+        // 자산 전체 배정 수량도 함께 변경
+        if (balanceAfter > balanceBefore) {
+            asset.allocateShares(changedQuantity);
+        } else {
+            asset.revokeShares(changedQuantity);
+        }
+
+        // 사용자 보유 수량 변경
+        holding.adjust(balanceAfter);
+
+        // 조정 이력 저장
+        HoldingHistory history = new HoldingHistory(
+                holdingId,
+                null,
+                HoldingHistoryType.ADJUSTMENT,
+                changedQuantity,
+                balanceBefore,
+                balanceAfter,
+                request.idempotencyKey(),
+                request.reason().trim()
+        );
+
+        holdingHistoryRepository.save(history);
+    }
+
     private HoldingRevocationResponse alreadyRevoked(
             UUID holdingId,
             HoldingRevocationRequest request,
@@ -257,8 +356,8 @@ public class HoldingCommandService {
     }
 
     private HoldingRevocationResponse noAction(
-        UUID holdingId,
-        HoldingRevocationRequest request
+            UUID holdingId,
+            HoldingRevocationRequest request
     ) {
         // 실제로 회수한 지분이 없으므로 수량은 0
         return new HoldingRevocationResponse(
