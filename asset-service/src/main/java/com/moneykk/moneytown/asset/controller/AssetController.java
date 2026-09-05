@@ -16,7 +16,9 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
@@ -177,6 +179,39 @@ public class AssetController {
         return ApiResponse.success(
                 null,
                 "자산이 삭제되었습니다."
+        );
+    }
+
+    /**
+     * 자산 대표 이미지 등록·변경
+     */
+    @PutMapping(
+            value = "/{assetId}/representative-image",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ApiResponse<Void> setRepresentativeImage(
+            @PathVariable UUID assetId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ID)
+            UUID userId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role,
+
+            @RequestPart("file")
+            MultipartFile file
+    ) {
+        // 대표 이미지 최초 등록 또는 기존 이미지 변경
+        assetCommandService.setRepresentativeImage(
+                assetId,
+                userId,
+                role,
+                file
+        );
+
+        return ApiResponse.success(
+                null,
+                "자산 대표 이미지가 등록·변경되었습니다."
         );
     }
 }

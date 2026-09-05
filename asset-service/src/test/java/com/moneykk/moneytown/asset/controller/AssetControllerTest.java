@@ -19,6 +19,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -142,7 +144,8 @@ class AssetControllerTest {
         Asset asset = new Asset(userId, "기존 자산", AssetType.REAL_ESTATE, "기존 설명",
                 100_000_000L, BigDecimal.ZERO, Map.of("appraisalAmount", 100_000_000L), 10_000L);
         when(queryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
-        AssetCommandService realService = new AssetCommandService(mock(AssetRepository.class), queryRepository);
+        AssetCommandService realService = new AssetCommandService(
+                mock(AssetRepository.class), queryRepository, mock(com.moneykk.moneytown.asset.service.S3StorageService.class));
         MockMvc realMvc = MockMvcBuilders.standaloneSetup(
                         new AssetController(realService, mock(AssetQueryService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
@@ -203,6 +206,31 @@ class AssetControllerTest {
                 .andExpect(jsonPath("$.message").value("자산이 삭제되었습니다."));
 
         verify(service).deleteAsset(assetId, userId, "ISSUER");
+    }
+
+    @Test
+    @DisplayName("대표 이미지 파일과 사용자 헤더를 서비스에 전달한다")
+    void setsRepresentativeImage() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "asset.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+
+        mvc.perform(multipart(url + "/representative-image")
+                        .file(file)
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER")
+                        .with(request -> {
+                            request.setMethod("PUT");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message")
+                        .value("자산 대표 이미지가 등록·변경되었습니다."));
+
+        verify(service).setRepresentativeImage(
+                assetId, userId, "ISSUER", file);
     }
 
     private MockHttpServletRequestBuilder request(String body) {

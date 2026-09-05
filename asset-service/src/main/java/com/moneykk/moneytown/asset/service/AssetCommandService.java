@@ -12,6 +12,10 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.util.Locale;
 
 import java.util.UUID;
 
@@ -22,8 +26,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AssetCommandService {
 
+    private static final long MAX_IMAGE_SIZE =
+            10L * 1024 * 1024;
+
     private final AssetRepository assetRepository;
     private final AssetQueryRepository assetQueryRepository;
+    private final S3StorageService s3StorageService;
 
     /**
      * 자산 등록
@@ -190,6 +198,149 @@ public class AssetCommandService {
 
         // 상태 확인 후 소프트 삭제
         asset.delete(userId);
+    }
+
+    /**
+     * 자산 대표 이미지 등록·변경
+     */
+    @Transactional
+    public void setRepresentativeImage(
+            UUID assetId,
+            UUID userId,
+            String role,
+            MultipartFile file
+    ) {
+        // 자산운용자와 관리자만 등록 가능
+        if (userId == null
+                || (!"ISSUER".equals(role)
+                && !"ADMIN".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_UPDATE_ACCESS_DENIED
+            );
+        }
+
+        // 삭제되지 않은 자산을 잠금 조회
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 자산운용자는 본인 자산만 변경 가능
+        if (!"ADMIN".equals(role)
+                && !userId.equals(asset.getUserId())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_UPDATE_ACCESS_DENIED
+            );
+        }
+
+        byte[] content = readImage(file);
+        String contentType = file.getContentType();
+
+        validateImage(content, contentType);
+
+        String newObjectKey = "assets/"
+                + assetId
+                + "/representative/"
+                + UUID.randomUUID();
+
+        String previousObjectKey =
+                asset.getRepresentativeImageKey();
+
+        // DB 롤백 시 새로 업로드한 이미지 제거
+        s3StorageService.uploadWithRollbackCleanup(
+                newObjectKey,
+                content,
+                contentType
+        );
+
+        // 최초 등록 또는 기존 이미지 키 변경
+        asset.updateRepresentativeImage(newObjectKey);
+
+        // 기존 이미지가 있으면 DB 커밋 후 삭제
+        s3StorageService.deleteAfterCommit(
+                previousObjectKey
+        );
+    }
+
+    /**
+     * 이미지 파일 읽기
+     */
+    private byte[] readImage(MultipartFile file) {
+        if (file == null
+                || file.isEmpty()
+                || file.getSize() > MAX_IMAGE_SIZE) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_IMAGE
+            );
+        }
+
+        try {
+            return file.getBytes();
+        } catch (IOException exception) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DOCUMENT_STORAGE_FAILED
+            );
+        }
+    }
+
+    /**
+     * PNG와 JPEG 파일 내용 검증
+     */
+    private void validateImage(
+            byte[] content,
+            String contentType
+    ) {
+        if (contentType == null) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_IMAGE
+            );
+        }
+
+        boolean valid = switch (
+                contentType.toLowerCase(Locale.ROOT)
+                ) {
+            case "image/png" -> startsWith(
+                    content,
+                    0x89, 0x50, 0x4E, 0x47
+            );
+
+            case "image/jpeg" -> startsWith(
+                    content,
+                    0xFF, 0xD8, 0xFF
+            );
+
+            default -> false;
+        };
+
+        if (!valid) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_IMAGE
+            );
+        }
+    }
+
+    /**
+     * 파일 헤더 확인
+     */
+    private boolean startsWith(
+            byte[] content,
+            int... signature
+    ) {
+        if (content.length < signature.length) {
+            return false;
+        }
+
+        for (int index = 0;
+             index < signature.length;
+             index++) {
+            if ((content[index] & 0xFF)
+                    != signature[index]) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 }

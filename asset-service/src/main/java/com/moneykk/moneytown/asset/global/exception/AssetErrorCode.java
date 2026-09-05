@@ -20,6 +20,7 @@ public enum AssetErrorCode implements ErrorCode {
     APPRAISAL_AMOUNT_UPDATE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "ASSET_400_14", "자산 평가금액은 수정할 수 없습니다."),
     ASSET_REJECTION_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "ASSET_400_15", "자산 반려 시 반려 사유는 필수입니다."),
     INVALID_ASSET_DOCUMENT_CURSOR(HttpStatus.BAD_REQUEST, "ASSET_400_16", "유효하지 않은 자산 문서 조회 커서입니다."),
+    INVALID_ASSET_IMAGE(HttpStatus.BAD_REQUEST, "ASSET_400_17", "대표 이미지 파일이 올바르지 않습니다."),
 
     REVENUE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_01", "해당 자산에 수익을 등록할 권한이 없습니다."),
     HOLDING_SNAPSHOT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_02", "지분 스냅샷은 SYSTEM 권한으로만 조회할 수 있습니다."),

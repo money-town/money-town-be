@@ -291,4 +291,21 @@ public class Asset extends BaseUpdatableEntity {
         // 삭제 시간과 삭제 사용자 기록
         softDelete(deletedBy);
     }
+
+    /**
+     * 대표 이미지 등록 및 변경
+     */
+    public void updateRepresentativeImage(
+            String representativeImageKey
+    ) {
+        if (representativeImageKey == null
+                || representativeImageKey.isBlank()) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_IMAGE
+            );
+        }
+
+        this.representativeImageKey =
+                representativeImageKey;
+    }
 }

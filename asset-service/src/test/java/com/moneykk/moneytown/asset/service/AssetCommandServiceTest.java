@@ -24,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -41,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -53,6 +55,9 @@ class AssetCommandServiceTest {
 
     @Mock
     private AssetQueryRepository assetQueryRepository;
+
+    @Mock
+    private S3StorageService s3StorageService;
 
     @InjectMocks
     private AssetCommandService assetCommandService;
@@ -453,6 +458,53 @@ class AssetCommandServiceTest {
         assertEquals(AssetErrorCode.INVALID_HOLDING_QUANTITY, exception.getErrorCode());
         assertEquals(10_000L, asset.getTotalShareQuantity());
         assertEquals(100L, asset.getAllocatedQuantity());
+    }
+
+    @Test
+    @DisplayName("대표 이미지를 교체하고 기존 이미지는 커밋 후 삭제한다")
+    void replacesRepresentativeImage() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
+        asset.updateRepresentativeImage("assets/old-image");
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "asset.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        assetCommandService.setRepresentativeImage(
+                assetId, ownerId, "ISSUER", file);
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(s3StorageService).uploadWithRollbackCleanup(
+                keyCaptor.capture(), any(byte[].class), eq("image/png"));
+        String newKey = keyCaptor.getValue();
+        assertTrue(newKey.startsWith(
+                "assets/" + assetId + "/representative/"));
+        assertEquals(newKey, asset.getRepresentativeImageKey());
+        verify(s3StorageService).deleteAfterCommit("assets/old-image");
+    }
+
+    @Test
+    @DisplayName("이미지 확장자를 속인 파일은 대표 이미지로 등록할 수 없다")
+    void rejectsInvalidRepresentativeImage() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "asset.png", "image/png", "not-image".getBytes()
+        );
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.setRepresentativeImage(
+                        assetId, ownerId, "ISSUER", file));
+
+        assertEquals(AssetErrorCode.INVALID_ASSET_IMAGE, exception.getErrorCode());
+        verifyNoInteractions(s3StorageService);
     }
 
     private Asset assetForUpdate(UUID ownerId, AssetStatus status) {
