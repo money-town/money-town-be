@@ -1,7 +1,6 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingHistoryListResponse;
-import com.moneykk.moneytown.asset.dto.response.MyHoldingListResponse;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;

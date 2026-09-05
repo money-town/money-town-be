@@ -197,7 +197,8 @@ class AssetCommandServiceTest {
 
     @ParameterizedTest
     @EnumSource(value = AssetStatus.class,
-            names = {"REVIEW_REQUESTED", "APPROVED", "SUSPENDED", "TERMINATED"})
+            names = {"REVIEW_REQUESTED", "APPROVED", "SUSPENDED",
+                    "TERMINATION_REQUESTED", "TERMINATED"})
     @DisplayName("작성 중 또는 반려 상태가 아니면 관리자도 수정할 수 없다")
     void rejectsNonEditableStatus(AssetStatus status) {
         UUID assetId = UUID.randomUUID();

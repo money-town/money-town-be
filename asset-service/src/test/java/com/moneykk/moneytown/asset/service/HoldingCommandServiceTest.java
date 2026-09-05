@@ -373,7 +373,7 @@ class HoldingCommandServiceTest {
         Holding holding = new Holding(assetId, UUID.randomUUID(), 10);
         ReflectionTestUtils.setField(holding, "id", holdingId);
         HoldingAdjustmentRequest request = new HoldingAdjustmentRequest(
-                15, "수량 정정", "ADJUSTMENT-001");
+                15L, "수량 정정", "ADJUSTMENT-001");
 
         when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
                 .thenReturn(Optional.of(assetId));
@@ -413,7 +413,7 @@ class HoldingCommandServiceTest {
                 holdingId, null, HoldingHistoryType.ADJUSTMENT,
                 5, 10, 15, "ADJUSTMENT-001", "수량 정정");
         HoldingAdjustmentRequest request = new HoldingAdjustmentRequest(
-                15, "수량 정정", "ADJUSTMENT-001");
+                15L, "수량 정정", "ADJUSTMENT-001");
 
         when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
                 .thenReturn(Optional.of(assetId));
@@ -436,7 +436,7 @@ class HoldingCommandServiceTest {
     @DisplayName("관리자가 아니면 보유지분을 조정할 수 없다")
     void nonAdminCannotAdjustHolding() {
         HoldingAdjustmentRequest request = new HoldingAdjustmentRequest(
-                15, "수량 정정", "ADJUSTMENT-001");
+                15L, "수량 정정", "ADJUSTMENT-001");
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> holdingCommandService.adjust(

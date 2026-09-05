@@ -33,7 +33,7 @@ public class HoldingController {
     /**
      * 배당 기준일의 보유지분 조회
      */
-   @GetMapping("/assets/{assetId}/holdings")
+    @GetMapping("/assets/{assetId}/holdings")
     public ApiResponse<HoldingSnapshotResponse> getSnapshot(
             @PathVariable UUID assetId,
 
