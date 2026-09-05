@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
+import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.entity.QHolding;
 import com.moneykk.moneytown.asset.entity.QHoldingHistory;
@@ -73,9 +74,9 @@ public class HoldingQueryRepositoryImpl
             }
             cursorCondition = ascending
                     ? holding.createdAt.gt(createdAt)
-                            .or(holding.createdAt.eq(createdAt).and(holding.id.gt(cursor)))
+                    .or(holding.createdAt.eq(createdAt).and(holding.id.gt(cursor)))
                     : holding.createdAt.lt(createdAt)
-                            .or(holding.createdAt.eq(createdAt).and(holding.id.lt(cursor)));
+                    .or(holding.createdAt.eq(createdAt).and(holding.id.lt(cursor)));
         }
 
         return queryFactory
@@ -110,5 +111,29 @@ public class HoldingQueryRepositoryImpl
                 )
                 .limit(limit)
                 .fetch();
+    }
+
+    @Override
+    public Optional<MyAssetHoldingResponse> findMyHolding(
+            UUID assetId,
+            UUID userId
+    ) {
+        // 자산과 로그인 사용자가 일치하는 보유지분 조회
+        MyAssetHoldingResponse response = queryFactory
+                .select(Projections.constructor(
+                        MyAssetHoldingResponse.class,
+                        holding.id,
+                        holding.assetId,
+                        holding.quantity,
+                        holding.updatedAt
+                ))
+                .from(holding)
+                .where(
+                        holding.assetId.eq(assetId),
+                        holding.userId.eq(userId)
+                )
+                .fetchOne();
+
+        return Optional.ofNullable(response);
     }
 }

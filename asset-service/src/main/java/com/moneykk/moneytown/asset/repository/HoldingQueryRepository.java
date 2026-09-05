@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
+import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
@@ -20,5 +21,11 @@ public interface HoldingQueryRepository {
             UUID cursor,
             int limit,
             Sort.Direction direction
+    );
+
+    // 특정 자산의 내 보유지분 조회
+    Optional<MyAssetHoldingResponse> findMyHolding(
+            UUID assetId,
+            UUID userId
     );
 }

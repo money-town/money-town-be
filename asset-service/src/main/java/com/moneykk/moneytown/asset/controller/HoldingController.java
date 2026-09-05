@@ -1,10 +1,12 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
+import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +66,33 @@ public class HoldingController {
         return ApiResponse.success(
                 response,
                 "기준일 보유지분 조회가 완료되었습니다."
+        );
+    }
+
+    /**
+     * 특정 자산의 내 보유지분 조회
+     */
+    @GetMapping("/me")
+    public ApiResponse<MyAssetHoldingResponse> getMyHolding(
+            @PathVariable UUID assetId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ID)
+            UUID userId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role
+    ) {
+        // 로그인한 투자자의 보유지분 조회
+        MyAssetHoldingResponse response =
+                holdingQueryService.getMyHolding(
+                        assetId,
+                        userId,
+                        role
+                );
+
+        return ApiResponse.success(
+                response,
+                "내 보유지분 조회가 완료되었습니다."
         );
     }
 }

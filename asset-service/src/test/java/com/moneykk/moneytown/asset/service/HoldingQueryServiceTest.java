@@ -3,6 +3,7 @@ package com.moneykk.moneytown.asset.service;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
+import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -59,6 +61,64 @@ class HoldingQueryServiceTest {
 
     @InjectMocks
     private HoldingQueryService holdingQueryService;
+
+    @Test
+    @DisplayName("투자자는 특정 자산의 내 보유지분을 조회한다")
+    void returnsMyHolding() {
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        MyAssetHoldingResponse expected = new MyAssetHoldingResponse(
+                UUID.randomUUID(), assetId, 25L, Instant.now()
+        );
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(mock(Asset.class)));
+        when(holdingQueryRepository.findMyHolding(assetId, userId))
+                .thenReturn(Optional.of(expected));
+
+        MyAssetHoldingResponse response = holdingQueryService
+                .getMyHolding(assetId, userId, "INVESTOR");
+
+        assertEquals(expected, response);
+        verify(holdingQueryRepository).findMyHolding(assetId, userId);
+    }
+
+    @Test
+    @DisplayName("보유지분이 없으면 수량 0을 반환한다")
+    void returnsZeroWhenMyHoldingDoesNotExist() {
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(assetQueryRepository.findActiveById(assetId))
+                .thenReturn(Optional.of(mock(Asset.class)));
+        when(holdingQueryRepository.findMyHolding(assetId, userId))
+                .thenReturn(Optional.empty());
+
+        MyAssetHoldingResponse response = holdingQueryService
+                .getMyHolding(assetId, userId, "INVESTOR");
+
+        assertNull(response.holdingId());
+        assertEquals(assetId, response.assetId());
+        assertEquals(0L, response.quantity());
+        assertNull(response.updatedAt());
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"ADMIN", "ISSUER", "SYSTEM"})
+    @DisplayName("투자자가 아니면 내 보유지분을 조회할 수 없다")
+    void rejectsMyHoldingForNonInvestor(String role) {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingQueryService.getMyHolding(
+                        UUID.randomUUID(), UUID.randomUUID(), role
+                )
+        );
+
+        assertEquals(
+                AssetErrorCode.HOLDING_READ_ACCESS_DENIED,
+                exception.getErrorCode()
+        );
+        verifyNoInteractions(assetQueryRepository, holdingQueryRepository);
+    }
 
     @Test
     @DisplayName("처리 이력이 없으면 미처리 상태를 반환한다")
