@@ -1,0 +1,140 @@
+name: CD
+
+# main 에 머지된 것만 배포한다.
+#   workflow_run 은 main 브랜치에서 CI 가 success 로 끝난 뒤에만 발동한다.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# 배포가 겹치면 EC2에서 gradle 빌드와 docker up 이 서로를 덮어쓴다. 항상 1개만 돈다.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main'
+        )
+      )
+
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      SSH_OPTS: -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts
+
+    steps:
+      - name: 배포 대상 확인
+        run: |
+          echo "trigger : ${{ github.event_name }}"
+          echo "commit  : ${DEPLOY_SHA:-(수동 실행 — main 최신을 배포)}"
+
+      - name: SSH 자격 준비
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+
+          if [ -z "${{ secrets.EC2_HOST_KEY }}" ]; then
+            echo "::error::EC2_HOST_KEY 시크릿이 없다. EC2 콘솔 시스템 로그의 호스트 키를 등록할 것"
+            exit 1
+          fi
+          printf '%s\n' "${{ secrets.EC2_HOST_KEY }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          chmod 600 ~/.ssh/deploy.pem
+
+      - name: 배포 전 검증 (커밋 · Compose 버전 · 병합 설정)
+        run: |
+          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "bash -s -- '${DEPLOY_SHA}'" <<'REMOTE'
+          set -euo pipefail
+          TARGET="${1:-}"
+          cd ~/money-town
+
+          git fetch --prune origin
+
+          if [ -n "$TARGET" ]; then
+            git merge-base --is-ancestor "$TARGET" origin/main \
+              || { echo "::error::$TARGET 는 origin/main 에 없는 커밋이다"; exit 1; }
+            git checkout --detach "$TARGET"
+          else
+            git checkout main
+            git reset --hard origin/main
+          fi
+          git log --oneline -1
+
+          # --- Compose 최소 버전 ---
+          CV=$(docker compose version --short | sed 's/^v//')
+          REQ=2.24.4
+          if [ "$(printf '%s\n%s\n' "$REQ" "$CV" | sort -V | head -1)" != "$REQ" ]; then
+            echo "::error::docker compose $CV — $REQ 이상이 필요하다"
+            exit 1
+          fi
+          echo "docker compose $CV OK"
+
+          # --- 병합 결과 검증 (up 전에) ---
+          COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml"
+          $COMPOSE config --quiet
+
+          PUB=$($COMPOSE config | grep -E '^[[:space:]]+published:' | grep -oE '[0-9]+' | sort -u)
+          echo "병합 설정의 publish 포트: $(echo $PUB)"
+          BAD=$(printf '%s\n' "$PUB" | grep -vE '^(80|443)$' | grep -v '^$' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::nginx(80/443) 외 포트가 설정에 남아 있다: $(echo $BAD)"
+            exit 1
+          fi
+          REMOTE
+
+      - name: EC2에서 빌드 · 기동
+        run: |
+          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/money-town
+
+          ./gradlew clean bootJar --no-daemon
+
+          docker compose --env-file .env \
+            -f infrastructure/docker-compose.yml \
+            -f infrastructure/docker-compose.prod.yml \
+            up -d --build --remove-orphans --wait --wait-timeout 900
+
+          docker image prune -f      # 30GiB 디스크라 이전 빌드 레이어를 남기지 않는다
+          REMOTE
+
+      - name: 기동 후 확인 (실제로 열린 포트 · 컨테이너 상태)
+        run: |
+          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/money-town
+          COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml"
+
+          PUB=$(docker ps --format '{{.Ports}}' | tr ',' '\n' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | sort -u)
+          echo "실제 publish 포트: $(echo ${PUB:-없음})"
+          BAD=$(printf '%s\n' "$PUB" | grep -vE '^(80|443)$' | grep -v '^$' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::nginx(80/443) 외 포트가 열려 있다: $(echo $BAD)"
+            exit 1
+          fi
+
+          $COMPOSE ps
+          REMOTE
+
+      - name: 실패 시 컨테이너 로그
+        if: failure()
+        run: |
+          ssh $SSH_OPTS "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'cd ~/money-town && docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml logs --no-color --tail=200' || true
+
+      - name: SSH 키 삭제
+        if: always()
+        run: rm -f ~/.ssh/deploy.pem

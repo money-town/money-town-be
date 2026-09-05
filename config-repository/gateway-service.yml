@@ -7,6 +7,42 @@ spring:
       server:
         webflux:
           # 각 도메인 서비스 뼈대 생성 시 여기에 라우트를 추가
+          routes:
+            - id: user-service-route
+              uri: lb://user-service
+              predicates:
+                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**
+
+
+            - id: wallet-service-route
+              uri: lb://wallet-service
+              predicates:
+                - Path=/api/v1/wallets/**
+
+
+            - id: asset-service-route
+              uri: lb://asset-service
+              predicates:
+                - Path=/api/v1/assets/**,/api/v1/holdings/**
+
+
+            - id: offering-service-route
+              uri: lb://offering-service
+              predicates:
+                - Path=/api/v1/offerings/**,/api/v1/subscriptions/**
+
+
+            - id: settlement-service-route
+              uri: lb://settlement-service
+              predicates:
+                - Path=/api/v1/settlements/**,/api/v1/final-settlements/**,/api/v1/dividends/**
+
+
+            - id: analysis-service-route
+              uri: lb://analysis-service
+              predicates:
+                - Path=/api/v1/analysis/**
+
           httpclient:
             connect-timeout: 3000
             response-timeout: 10s
@@ -27,7 +63,7 @@ spring:
                   - "*"
                 exposed-headers:
                   - Authorization
-                  - X-Request-Id
+                  - X-Correlation-Id
                 allow-credentials: true
                 max-age: 3600
 
@@ -37,11 +73,20 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,gateway
+        # `gateway` 엔드포인트는 기본 노출에서 제외한다.
+        # 라우트 조회뿐 아니라 POST로 라우트 추가/갱신/삭제가 가능해서,
+        # 관리 포트(9091)가 어떤 이유로든 노출되면 라우팅을 통째로 바꿀 수 있다.
+        include: ${MANAGEMENT_EXPOSURE_INCLUDE:health,info,prometheus}
 
 springdoc:
   api-docs:
     enabled: ${SWAGGER_ENABLED:true}
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:true}
+
     path: /swagger-ui.html
+
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    issuer: ${JWT_ISSUER:money-town-user-service}
