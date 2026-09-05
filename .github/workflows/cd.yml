@@ -44,7 +44,7 @@ jobs:
 
       # ── 보안 그룹 22번은 평소 "내 IP"로만 열려 있다. Actions 러너는 매번 IP가 달라서 배포 직전에 러너 IP만 열고, 끝나면 반드시 닫는다.
       - name: AWS 자격 (OIDC — 장기 키 없음)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -52,19 +52,49 @@ jobs:
 
       - name: 보안 그룹 22번 임시 개방 (러너 IP만)
         run: |
+          set -euo pipefail
+          SG="${{ vars.EC2_SECURITY_GROUP_ID }}"
+          NOW=$(date +%s)
+
+          aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SG" \
+            --query "SecurityGroupRules[?IsEgress==\`false\` && FromPort==\`22\`].[SecurityGroupRuleId,Description]" \
+            --output text > /tmp/sg22.tsv
+
+          while IFS=$'\t' read -r RID RDESC; do
+            [ -n "${RID:-}" ] || continue
+            case "$RDESC" in gh-cd\ run=*\ exp=*) ;; *) continue ;; esac
+
+            EXP=${RDESC##*exp=}; EXP=${EXP%% *}
+            case "$EXP" in ''|*[!0-9]*) echo "::warning::만료 시각을 못 읽음: $RID '$RDESC'"; continue ;; esac
+
+            if [ "$EXP" -le "$NOW" ]; then
+              echo "::warning::이전 실행이 남긴 만료 규칙 삭제: $RID ($RDESC) — 그 배포가 강제 취소됐을 가능성이 높다"
+              aws ec2 revoke-security-group-ingress --group-id "$SG" --security-group-rule-ids "$RID" || true
+            fi
+          done < /tmp/sg22.tsv
+
           RUNNER_IP=$(curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')
           case "$RUNNER_IP" in
             *.*.*.*) ;;
             *) echo "::error::러너 공인 IP를 못 얻었다: '$RUNNER_IP'"; exit 1 ;;
           esac
 
-          # 다음 스텝(정리)에서 정확히 같은 규칙을 지우기 위해 저장한다.
-          echo "RUNNER_CIDR=${RUNNER_IP}/32" >> "$GITHUB_ENV"
-          echo "러너 IP: ${RUNNER_IP}/32"
+          EXPIRES_AT=$(( NOW + 3600 ))
+          DESC="gh-cd run=${{ github.run_id }} exp=${EXPIRES_AT}"
 
-          aws ec2 authorize-security-group-ingress \
-            --group-id "${{ vars.EC2_SECURITY_GROUP_ID }}" \
-            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description='github-actions-cd temporary'}]"
+          echo "러너 IP: ${RUNNER_IP}/32 / 만료: $(date -u -d "@${EXPIRES_AT}" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          RULE_ID=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$SG" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_IP}/32,Description=\"${DESC}\"}]" \
+            --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text)
+
+          if [ -z "$RULE_ID" ] || [ "$RULE_ID" = "None" ]; then
+            echo "::error::규칙 ID를 못 받았다. 정리를 보장할 수 없으므로 배포를 중단한다"
+            exit 1
+          fi
+          echo "SG_RULE_ID=${RULE_ID}" >> "$GITHUB_ENV"
+          echo "생성된 규칙: ${RULE_ID}"
 
       - name: SSH 자격 준비
         run: |
@@ -165,18 +195,22 @@ jobs:
       - name: 보안 그룹 22번 원복
         if: always()
         run: |
-          if [ -z "${RUNNER_CIDR:-}" ]; then
-            echo "개방한 적이 없다 (개방 스텝 이전에 실패). 원복할 것 없음."
-            exit 0
-          fi
-          aws ec2 revoke-security-group-ingress \
-            --group-id "${{ vars.EC2_SECURITY_GROUP_ID }}" \
-            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=${RUNNER_CIDR}}]"
-          echo "${RUNNER_CIDR} 규칙 삭제 완료"
+          set -uo pipefail
+          SG="${{ vars.EC2_SECURITY_GROUP_ID }}"
 
-          # 임시 규칙이 남아 있지 않은지 눈으로 확인한다.
-          aws ec2 describe-security-groups --group-ids "${{ vars.EC2_SECURITY_GROUP_ID }}" \
-            --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\`].IpRanges[]" --output table
+          if [ -z "${SG_RULE_ID:-}" ]; then
+            echo "이 실행이 만든 규칙이 없다 (개방 전에 실패). 지울 것 없음."
+          else
+            aws ec2 revoke-security-group-ingress \
+              --group-id "$SG" --security-group-rule-ids "$SG_RULE_ID" \
+              && echo "규칙 ${SG_RULE_ID} 삭제 완료" \
+              || echo "::warning::규칙 ${SG_RULE_ID} 삭제 실패 — 만료(1시간) 후 다음 배포가 청소한다"
+          fi
+
+          echo "── 현재 남아 있는 22번 규칙 ──"
+          aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$SG" \
+            --query "SecurityGroupRules[?IsEgress==\`false\` && FromPort==\`22\`].[SecurityGroupRuleId,CidrIpv4,Description]" \
+            --output table
 
       - name: SSH 키 삭제
         if: always()
