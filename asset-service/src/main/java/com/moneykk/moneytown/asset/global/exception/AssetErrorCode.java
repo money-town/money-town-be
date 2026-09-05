@@ -35,6 +35,7 @@ public enum AssetErrorCode implements ErrorCode {
     ASSET_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_01", "존재하지 않는 자산입니다."),
     REVENUE_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_02", "존재하지 않는 수익입니다."),
     ASSET_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_03", "존재하지 않는 자산 문서입니다."),
+    HOLDING_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_04", "존재하지 않는 보유지분입니다."),
 
     INSUFFICIENT_HOLDING_QUANTITY(HttpStatus.CONFLICT, "ASSET_409_01", "보유 수량보다 많은 지분을 회수할 수 없습니다."),
     HOLDING_DATA_CONFLICT(HttpStatus.CONFLICT, "ASSET_409_02", "지분 처리 이력과 보유지분 데이터가 일치하지 않습니다."),

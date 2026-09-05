@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.asset.repository;
 
+import com.moneykk.moneytown.asset.dto.response.HoldingHistoryItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
@@ -135,5 +136,83 @@ public class HoldingQueryRepositoryImpl
                 .fetchOne();
 
         return Optional.ofNullable(response);
+    }
+
+    @Override
+    public List<HoldingHistoryItemResponse> findHoldingHistories(
+            UUID holdingId,
+            UUID cursor,
+            int limit,
+            Sort.Direction direction
+    ) {
+        boolean ascending = direction.isAscending();
+        BooleanExpression cursorCondition = null;
+
+        if (cursor != null) {
+            // 커서 이력의 등록 시간 조회
+            Instant cursorCreatedAt = queryFactory
+                    .select(history.createdAt)
+                    .from(history)
+                    .where(
+                            history.id.eq(cursor),
+                            history.holdingId.eq(holdingId)
+                    )
+                    .fetchOne();
+
+            if (cursorCreatedAt == null) {
+                throw new BusinessException(
+                        AssetErrorCode.INVALID_HOLDING_CURSOR
+                );
+            }
+
+            // 등록 시간과 ID를 함께 사용해 중복·누락 방지
+            cursorCondition = ascending
+                    ? history.createdAt.gt(cursorCreatedAt)
+                    .or(history.createdAt.eq(cursorCreatedAt)
+                            .and(history.id.gt(cursor)))
+                    : history.createdAt.lt(cursorCreatedAt)
+                    .or(history.createdAt.eq(cursorCreatedAt)
+                            .and(history.id.lt(cursor)));
+        }
+
+        return queryFactory
+                .select(Projections.constructor(
+                        HoldingHistoryItemResponse.class,
+                        history.id,
+                        history.subscriptionId,
+                        history.historyType,
+                        history.quantity,
+                        history.balanceBefore,
+                        history.balanceAfter,
+                        history.reason,
+                        history.createdAt
+                ))
+                .from(history)
+                .where(
+                        history.holdingId.eq(holdingId),
+                        cursorCondition
+                )
+                .orderBy(
+                        ascending
+                                ? history.createdAt.asc()
+                                : history.createdAt.desc(),
+                        ascending
+                                ? history.id.asc()
+                                : history.id.desc()
+                )
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
+    public Optional<UUID> findUserIdByHoldingId(UUID holdingId) {
+        // 보유지분의 소유자 조회
+        UUID userId = queryFactory
+                .select(holding.userId)
+                .from(holding)
+                .where(holding.id.eq(holdingId))
+                .fetchOne();
+
+        return Optional.ofNullable(userId);
     }
 }

@@ -3,6 +3,8 @@ package com.moneykk.moneytown.asset.service;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
+import com.moneykk.moneytown.asset.dto.response.HoldingHistoryItemResponse;
+import com.moneykk.moneytown.asset.dto.response.HoldingHistoryListResponse;
 import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.Holding;
@@ -40,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -61,6 +64,66 @@ class HoldingQueryServiceTest {
 
     @InjectMocks
     private HoldingQueryService holdingQueryService;
+
+    @Test
+    @DisplayName("투자자는 자신의 지분 변동 이력을 조회한다")
+    void returnsMyHoldingHistories() {
+        UUID holdingId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        HoldingHistoryItemResponse first = historyItem();
+        HoldingHistoryItemResponse second = historyItem();
+        HoldingHistoryItemResponse extra = historyItem();
+        when(holdingQueryRepository.findUserIdByHoldingId(holdingId))
+                .thenReturn(Optional.of(userId));
+        when(holdingQueryRepository.findHoldingHistories(
+                holdingId, null, 3, Sort.Direction.DESC
+        )).thenReturn(List.of(first, second, extra));
+
+        HoldingHistoryListResponse response = holdingQueryService
+                .getHoldingHistories(
+                        holdingId,
+                        userId,
+                        "INVESTOR",
+                        null,
+                        2,
+                        Sort.Direction.DESC
+                );
+
+        assertEquals(List.of(first, second), response.histories());
+        assertEquals(second.historyId(), response.nextCursor());
+        assertTrue(response.hasNext());
+    }
+
+    @Test
+    @DisplayName("투자자는 다른 사용자의 지분 이력을 조회할 수 없다")
+    void rejectsOtherUsersHoldingHistories() {
+        UUID holdingId = UUID.randomUUID();
+        when(holdingQueryRepository.findUserIdByHoldingId(holdingId))
+                .thenReturn(Optional.of(UUID.randomUUID()));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingQueryService.getHoldingHistories(
+                        holdingId,
+                        UUID.randomUUID(),
+                        "INVESTOR",
+                        null,
+                        20,
+                        Sort.Direction.DESC
+                )
+        );
+
+        assertEquals(
+                AssetErrorCode.HOLDING_READ_ACCESS_DENIED,
+                exception.getErrorCode()
+        );
+        verify(holdingQueryRepository, never()).findHoldingHistories(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
 
     @Test
     @DisplayName("투자자는 특정 자산의 내 보유지분을 조회한다")
@@ -275,5 +338,18 @@ class HoldingQueryServiceTest {
         assertEquals(secondHoldingId, response.nextCursor());
         assertTrue(response.hasNext());
         assertEquals(asOf, response.asOf());
+    }
+
+    private HoldingHistoryItemResponse historyItem() {
+        return new HoldingHistoryItemResponse(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                HoldingHistoryType.ALLOCATE,
+                10L,
+                0L,
+                10L,
+                null,
+                Instant.now()
+        );
     }
 }

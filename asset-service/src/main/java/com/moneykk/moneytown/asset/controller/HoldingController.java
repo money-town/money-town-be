@@ -36,7 +36,8 @@ public class HoldingController {
     public ApiResponse<HoldingSnapshotResponse> getSnapshot(
             @PathVariable UUID assetId,
 
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role,
 
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)

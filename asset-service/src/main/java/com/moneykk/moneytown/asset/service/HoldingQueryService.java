@@ -1,9 +1,6 @@
 package com.moneykk.moneytown.asset.service;
 
-import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
-import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
-import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
-import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
+import com.moneykk.moneytown.asset.dto.response.*;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
@@ -166,5 +163,68 @@ public class HoldingQueryService {
                         0L,
                         null
                 ));
+    }
+
+    /**
+     * 지분 변동 이력 조회
+     */
+    @Transactional(readOnly = true)
+    public HoldingHistoryListResponse getHoldingHistories(
+            UUID holdingId,
+            UUID userId,
+            String role,
+            UUID cursor,
+            int size,
+            Sort.Direction direction
+    ) {
+        // 투자자와 관리자만 조회 가능
+        if (userId == null
+                || (!"INVESTOR".equals(role)
+                && !"ADMIN".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 보유지분 존재 여부와 소유자 확인
+        UUID ownerId = holdingQueryRepository
+                .findUserIdByHoldingId(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_NOT_FOUND
+                ));
+
+        // 투자자는 자신의 지분 이력만 조회 가능
+        if ("INVESTOR".equals(role)
+                && !userId.equals(ownerId)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 다음 페이지 확인을 위해 한 건 더 조회
+        List<HoldingHistoryItemResponse> rows =
+                holdingQueryRepository.findHoldingHistories(
+                        holdingId,
+                        cursor,
+                        size + 1,
+                        direction
+                );
+
+        boolean hasNext = rows.size() > size;
+
+        List<HoldingHistoryItemResponse> histories = rows.stream()
+                .limit(size)
+                .toList();
+
+        UUID nextCursor = hasNext
+                ? histories.get(histories.size() - 1).historyId()
+                : null;
+
+        return new HoldingHistoryListResponse(
+                holdingId,
+                histories,
+                nextCursor,
+                hasNext
+        );
     }
 }
