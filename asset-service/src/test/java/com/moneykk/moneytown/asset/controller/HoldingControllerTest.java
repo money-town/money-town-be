@@ -3,6 +3,9 @@ package com.moneykk.moneytown.asset.controller;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
 import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingItemResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingListResponse;
+import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.exception.BusinessException;
@@ -36,6 +39,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 컨트롤러의 권한 분기 검증 */
@@ -69,6 +73,45 @@ class HoldingControllerTest {
                 .andExpect(status().isOk());
 
         verify(holdingQueryService).getMyHolding(assetId, userId, role);
+    }
+
+    @Test
+    @DisplayName("내 전체 보유지분 목록 조회 요청을 서비스에 전달한다")
+    void getsMyHoldings() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        MyHoldingItemResponse item = new MyHoldingItemResponse(
+                holdingId, assetId, "강남 오피스 A동",
+                AssetType.REAL_ESTATE, 100L,
+                Instant.parse("2026-09-01T03:00:00Z"));
+        when(holdingQueryService.getMyHoldings(
+                userId, "INVESTOR", null, 20, Sort.Direction.DESC))
+                .thenReturn(new MyHoldingListResponse(
+                        List.of(item), null, false));
+        MockMvc mvc = MockMvcBuilders
+                .standaloneSetup(holdingController)
+                .build();
+
+        mvc.perform(get("/api/v1/assets/holdings/me")
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "INVESTOR"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].holdingId")
+                        .value(holdingId.toString()))
+                .andExpect(jsonPath("$.data.items[0].assetId")
+                        .value(assetId.toString()))
+                .andExpect(jsonPath("$.data.items[0].assetName")
+                        .value("강남 오피스 A동"))
+                .andExpect(jsonPath("$.data.items[0].assetType")
+                        .value("REAL_ESTATE"))
+                .andExpect(jsonPath("$.data.items[0].quantity")
+                        .value(100))
+                .andExpect(jsonPath("$.data.hasNext")
+                        .value(false));
+
+        verify(holdingQueryService).getMyHoldings(
+                userId, "INVESTOR", null, 20, Sort.Direction.DESC);
     }
 
     @ParameterizedTest

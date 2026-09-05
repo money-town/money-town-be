@@ -166,6 +166,46 @@ public class AssetCommandService {
     }
 
     /**
+     * 자산 운영 종료 요청
+     */
+    @Transactional
+    public void requestAssetTermination(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        // 자산운용자와 관리자만 요청 가능
+        if (userId == null
+                || (!"ISSUER".equals(role)
+                && !"ADMIN".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED
+            );
+        }
+
+        // 동시에 상태가 변경되지 않도록 잠금 조회
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 자산운용자는 본인 자산만 종료 요청 가능
+        if (!"ADMIN".equals(role)
+                && !userId.equals(asset.getUserId())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED
+            );
+        }
+
+        // 실제 상태 변경 가능 여부는 엔티티에서 검증
+        asset.changeStatus(
+                AssetStatus.TERMINATION_REQUESTED,
+                null
+        );
+    }
+
+    /**
      * 자산 삭제
      */
     @Transactional

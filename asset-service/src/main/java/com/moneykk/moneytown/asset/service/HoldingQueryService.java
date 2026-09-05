@@ -227,4 +227,48 @@ public class HoldingQueryService {
                 hasNext
         );
     }
+
+    /**
+     * 내 전체 보유지분 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public MyHoldingListResponse getMyHoldings(
+            UUID userId,
+            String role,
+            UUID cursor,
+            int size,
+            Sort.Direction direction
+    ) {
+        // 투자자만 자신의 전체 보유지분 조회 가능
+        if (userId == null || !"INVESTOR".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 다음 페이지 확인을 위해 한 건 더 조회
+        List<MyHoldingItemResponse> rows =
+                holdingQueryRepository.findMyHoldings(
+                        userId,
+                        cursor,
+                        size + 1,
+                        direction
+                );
+
+        boolean hasNext = rows.size() > size;
+
+        List<MyHoldingItemResponse> items = rows.stream()
+                .limit(size)
+                .toList();
+
+        UUID nextCursor = hasNext
+                ? items.get(items.size() - 1).holdingId()
+                : null;
+
+        return new MyHoldingListResponse(
+                items,
+                nextCursor,
+                hasNext
+        );
+    }
 }

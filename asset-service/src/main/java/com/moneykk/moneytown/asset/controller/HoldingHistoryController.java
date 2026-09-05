@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingHistoryListResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingListResponse;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
@@ -18,10 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-/** 지분 변동 이력 조회 API */
+/**
+ * 지분 변동 이력 조회 API
+ */
 @Validated
 @RestController
-@RequestMapping("/api/v1/holdings")
+@RequestMapping("/api/v1/assets/holdings")
 @RequiredArgsConstructor
 public class HoldingHistoryController {
 

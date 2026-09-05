@@ -47,7 +47,7 @@ public class HoldingHistory extends BaseEntity {
     @Column(name = "balance_after", nullable = false)
     private long balanceAfter;
 
-    @Column(name = "idempotency_key", nullable = false, length = 100)
+    @Column(name = "idempotency_key", nullable = false, unique = true, length = 100)
     private String idempotencyKey;
 
     @Column(name = "reason", length = 500)

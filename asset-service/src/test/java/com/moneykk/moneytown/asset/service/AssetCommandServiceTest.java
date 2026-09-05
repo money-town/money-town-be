@@ -386,6 +386,39 @@ class AssetCommandServiceTest {
     }
 
     @Test
+    @DisplayName("자산운용자는 본인의 승인된 자산에 운영 종료를 요청한다")
+    void issuerRequestsAssetTermination() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        assetCommandService.requestAssetTermination(
+                assetId, ownerId, "ISSUER");
+
+        assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("작성 중인 자산에는 운영 종료를 요청할 수 없다")
+    void rejectsTerminationRequestForDraftAsset() {
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.requestAssetTermination(
+                        assetId, ownerId, "ISSUER"));
+
+        assertEquals(AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION,
+                exception.getErrorCode());
+        assertEquals(AssetStatus.DRAFT, asset.getStatus());
+    }
+
+    @Test
     @DisplayName("자산운용자는 본인이 등록한 작성 중 자산을 삭제한다")
     void issuerDeletesOwnDraftAsset() {
         UUID assetId = UUID.randomUUID();

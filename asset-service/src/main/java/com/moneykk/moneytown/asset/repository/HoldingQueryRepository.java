@@ -3,6 +3,8 @@ package com.moneykk.moneytown.asset.repository;
 import com.moneykk.moneytown.asset.dto.response.HoldingHistoryItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingItemResponse;
+import com.moneykk.moneytown.asset.entity.Holding;
 import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
@@ -40,4 +42,15 @@ public interface HoldingQueryRepository {
 
     // 보유지분 소유자 ID 조회
     Optional<UUID> findUserIdByHoldingId(UUID holdingId);
+
+    // 관리자 지분 조정용 잠금 조회
+    Optional<Holding> findByIdForUpdate(UUID holdingId);
+
+    // 내 전체 보유지분 목록 조회
+    List<MyHoldingItemResponse> findMyHoldings(
+            UUID userId,
+            UUID cursor,
+            int limit,
+            Sort.Direction direction
+    );
 }

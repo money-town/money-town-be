@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.dto.request.HoldingAdjustmentRequest;
 import com.moneykk.moneytown.asset.dto.request.HoldingAllocationRequest;
 import com.moneykk.moneytown.asset.dto.request.HoldingRevocationRequest;
 import com.moneykk.moneytown.asset.dto.response.HoldingAllocationResponse;
@@ -359,6 +360,92 @@ class HoldingCommandServiceTest {
         assertEquals(5, holding.getQuantity());
         verify(holdingRepository, never()).save(any(Holding.class));
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    @DisplayName("관리자는 보유지분과 자산의 전체 배정 수량을 함께 조정한다")
+    void adminAdjustsHoldingQuantity() {
+        UUID assetId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        Asset asset = approvedAsset(assetId);
+        asset.allocateShares(10);
+        Holding holding = new Holding(assetId, UUID.randomUUID(), 10);
+        ReflectionTestUtils.setField(holding, "id", holdingId);
+        HoldingAdjustmentRequest request = new HoldingAdjustmentRequest(
+                15, "수량 정정", "ADJUSTMENT-001");
+
+        when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
+                .thenReturn(Optional.of(assetId));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+        when(holdingQueryRepository.findByIdForUpdate(holdingId))
+                .thenReturn(Optional.of(holding));
+        when(holdingHistoryRepository.findByIdempotencyKey("ADJUSTMENT-001"))
+                .thenReturn(Optional.empty());
+
+        holdingCommandService.adjust(
+                holdingId, adminId, "ADMIN", request);
+
+        assertEquals(15, holding.getQuantity());
+        assertEquals(15, asset.getAllocatedQuantity());
+        ArgumentCaptor<HoldingHistory> captor =
+                ArgumentCaptor.forClass(HoldingHistory.class);
+        verify(holdingHistoryRepository).save(captor.capture());
+        HoldingHistory history = captor.getValue();
+        assertEquals(HoldingHistoryType.ADJUSTMENT, history.getHistoryType());
+        assertEquals(5, history.getQuantity());
+        assertEquals(10, history.getBalanceBefore());
+        assertEquals(15, history.getBalanceAfter());
+        assertEquals("수량 정정", history.getReason());
+    }
+
+    @Test
+    @DisplayName("같은 멱등성 키의 지분 조정은 다시 반영하지 않는다")
+    void duplicateAdjustmentDoesNotChangeQuantityAgain() {
+        UUID assetId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        Asset asset = approvedAsset(assetId);
+        asset.allocateShares(15);
+        Holding holding = new Holding(assetId, UUID.randomUUID(), 15);
+        ReflectionTestUtils.setField(holding, "id", holdingId);
+        HoldingHistory history = new HoldingHistory(
+                holdingId, null, HoldingHistoryType.ADJUSTMENT,
+                5, 10, 15, "ADJUSTMENT-001", "수량 정정");
+        HoldingAdjustmentRequest request = new HoldingAdjustmentRequest(
+                15, "수량 정정", "ADJUSTMENT-001");
+
+        when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
+                .thenReturn(Optional.of(assetId));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+        when(holdingQueryRepository.findByIdForUpdate(holdingId))
+                .thenReturn(Optional.of(holding));
+        when(holdingHistoryRepository.findByIdempotencyKey("ADJUSTMENT-001"))
+                .thenReturn(Optional.of(history));
+
+        holdingCommandService.adjust(
+                holdingId, UUID.randomUUID(), "ADMIN", request);
+
+        assertEquals(15, holding.getQuantity());
+        assertEquals(15, asset.getAllocatedQuantity());
+        verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    @DisplayName("관리자가 아니면 보유지분을 조정할 수 없다")
+    void nonAdminCannotAdjustHolding() {
+        HoldingAdjustmentRequest request = new HoldingAdjustmentRequest(
+                15, "수량 정정", "ADJUSTMENT-001");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> holdingCommandService.adjust(
+                        UUID.randomUUID(), UUID.randomUUID(), "ISSUER", request));
+
+        assertEquals(AssetErrorCode.HOLDING_ADJUSTMENT_ACCESS_DENIED,
+                exception.getErrorCode());
+        verifyNoInteractions(assetQueryRepository, holdingRepository,
+                holdingHistoryRepository, holdingQueryRepository);
     }
 
     private Asset approvedAsset(UUID assetId) {

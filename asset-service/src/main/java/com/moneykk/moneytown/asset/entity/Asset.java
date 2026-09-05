@@ -247,9 +247,13 @@ public class Asset extends BaseUpdatableEntity {
             case REVIEW_REQUESTED -> nextStatus == AssetStatus.APPROVED
                     || nextStatus == AssetStatus.REJECTED;
 
-            case APPROVED -> nextStatus == AssetStatus.SUSPENDED;
+            case APPROVED -> nextStatus == AssetStatus.SUSPENDED
+                    || nextStatus == AssetStatus.TERMINATION_REQUESTED;
 
-            case SUSPENDED -> nextStatus == AssetStatus.APPROVED;
+            case SUSPENDED -> nextStatus == AssetStatus.APPROVED
+                    || nextStatus == AssetStatus.TERMINATION_REQUESTED;
+
+            case TERMINATION_REQUESTED -> nextStatus == AssetStatus.TERMINATED;
 
             case TERMINATED -> false;
         };
