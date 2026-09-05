@@ -73,7 +73,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,gateway
+        # `gateway` 엔드포인트는 기본 노출에서 제외한다.
+        # 라우트 조회뿐 아니라 POST로 라우트 추가/갱신/삭제가 가능해서,
+        # 관리 포트(9091)가 어떤 이유로든 노출되면 라우팅을 통째로 바꿀 수 있다.
+        include: ${MANAGEMENT_EXPOSURE_INCLUDE:health,info,prometheus}
 
 springdoc:
   api-docs:
