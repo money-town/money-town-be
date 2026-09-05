@@ -32,14 +32,12 @@ jobs:
         )
       )
 
+    # job-level 에는 비밀이 아닌 값만 둔다.
+    # job env 는 서드파티 액션을 포함한 모든 step 의 환경변수가 되기 때문
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       SSH_OPTS: -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts
       SG_ID: ${{ vars.EC2_SECURITY_GROUP_ID }}
-      EC2_HOST: ${{ secrets.EC2_HOST }}
-      EC2_USER: ${{ secrets.EC2_USER }}
-      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-      EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
 
     steps:
       - name: 배포 대상 확인
@@ -102,6 +100,11 @@ jobs:
           echo "생성된 규칙: ${RULE_ID}"
 
       - name: SSH 자격 준비
+        # 개인키와 호스트 키는 이 step 밖으로 나가지 않는다.
+        # 이 step 이 끝나면 키는 ~/.ssh/ 파일로만 남고, 환경변수로는 어디에도 없다.
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
 
@@ -116,6 +119,9 @@ jobs:
           chmod 600 ~/.ssh/deploy.pem
 
       - name: 배포 전 검증 (커밋 · Compose 버전 · 병합 설정)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
             "bash -s -- '${DEPLOY_SHA}'" <<'REMOTE'
@@ -158,6 +164,9 @@ jobs:
           REMOTE
 
       - name: EC2에서 빌드 · 기동
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
@@ -174,6 +183,9 @@ jobs:
           REMOTE
 
       - name: 기동 후 확인 (실제로 열린 포트 · 컨테이너 상태)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
@@ -193,6 +205,9 @@ jobs:
 
       - name: 실패 시 컨테이너 로그
         if: failure()
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
             'cd ~/money-town && docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml logs --no-color --tail=200' || true
