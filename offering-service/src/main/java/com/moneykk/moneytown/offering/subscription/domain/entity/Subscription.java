@@ -131,6 +131,23 @@ public class Subscription extends BaseUpdatableEntity {
     @Column(name = "confirmed_at")
     private Instant confirmedAt;
 
+    /**
+     * 확정된 청약의 Holding 지분 배정 후처리 상태.
+     *
+     * 청약 확정 전에는 null이며, 확정 시 PENDING으로 시작한다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "holding_allocation_status", length = 20)
+    private HoldingAllocationStatus holdingAllocationStatus;
+
+    /**
+     * Holding 지분 배정의 최근 실패 코드.
+     *
+     * 배정 성공 시 null로 초기화한다.
+     */
+    @Column(name = "holding_allocation_error_code", length = 100)
+    private String holdingAllocationErrorCode;
+
     private Subscription(
             UUID subscriptionId,
             UUID offeringId,
@@ -217,6 +234,51 @@ public class Subscription extends BaseUpdatableEntity {
 
         this.subscriptionStatus = SubscriptionStatus.CONFIRMED;
         this.confirmedAt = confirmedAt;
+        this.holdingAllocationStatus = HoldingAllocationStatus.PENDING;
+        this.holdingAllocationErrorCode = null;
+    }
+
+    /**
+     * Holding 지분 배정 성공을 기록한다.
+     *
+     * ALLOCATED와 ALREADY_PROCESSED 결과에 공통으로 사용한다.
+     */
+    public void markHoldingAllocationSucceeded() {
+        validateHoldingAllocationStarted();
+
+        this.holdingAllocationStatus =
+                HoldingAllocationStatus.SUCCEEDED;
+        this.holdingAllocationErrorCode = null;
+    }
+
+    /**
+     * Holding 지분 배정 실패를 기록한다.
+     *
+     * 청약의 업무 상태 자체는 변경하지 않는다.
+     */
+    public void markHoldingAllocationFailed(String errorCode) {
+        validateHoldingAllocationStarted();
+
+        if (errorCode == null
+                || errorCode.isBlank()
+                || errorCode.length() > 100) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        /*
+         * 성공 이후 다른 eventId의 늦은 실패가 도착해도
+         * 완료된 지분 배정 상태를 실패로 되돌리지 않는다.
+         */
+        if (holdingAllocationStatus
+                == HoldingAllocationStatus.SUCCEEDED) {
+            return;
+        }
+
+        this.holdingAllocationStatus =
+                HoldingAllocationStatus.FAILED;
+        this.holdingAllocationErrorCode = errorCode;
     }
 
     /**
@@ -265,9 +327,7 @@ public class Subscription extends BaseUpdatableEntity {
         this.subscriptionStatus = SubscriptionStatus.REJECTED;
     }
 
-    // TODO: Wallet·Holding 결과 처리에 공통 보상 완료 서비스 연결
-    // TODO: 모든 대상 청약 완료 시 Offering CANCELLED 전환 연결
-    // TODO 다음 PR: 타임아웃 자동 보상, 관리자 공모 중단, 운영 재처리
+    // TODO : 타임아웃 자동 보상, 관리자 공모 중단, 운영 재처리
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
@@ -403,6 +463,17 @@ public class Subscription extends BaseUpdatableEntity {
         } catch (ArithmeticException e) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_AMOUNT
+            );
+        }
+    }
+
+    /**
+     * Holding 지분 배정 요청이 시작된 청약인지 확인한다.
+     */
+    private void validateHoldingAllocationStarted() {
+        if (holdingAllocationStatus == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
             );
         }
     }
