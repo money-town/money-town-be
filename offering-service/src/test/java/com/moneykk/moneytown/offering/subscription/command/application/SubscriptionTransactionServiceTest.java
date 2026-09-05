@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 
+import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +39,9 @@ class SubscriptionTransactionServiceTest {
 
     @InjectMocks
     private SubscriptionTransactionService subscriptionTransactionService;
+
+    @Mock
+    private SubscriptionEventPublisher subscriptionEventPublisher;
 
     @Test
     @DisplayName("선착순 수량 확보에 실패하면 잔여 수량 부족 예외가 발생하고 청약을 생성하지 않는다")
@@ -72,7 +76,8 @@ class SubscriptionTransactionServiceTest {
                                 userId,
                                 idempotencyKey,
                                 quantity,
-                                pricePerUnit
+                                pricePerUnit,
+                                "test-correlation-id"
                         )
                 );
 
@@ -81,6 +86,10 @@ class SubscriptionTransactionServiceTest {
                 .isEqualTo(
                         SubscriptionErrorCode.INSUFFICIENT_REMAINING_QUANTITY
                 );
+
+        // 수량 확보에 실패하면 Outbox 이벤트도 저장하지 않는다.
+        verify(subscriptionEventPublisher, never())
+                .publishReserved(any(), any());
 
         // 중복 청약 검증을 정상적으로 통과했는지 확인
         verify(subscriptionRepository)

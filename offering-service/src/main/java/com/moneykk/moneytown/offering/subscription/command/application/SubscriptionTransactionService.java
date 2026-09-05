@@ -8,6 +8,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyOper
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.repository.IdempotencyRequestRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,8 @@ public class SubscriptionTransactionService {
     private final SubscriptionRepository subscriptionRepository;
     private final IdempotencyRequestRepository idempotencyRequestRepository;
 
+    private final SubscriptionEventPublisher subscriptionEventPublisher;
+
     @Value("${subscription.reservation-timeout-minutes:10}")
     private long reservationTimeoutMinutes;
 
@@ -45,7 +48,8 @@ public class SubscriptionTransactionService {
             UUID userId,
             String idempotencyKey,
             Long quantity,
-            Long pricePerUnit
+            Long pricePerUnit,
+            String correlationId
     ) {
         validateDuplicateSubscription(
                 offeringId,
@@ -81,6 +85,11 @@ public class SubscriptionTransactionService {
         Subscription savedSubscription =
                 subscriptionRepository.save(subscription);
 
+        subscriptionEventPublisher.publishReserved(
+                savedSubscription,
+                correlationId
+        );
+
         int completed = idempotencyRequestRepository.complete(
                 userId,
                 IdempotencyOperation.CREATE_SUBSCRIPTION.name(),
@@ -94,8 +103,6 @@ public class SubscriptionTransactionService {
                     SubscriptionErrorCode.IDEMPOTENCY_COMPLETION_FAILED
             );
         }
-
-        // TODO: SubscriptionReserved Outbox 저장 추가
 
         return SubscriptionCreateResponse.from(savedSubscription);
     }

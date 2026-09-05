@@ -131,6 +131,23 @@ public class Subscription extends BaseUpdatableEntity {
     @Column(name = "confirmed_at")
     private Instant confirmedAt;
 
+    /**
+     * 확정된 청약의 Holding 지분 배정 후처리 상태.
+     *
+     * 청약 확정 전에는 null이며, 확정 시 PENDING으로 시작한다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "holding_allocation_status", length = 20)
+    private HoldingAllocationStatus holdingAllocationStatus;
+
+    /**
+     * Holding 지분 배정의 최근 실패 코드.
+     *
+     * 배정 성공 시 null로 초기화한다.
+     */
+    @Column(name = "holding_allocation_error_code", length = 100)
+    private String holdingAllocationErrorCode;
+
     private Subscription(
             UUID subscriptionId,
             UUID offeringId,
@@ -189,16 +206,128 @@ public class Subscription extends BaseUpdatableEntity {
         );
     }
 
-    // TODO 3차 구현:
-    // Wallet 동결 결과 이벤트 처리 및 보상 흐름 구현
-    // - 동결 성공: PROCESSING -> CONFIRMED
-    // - 동결 실패: 보상 정책에 따라 COMPENSATING 전환 후 수량 복원
-    // - 수량 복원 완료 시 quantityReserved = false
-    // - 최종 실패 처리 시 REJECTED
-    // - 취소 완료 시 CANCELLED
-    // - CONFIRMED 전환 시 confirmedAt 기록
-    // - CANCELLED 전환 시 cancelledAt, cancellationType 기록
+    /**
+     * Wallet 동결 성공을 확인한 청약을 확정한다.
+     *
+     * 수량이 확보된 PROCESSING 청약만 확정할 수 있다.
+     * 중복 이벤트와 늦게 도착한 이벤트의 처리는
+     * 호출하는 서비스에서 잠금 조회 후 판단한다.
+     *
+     * 동결 성공: PROCESSING -> CONFIRMED
+     * CONFIRMED 전환 시 confirmedAt 기록
+     *
+     * @param confirmedAt 청약 확정 처리 시각
+     */
+    public void confirm(Instant confirmedAt) {
+        if (confirmedAt == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
 
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                || !quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.CONFIRMED;
+        this.confirmedAt = confirmedAt;
+        this.holdingAllocationStatus = HoldingAllocationStatus.PENDING;
+        this.holdingAllocationErrorCode = null;
+    }
+
+    /**
+     * Holding 지분 배정 성공을 기록한다.
+     *
+     * ALLOCATED와 ALREADY_PROCESSED 결과에 공통으로 사용한다.
+     */
+    public void markHoldingAllocationSucceeded() {
+        validateHoldingAllocationStarted();
+
+        this.holdingAllocationStatus =
+                HoldingAllocationStatus.SUCCEEDED;
+        this.holdingAllocationErrorCode = null;
+    }
+
+    /**
+     * Holding 지분 배정 실패를 기록한다.
+     *
+     * 청약의 업무 상태 자체는 변경하지 않는다.
+     */
+    public void markHoldingAllocationFailed(String errorCode) {
+        validateHoldingAllocationStarted();
+
+        if (errorCode == null
+                || errorCode.isBlank()
+                || errorCode.length() > 100) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        /*
+         * 성공 이후 다른 eventId의 늦은 실패가 도착해도
+         * 완료된 지분 배정 상태를 실패로 되돌리지 않는다.
+         */
+        if (holdingAllocationStatus
+                == HoldingAllocationStatus.SUCCEEDED) {
+            return;
+        }
+
+        this.holdingAllocationStatus =
+                HoldingAllocationStatus.FAILED;
+        this.holdingAllocationErrorCode = errorCode;
+    }
+
+    /**
+     * 지갑 동결 실패에 따른 수량 복원을 시작한다.
+     *
+     * 수량이 확보된 PROCESSING 청약만 처리할 수 있다.
+     * reason은 WalletHoldFailed payload의 실패 사유다.
+     */
+    public void startHoldFailureCompensation(String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 50) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                || !quantityReserved
+                || cancellationType != null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
+        this.failureCode = reason;
+    }
+
+    /**
+     * 지갑 동결 실패에 따른 수량 복원을 마친 청약을 거절한다.
+     *
+     * 서비스에서 공모 수량 복원에 성공한 뒤 호출해야 한다.
+     * 수량 복원과 이 상태 변경은 같은 트랜잭션에서 처리한다.
+     */
+    public void completeHoldFailureRejection() {
+        if (subscriptionStatus != SubscriptionStatus.COMPENSATING
+                || !quantityReserved
+                || cancellationType != null
+                || failureCode == null
+                || failureCode.isBlank()) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED
+            );
+        }
+
+        this.quantityReserved = false;
+        this.subscriptionStatus = SubscriptionStatus.REJECTED;
+    }
+
+    // TODO : 타임아웃 자동 보상, 관리자 공모 중단, 운영 재처리
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
@@ -225,6 +354,49 @@ public class Subscription extends BaseUpdatableEntity {
     }
 
     /**
+     * 공모 취소 보상에 따른 확보 수량 복원 완료를 기록한다.
+     *
+     * 서비스에서 실제 공모 수량 복원에 성공한 뒤,
+     * 같은 트랜잭션 안에서 호출해야 한다.
+     */
+    public void markCompensationQuantityRestored() {
+        if (subscriptionStatus != SubscriptionStatus.COMPENSATING
+                || cancellationType == null
+                || !quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.quantityReserved = false;
+    }
+
+    /**
+     * 공모 취소 보상을 완료하고 청약을 취소한다.
+     *
+     * 서비스에서 Wallet·Holding 보상 완료를 확인한 뒤 호출한다.
+     * 기존 취소 유형과 확정 이력은 보존한다.
+     */
+    public void completeCancellation(Instant cancelledAt) {
+        if (cancelledAt == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        if (subscriptionStatus != SubscriptionStatus.COMPENSATING
+                || cancellationType == null
+                || quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.CANCELLED;
+        this.cancelledAt = cancelledAt;
+    }
+
+    /**
      * PROCESSING 상태의 청약 예약 유효시간이 만료되었는지 확인한다.
      */
     public boolean isReservationExpired(Instant now) {
@@ -242,12 +414,7 @@ public class Subscription extends BaseUpdatableEntity {
     /**
      * 예약 유효시간이 만료된 PROCESSING 청약을 보상 처리 상태로 전환한다.
      *
-     * TODO 실제 Wallet 상태 확인 및 수량 복원 등 후속 보상 처리는
-     * Kafka 보상 흐름 구현 이후 연계한다.
-     *
-     * TODO 향후 Consumer에서는 반드시: 아래 정책이 필요하다.
-     * 현재 Subscription = COMPENSATING + 늦게 WalletHoldSucceeded 도착
-     * → CONFIRMED로 되돌리지 않음 → 실제 Wallet 상태 확인/보상 흐름으로 연결
+     * TODO 다음 PR: 타임아웃 자동 보상 및 수량 복원 연결.
      */
     public void startExpirationCompensation(Instant now) {
         if (!isReservationExpired(now)) {
@@ -258,6 +425,24 @@ public class Subscription extends BaseUpdatableEntity {
 
         this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
         this.failureCode = "RESERVATION_EXPIRED";
+    }
+
+    /**
+     * 늦은 동결 성공 등 자동 처리하기 어려운 상황을 수동 확인 대상으로 기록한다.
+     * 기존 실패 사유, 취소 유형, 확정·취소 시각 및 수량 확보 여부는 보존한다.
+     */
+    public void requireManualReview(String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 50) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.MANUAL_REVIEW;
+
+        if (this.failureCode == null || this.failureCode.isBlank()) {
+            this.failureCode = reason;
+        }
     }
 
     /**
@@ -278,6 +463,17 @@ public class Subscription extends BaseUpdatableEntity {
         } catch (ArithmeticException e) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_AMOUNT
+            );
+        }
+    }
+
+    /**
+     * Holding 지분 배정 요청이 시작된 청약인지 확인한다.
+     */
+    private void validateHoldingAllocationStarted() {
+        if (holdingAllocationStatus == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
             );
         }
     }

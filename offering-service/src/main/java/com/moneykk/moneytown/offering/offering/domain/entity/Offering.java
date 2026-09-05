@@ -328,14 +328,22 @@ public class Offering extends BaseUpdatableEntity {
     /**
      * 모집 미달로 공모 취소 보상 절차를 시작한다.
      *
-     * 모집 종료 후에도 잔여 수량이 존재하는 OPEN 공모만
+     * 모집 종료 후 잔여 수량이 존재하는 OPEN 공모를
      * CANCELLING 상태로 전환할 수 있다.
+     *
+     * CLOSED 이후 동결 실패로 수량이 복원된 경우도 포함한다.
      *
      * 최종 CANCELLED 전환 및 cancelledAt 기록은
      * 필요한 보상이 모두 완료된 이후 수행한다.
      */
     public void startUnderSubscribedCancellation() {
-        if (offeringStatus != OfferingStatus.OPEN) {
+
+        boolean allowedStatus =
+                offeringStatus == OfferingStatus.OPEN
+                        || offeringStatus == OfferingStatus.SOLD_OUT
+                        || offeringStatus == OfferingStatus.CLOSED;
+
+        if (!allowedStatus) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_CANCELLATION_NOT_ALLOWED
             );
@@ -357,6 +365,37 @@ public class Offering extends BaseUpdatableEntity {
         this.cancellationType = CancellationType.UNDER_SUBSCRIBED;
     }
 
+    /**
+     * 필요한 청약 보상이 모두 끝난 공모의 취소를 완료한다.
+     *
+     * 서비스에서 미해결 청약이 없는지 확인한 뒤 호출한다.
+     * 기존 취소 사유는 유지한다.
+     */
+    public void completeCancellation(Instant cancelledAt) {
+        if (cancelledAt == null) {
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_INPUT
+            );
+        }
+
+        if (offeringStatus != OfferingStatus.CANCELLING
+                || cancellationType == null) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_CANCELLATION_COMPLETION_NOT_ALLOWED
+            );
+        }
+
+        // 공모 취소 완료 시 모든 확보 수량이 복원되어 있어야 한다.
+        if (totalQuantity == null
+                || !totalQuantity.equals(remainingQuantity)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_QUANTITY_STATE_INVALID
+            );
+        }
+
+        this.offeringStatus = OfferingStatus.CANCELLED;
+        this.cancelledAt = cancelledAt;
+    }
 
     /**
      * 심사 요청 및 승인은 공모 시작 시각 이전까지만 허용한다.

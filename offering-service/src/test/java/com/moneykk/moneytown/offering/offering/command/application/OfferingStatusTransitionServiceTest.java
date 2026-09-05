@@ -2,29 +2,35 @@ package com.moneykk.moneytown.offering.offering.command.application;
 
 import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
-import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
+import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
-import java.util.UUID;
-
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
+
+import java.util.List;
+import java.util.UUID;
 
 @ExtendWith(MockitoExtension.class)
 class OfferingStatusTransitionServiceTest {
@@ -34,6 +40,13 @@ class OfferingStatusTransitionServiceTest {
     @Mock
     private SubscriptionRepository subscriptionRepository;
 
+    @Mock
+    private SubscriptionEventPublisher subscriptionEventPublisher;
+    @Mock
+    private SubscriptionCompensationRepository subscriptionCompensationRepository;
+
+    @Mock
+    private OfferingCompensationCompletionService offeringCompensationCompletionService;
     @InjectMocks
     private OfferingStatusTransitionService offeringStatusTransitionService;
 
@@ -74,43 +87,32 @@ class OfferingStatusTransitionServiceTest {
     }
 
     @Test
-    @DisplayName("모집 종료된 OPEN 공모와 보상 대상 청약을 보상 진행 상태로 전환한다")
+    @DisplayName("모집 미달 공모와 보상 대상 청약을 보상 진행 상태로 전환한다")
     void startsUnderSubscribedCancellations() {
         // given
         UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID processingSubscriptionId = UUID.randomUUID();
+        UUID confirmedSubscriptionId = UUID.randomUUID();
 
         Offering offering = mock(Offering.class);
         Subscription processingSubscription = mock(Subscription.class);
         Subscription confirmedSubscription = mock(Subscription.class);
 
-        when(offering.getOfferingId())
-                .thenReturn(offeringId);
 
-        when(offeringRepository
-                .findAllByOfferingStatusAndEndAtLessThanEqualAndIsDeletedFalse(
-                        eq(OfferingStatus.OPEN),
-                        any(),
-                        any()
-                ))
-                .thenReturn(List.of(offering));
-
-        when(subscriptionRepository
-                .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
+        when(processingSubscription.getSubscriptionId()).thenReturn(processingSubscriptionId);
+        when(confirmedSubscription.getSubscriptionId()).thenReturn(confirmedSubscriptionId);
+        when(offering.getOfferingId()).thenReturn(offeringId);
+        when(offering.getAssetId()).thenReturn(assetId);
+        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(any(),any())).thenReturn(List.of(offering));
+        when(subscriptionRepository.findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
                         eq(offeringId),
-                        eq(List.of(
-                                SubscriptionStatus.PROCESSING,
-                                SubscriptionStatus.CONFIRMED
-                        ))
+                        eq(List.of(SubscriptionStatus.PROCESSING, SubscriptionStatus.CONFIRMED))
                 ))
-                .thenReturn(List.of(
-                        processingSubscription,
-                        confirmedSubscription
-                ));
+                .thenReturn(List.of(processingSubscription, confirmedSubscription));
 
         // when
-        int result =
-                offeringStatusTransitionService
-                        .startUnderSubscribedCancellations();
+        int result = offeringStatusTransitionService.startUnderSubscribedCancellations();
 
         // then
         assertThat(result).isEqualTo(1);
@@ -127,5 +129,81 @@ class OfferingStatusTransitionServiceTest {
                 .startCompensation(
                         CancellationType.OFFERING_UNDER_SUBSCRIBED
                 );
+
+        ArgumentCaptor<String> correlationIdCaptor =
+                ArgumentCaptor.forClass(String.class);
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        eq(processingSubscription),
+                        eq(assetId),
+                        correlationIdCaptor.capture()
+                );
+
+        String correlationId = correlationIdCaptor.getValue();
+
+        assertThat(correlationId).isNotBlank();
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        eq(confirmedSubscription),
+                        eq(assetId),
+                        eq(correlationId)
+                );
+
+        ArgumentCaptor<SubscriptionCompensation> compensationCaptor =
+                ArgumentCaptor.forClass(SubscriptionCompensation.class);
+
+        verify(subscriptionCompensationRepository, times(2))
+                .save(compensationCaptor.capture());
+
+        assertThat(compensationCaptor.getAllValues())
+                .extracting(SubscriptionCompensation::getSubscriptionId)
+                .containsExactlyInAnyOrder(
+                        processingSubscriptionId,
+                        confirmedSubscriptionId
+                );
+
+        verify(offeringCompensationCompletionService)
+                .completeIfReady(offeringId);
+    }
+
+    @Test
+    @DisplayName("보상 대상 청약이 없는 모집 미달 공모도 취소 완료 여부를 확인한다")
+    void checksCompletionWhenNoCompensatableSubscriptionsExist() {
+        UUID offeringId = UUID.randomUUID();
+        Offering offering = mock(Offering.class);
+
+        when(offering.getOfferingId()).thenReturn(offeringId);
+
+        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(
+                any(),
+                any()
+        )).thenReturn(List.of(offering));
+
+        when(subscriptionRepository
+                .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
+                        eq(offeringId),
+                        eq(List.of(
+                                SubscriptionStatus.PROCESSING,
+                                SubscriptionStatus.CONFIRMED
+                        ))
+                )
+        ).thenReturn(List.of());
+
+        int result =
+                offeringStatusTransitionService.startUnderSubscribedCancellations();
+
+        assertThat(result).isEqualTo(1);
+
+        verify(offering).startUnderSubscribedCancellation();
+
+        verify(offeringCompensationCompletionService)
+                .completeIfReady(offeringId);
+
+        verifyNoInteractions(
+                subscriptionCompensationRepository,
+                subscriptionEventPublisher
+        );
     }
 }
