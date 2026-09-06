@@ -2,12 +2,14 @@ package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
+import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import org.springframework.data.domain.Sort;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -22,6 +24,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,6 +47,29 @@ class HoldingControllerTest {
 
     @InjectMocks
     private HoldingController holdingController;
+
+    @Test
+    @DisplayName("내 보유지분 조회 요청을 서비스에 전달한다")
+    void getsMyHolding() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String role = "INVESTOR";
+        MyAssetHoldingResponse response = new MyAssetHoldingResponse(
+                UUID.randomUUID(), assetId, 25L, Instant.now()
+        );
+        when(holdingQueryService.getMyHolding(assetId, userId, role))
+                .thenReturn(response);
+        MockMvc mvc = MockMvcBuilders
+                .standaloneSetup(holdingController)
+                .build();
+
+        mvc.perform(get("/api/v1/assets/{assetId}/holdings/me", assetId)
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", role))
+                .andExpect(status().isOk());
+
+        verify(holdingQueryService).getMyHolding(assetId, userId, role);
+    }
 
     @ParameterizedTest
     @EnumSource(Sort.Direction.class)

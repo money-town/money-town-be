@@ -7,6 +7,7 @@ import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
 import com.moneykk.moneytown.settlement.command.dto.OpenFinalSettlementRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,7 +30,7 @@ public class FinalSettlementCommandController {
     //TODO: 인가 코드 추가 (SYSTEM 권한)
     @PostMapping("/internal/final-settlements")
     public ResponseEntity<ApiResponse<FinalSettlementBatchResponse>> openFinalSettlement(
-            @RequestBody OpenFinalSettlementRequest request) {
+            @Valid @RequestBody OpenFinalSettlementRequest request) {
         FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request);
         finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
         return ResponseEntity.status(HttpStatus.CREATED)

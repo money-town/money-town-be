@@ -8,6 +8,7 @@ import com.moneykk.moneytown.asset.dto.response.RevenueTransferStatusResponse;
 import com.moneykk.moneytown.asset.service.RevenueCommandService;
 import com.moneykk.moneytown.asset.service.RevenueQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -52,7 +53,7 @@ public class RevenueController {
     @PatchMapping("/revenues/{revenueId}/transfer-status")
     public ApiResponse<RevenueTransferStatusResponse> updateTransferStatus(
             @PathVariable UUID revenueId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody RevenueTransferStatusRequest request
     ) {
         RevenueTransferStatusResponse response =
@@ -71,8 +72,8 @@ public class RevenueController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<RevenueDetailResponse> createRevenue(
             @PathVariable UUID assetId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody RevenueCreateRequest request
     ) {
         // 권한·중복 확인 후 수익 등록
@@ -96,8 +97,8 @@ public class RevenueController {
     @GetMapping("/{assetId}/revenues")
     public ApiResponse<RevenueListResponse> getRevenues(
             @PathVariable UUID assetId,
-            @RequestHeader("X-User-Id") UUID userId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
 
             // 첫 요청에는 커서 생략
             @RequestParam(required = false) UUID cursor,

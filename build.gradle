@@ -8,6 +8,7 @@ ext {
     springCloudVersion = '2025.0.0'
     springdocVersion = '2.8.17'
     springAiVersion = '1.1.8'
+    awsSdkVersion = '2.54.11'
 }
 
 allprojects {

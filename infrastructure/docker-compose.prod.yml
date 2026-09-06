@@ -1,0 +1,75 @@
+# 운영(EC2) 오버레이 — 반드시 base 파일과 함께 사용한다.
+#
+#   docker compose --env-file .env \
+#     -f infrastructure/docker-compose.yml \
+#     -f infrastructure/docker-compose.prod.yml up -d
+#
+# 이 파일이 하는 일은 네 가지뿐이다.
+#   1) 호스트에 공개된 포트를 전부 닫는다 — 외부 진입점은 nginx 하나로 고정
+#   2) 개발 편의용 GUI 컨테이너(kafka-ui, redisinsight)를 기동 대상에서 뺀다
+#   3) nginx를 80/443으로 노출하고, 운영 전용 설정과 인증서를 마운트한다
+#   4) 2 vCPU(t3.large) 기준으로 healthcheck 예산을 늘린다
+
+services:
+
+  postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  kafka:
+    ports: !reset []
+
+  zipkin:
+    ports: !reset []
+
+  discovery-server:
+    ports: !reset []
+    healthcheck: { start_period: 120s, retries: 20 }
+
+  config-server:
+    ports: !reset []
+    healthcheck: { start_period: 120s, retries: 20 }
+
+  gateway-service:
+    ports: !reset []
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  user-service:
+    ports: !reset []
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  wallet-service:
+    ports: !reset []
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  asset-service:
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  offering-service:
+    ports: !reset []
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  settlement-service:
+    ports: !reset []
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  analysis-service:
+    ports: !reset []
+    healthcheck: { start_period: 180s, retries: 20 }
+
+  kafka-ui:
+    profiles: ["dev-tools"]
+
+  redisinsight:
+    profiles: ["dev-tools"]
+
+  nginx:
+    ports: !override
+      - "80:80"
+      - "443:443"
+    volumes: !override
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro

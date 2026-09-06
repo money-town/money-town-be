@@ -5,6 +5,8 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
+import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
+import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
@@ -103,10 +105,68 @@ public class WalletService {
         }
     }
 
-    // walletTransactionService.deposit/withdraw는 별도 빈의 @Transactional 메서드라서, 이 예외는
-    // 그 트랜잭션이 완전히 롤백되고 난 뒤(여기, 트랜잭션 밖)에 도착한다. 그래서 바로 이어서 조회해도
-    // "이미 실패한 트랜잭션 안에서 또 쿼리하는" PostgreSQL 문제(current transaction is aborted)가 없다.
-    // 즉, UNIQUE 제약을 "누가 먼저 저장했는지" 가려주는 심판으로 쓰고, 진 쪽은 그 결과를 그대로 반환한다.
+    // Settlement가 배당 지급 시 호출하는 내부 API. 사용자 요청이 아니라 시스템 간 호출이라
+    // KYC/거래가능상태 체크는 하지 않는다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public DividendDepositResponse depositDividend(UUID investorId, String idempotencyKey, UUID settlementBatchId, long amount) {
+        Wallet wallet = walletRepository.findByUserId(investorId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
+        Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) {
+            return buildDividendIdempotentResponse(existing.get(), wallet.getId(), amount, settlementBatchId);
+        }
+
+        try {
+            return walletTransactionService.depositDividend(investorId, idempotencyKey, settlementBatchId, amount);
+        } catch (DataIntegrityViolationException e) {
+            WalletTransaction winner = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
+                    .orElseThrow(() -> e);
+            return buildDividendIdempotentResponse(winner, wallet.getId(), amount, settlementBatchId);
+        }
+    }
+
+    // Settlement가 자산종료 정산 원금 반환 시 호출하는 내부 API. depositDividend와 동일한 이유로 KYC 체크 없음.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SettlementDepositResponse depositSettlement(UUID investorId, String idempotencyKey, UUID finalSettlementBatchId, long amount) {
+        Wallet wallet = walletRepository.findByUserId(investorId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
+        Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) {
+            return buildSettlementIdempotentResponse(existing.get(), wallet.getId(), amount, finalSettlementBatchId);
+        }
+
+        try {
+            return walletTransactionService.depositSettlement(investorId, idempotencyKey, finalSettlementBatchId, amount);
+        } catch (DataIntegrityViolationException e) {
+            WalletTransaction winner = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
+                    .orElseThrow(() -> e);
+            return buildSettlementIdempotentResponse(winner, wallet.getId(), amount, finalSettlementBatchId);
+        }
+    }
+
+    private DividendDepositResponse buildDividendIdempotentResponse(WalletTransaction existing, Long walletId,
+                                                                       long requestedAmount, UUID settlementBatchId) {
+        if (!existing.getWalletId().equals(walletId) || existing.getType() != WalletTransactionType.DIVIDEND
+                || existing.getAmount() != requestedAmount || !settlementBatchId.toString().equals(existing.getReferenceId())) {
+            throw new BusinessException(WalletErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+
+        return DividendDepositResponse.from(existing);
+    }
+
+    private SettlementDepositResponse buildSettlementIdempotentResponse(WalletTransaction existing, Long walletId,
+                                                                          long requestedAmount, UUID finalSettlementBatchId) {
+        if (!existing.getWalletId().equals(walletId) || existing.getType() != WalletTransactionType.SETTLEMENT
+                || existing.getAmount() != requestedAmount || !finalSettlementBatchId.toString().equals(existing.getReferenceId())) {
+            throw new BusinessException(WalletErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+
+        return SettlementDepositResponse.from(existing);
+    }
+
+    // UNIQUE 제약으로 동시 삽입 승부를 가린 뒤, 진 쪽은 이긴 쪽 결과를 그대로 반환한다.
     private TransactionResponse recoverFromConcurrentDuplicate(DataIntegrityViolationException cause, Long walletId,
                                                                  WalletTransactionType type, String idempotencyKey, long amount) {
         WalletTransaction winner = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
@@ -115,10 +175,7 @@ public class WalletService {
         return buildIdempotentResponse(winner, walletId, type, amount);
     }
 
-    // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 그 거래가 "내 지갑" 것이고 타입+금액까지 똑같으면
-    // 그 결과를 그대로 재반환하고(재시도 허용), 지갑이 다르거나 타입/금액이 다르면 충돌로 처리한다.
-    // walletId까지 확인하는 이유는, 다른 유저가 우연히 같은 idempotencyKey를 썼을 때
-    // 그 유저의 거래 정보(잔액 등)가 그대로 반환되는 걸 막기 위해서다.
+    // 지갑/타입/금액까지 같아야 재시도로 인정, 다르면 충돌(다른 유저의 결과 유출 방지).
     private TransactionResponse buildIdempotentResponse(WalletTransaction existing, Long walletId,
                                                           WalletTransactionType type, long requestedAmount) {
         if (!existing.getWalletId().equals(walletId) || existing.getType() != type || existing.getAmount() != requestedAmount) {
