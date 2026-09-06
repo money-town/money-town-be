@@ -327,7 +327,7 @@ public class Subscription extends BaseUpdatableEntity {
         this.subscriptionStatus = SubscriptionStatus.REJECTED;
     }
 
-    // TODO : 타임아웃 자동 보상, 관리자 공모 중단, 운영 재처리
+    // TODO : 운영 재처리 구현 시 MANUAL_REVIEW 청약의 보상 재시작 규칙을 추가한다.
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
