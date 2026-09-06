@@ -42,24 +42,25 @@ public class SettlementCommandService {
     private final AssetServiceClient assetServiceClient;
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
-    // 수익 폴링 스케줄러가 자동으로 개시할 때 사용 — 사람의 요청이 아니므로 ADMIN 검사를 거치지 않는다.
+    // 수익 폴링 스케줄러가 자동으로 개시할 때 사용 — 사람의 요청이 아니므로 ADMIN 검사X
+    // 배당 기준일을 직접 지정할 ADMIN 입력도 없으므로 항상 periodEnd로 대체
     @Transactional
     public SettlementBatchResponse openBatchAutomatically(UUID assetId, UUID revenueId) {
-        return openBatchInternal(assetId, revenueId);
+        return openBatchInternal(assetId, revenueId, null);
     }
 
     @Transactional
-    public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId) {
+    public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
         validateAdmin(role);
-        return openBatchInternal(assetId, revenueId);
+        return openBatchInternal(assetId, revenueId, recordDateOverride);
     }
 
-    private SettlementBatchResponse openBatchInternal(UUID assetId, UUID revenueId) {
+    private SettlementBatchResponse openBatchInternal(UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
         guardAgainstDuplicateOrConcurrentBatch(assetId, revenueId);
 
         RevenueResponse revenue = fetchAndValidateRevenue(assetId, revenueId);
-        // 자산 서비스에는 별도의 배당 기준일이 없어, 수익 발생 기간의 종료일(periodEnd)을 기준일로 사용한다.
-        LocalDate recordDate = revenue.periodEnd();
+        // 배당 기준일은 정산 회차가 자체적으로 관리하는 값(ADMIN이 명시하면 그 값을 쓰고, 미지정 시에만 수익 발생 기간 종료일로 대체)
+        LocalDate recordDate = recordDateOverride != null ? recordDateOverride : revenue.periodEnd();
 
         long distributableAmount = calculateDistributableAmount(revenue);
         Optional<SettlementBatch> carryInSourceBatch = findCarryInSourceBatch(assetId);

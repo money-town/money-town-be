@@ -34,7 +34,7 @@ public class SettlementCommandController {
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OpenSettlementRequest request) {
         SettlementBatchResponse response =
-                settlementCommandService.openBatch(role, request.assetId(), request.revenueId());
+                settlementCommandService.openBatch(role, request.assetId(), request.revenueId(), request.recordDate());
         revenueTransferStatusNotifier.notifyTransferred(response.revenueId());
         dividendDisbursementService.disburseAsync(response.settlementBatchId());
         return ResponseEntity.status(HttpStatus.CREATED)
