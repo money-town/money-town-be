@@ -12,11 +12,13 @@ import com.moneykk.moneytown.common.response.PageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PortfolioQueryService {
 
     private static final String ADMIN = "ADMIN";
