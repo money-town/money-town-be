@@ -123,7 +123,7 @@ class HoldingControllerTest {
         UUID holdingId = UUID.randomUUID();
         LocalDate asOf = LocalDate.of(2026, 8, 31);
         HoldingSnapshotResponse snapshot = new HoldingSnapshotResponse(
-                assetId, asOf,
+                assetId, asOf, 10L,
                 List.of(new HoldingSnapshotItemResponse(holdingId, UUID.randomUUID(), 10L)),
                 holdingId, true
         );
@@ -161,7 +161,7 @@ class HoldingControllerTest {
         Sort.Direction expected = directionParameter == null
                 ? Sort.Direction.DESC : Sort.Direction.valueOf(directionParameter);
         when(holdingQueryService.getSnapshot(assetId, asOf, null, 100, expected))
-                .thenReturn(new HoldingSnapshotResponse(assetId, asOf, List.of(), null, false));
+                .thenReturn(new HoldingSnapshotResponse(assetId, asOf, 0L, List.of(), null, false));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(holdingController).build();
         MockHttpServletRequestBuilder request = get("/api/v1/assets/{assetId}/holdings", assetId)
                 .header("X-User-Role", "SYSTEM")

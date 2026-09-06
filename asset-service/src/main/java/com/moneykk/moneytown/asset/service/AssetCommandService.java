@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
+import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Locale;
 
 import java.util.UUID;
@@ -32,6 +35,7 @@ public class AssetCommandService {
     private final AssetRepository assetRepository;
     private final AssetQueryRepository assetQueryRepository;
     private final S3StorageService s3StorageService;
+    private final SettlementServiceClient settlementServiceClient;
 
     /**
      * 자산 등록
@@ -198,11 +202,51 @@ public class AssetCommandService {
             );
         }
 
+        Instant terminatedAt = Instant.now();
+
         // 실제 상태 변경 가능 여부는 엔티티에서 검증
         asset.changeStatus(
                 AssetStatus.TERMINATION_REQUESTED,
                 null
         );
+
+        // 정산 회차가 생성되지 않으면 자산 상태 변경도 롤백됨
+        settlementServiceClient.openFinalSettlement(
+                "SYSTEM",
+                new FinalSettlementOpenRequest(
+                        assetId,
+                        terminatedAt,
+                        asset.getUnitPrice()
+                )
+        );
+    }
+
+    /**
+     * 최종 정산 완료 후 자산 종료 확정
+     */
+    @Transactional
+    public void completeAssetTermination(
+            UUID assetId,
+            String role
+    ) {
+        if (!"SYSTEM".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED
+            );
+        }
+
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 정산 서비스가 같은 완료 요청을 다시 보내도 성공 처리
+        if (asset.getStatus() == AssetStatus.TERMINATED) {
+            return;
+        }
+
+        asset.changeStatus(AssetStatus.TERMINATED, null);
     }
 
     /**

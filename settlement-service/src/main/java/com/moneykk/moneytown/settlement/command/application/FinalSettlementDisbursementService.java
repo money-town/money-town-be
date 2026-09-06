@@ -2,6 +2,7 @@ package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositResponse;
@@ -21,6 +22,7 @@ public class FinalSettlementDisbursementService {
 
     private final FinalSettlementPayoutWriter payoutWriter;
     private final WalletServiceClient walletServiceClient;
+    private final AssetServiceClient assetServiceClient;
 
     @Async("disbursementTaskExecutor")
     public void disburseAsync(UUID finalSettlementBatchId) {
@@ -33,7 +35,12 @@ public class FinalSettlementDisbursementService {
         List<FinalSettlementPayout> claimedPayouts = payoutWriter.claimPendingPayouts(finalSettlementBatchId);
         claimedPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
 
-        payoutWriter.updateBatchStatus(finalSettlementBatchId);
+        payoutWriter.updateBatchStatus(finalSettlementBatchId)
+                .ifPresent(assetId ->
+                        assetServiceClient.completeAssetTermination(
+                                assetId,
+                                "SYSTEM"
+                        ));
     }
 
     public int reclaimStalledProcessing(Instant staleBefore) {

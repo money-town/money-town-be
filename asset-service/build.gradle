@@ -1,5 +1,6 @@
 dependencies {
     implementation "com.querydsl:querydsl-jpa:${dependencyManagement.importedProperties['querydsl.version']}:jakarta"
+    implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 
     // S3 파일 업로드와 다운로드 URL 발급
     implementation platform("software.amazon.awssdk:bom:${rootProject.awsSdkVersion}")

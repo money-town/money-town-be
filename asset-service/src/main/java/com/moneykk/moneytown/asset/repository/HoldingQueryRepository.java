@@ -26,6 +26,12 @@ public interface HoldingQueryRepository {
             Sort.Direction direction
     );
 
+    // 기준 시점의 전체 보유지분 수량 조회
+    long findTotalSnapshotQuantity(
+            UUID assetId,
+            Instant cutoffExclusive
+    );
+
     // 특정 자산의 내 보유지분 조회
     Optional<MyAssetHoldingResponse> findMyHolding(
             UUID assetId,

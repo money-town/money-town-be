@@ -13,8 +13,11 @@ public record HoldingSnapshotResponse(
         // 배당 기준일
         LocalDate asOf,
 
+        // 기준일 전체 보유지분 수량
+        long totalHoldingQuantity,
+
         // 기준일에 지분을 보유한 사용자 목록
-        List<HoldingSnapshotItemResponse> holdings,
+        List<HoldingSnapshotItemResponse> items,
 
         // 다음 페이지 조회에 사용할 보유지분 ID
         UUID nextCursor,

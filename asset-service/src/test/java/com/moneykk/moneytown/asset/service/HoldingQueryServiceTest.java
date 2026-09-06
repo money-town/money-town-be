@@ -285,13 +285,16 @@ class HoldingQueryServiceTest {
                 .thenReturn(Optional.of(mock(Asset.class)));
         when(holdingQueryRepository.findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC))
                 .thenReturn(List.of());
+        when(holdingQueryRepository.findTotalSnapshotQuantity(assetId, expectedCutoff))
+                .thenReturn(0L);
 
         HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, null, 100, Sort.Direction.DESC);
 
         verify(holdingQueryRepository).findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC);
         assertEquals(assetId, response.assetId());
         assertEquals(asOf, response.asOf());
-        assertTrue(response.holdings().isEmpty());
+        assertTrue(response.items().isEmpty());
+        assertEquals(0L, response.totalHoldingQuantity());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
     }
@@ -312,10 +315,13 @@ class HoldingQueryServiceTest {
                 .thenReturn(Optional.of(mock(Asset.class)));
         when(holdingQueryRepository.findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC))
                 .thenReturn(rows);
+        when(holdingQueryRepository.findTotalSnapshotQuantity(assetId, cutoff))
+                .thenReturn(30L);
 
         HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, cursor, 2, Sort.Direction.DESC);
 
-        assertEquals(rows, response.holdings());
+        assertEquals(rows, response.items());
+        assertEquals(30L, response.totalHoldingQuantity());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
         verify(holdingQueryRepository).findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC);
@@ -360,11 +366,15 @@ class HoldingQueryServiceTest {
         when(holdingQueryRepository.findSnapshotByAssetId(
                 assetId, cutoffExclusive, null, 3, direction
         )).thenReturn(List.of(first, second, extra));
+        when(holdingQueryRepository.findTotalSnapshotQuantity(
+                assetId, cutoffExclusive
+        )).thenReturn(60L);
 
         HoldingSnapshotResponse response =
                 holdingQueryService.getSnapshot(assetId, asOf, null, 2, direction);
 
-        assertEquals(List.of(first, second), response.holdings());
+        assertEquals(List.of(first, second), response.items());
+        assertEquals(60L, response.totalHoldingQuantity());
         assertEquals(secondHoldingId, response.nextCursor());
         assertTrue(response.hasNext());
         assertEquals(asOf, response.asOf());

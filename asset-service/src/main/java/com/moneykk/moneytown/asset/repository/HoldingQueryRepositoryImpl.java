@@ -52,15 +52,7 @@ public class HoldingQueryRepositoryImpl
             int limit,
             Sort.Direction direction
     ) {
-        // ALLOCATE는 더하고 REVOKE는 뺌
-        NumberExpression<Long> balanceExpression =
-                new CaseBuilder()
-                        .when(history.historyType.eq(HoldingHistoryType.ALLOCATE))
-                        .then(history.quantity)
-                        .when(history.historyType.eq(HoldingHistoryType.REVOKE))
-                        .then(history.quantity.negate())
-                        .otherwise(0L)
-                        .sum();
+        NumberExpression<Long> balanceExpression = snapshotBalance();
 
         boolean ascending = direction.isAscending();
         BooleanExpression cursorCondition = null;
@@ -95,7 +87,8 @@ public class HoldingQueryRepositoryImpl
                         history.createdAt.lt(cutoffExclusive),
                         history.historyType.in(
                                 HoldingHistoryType.ALLOCATE,
-                                HoldingHistoryType.REVOKE
+                                HoldingHistoryType.REVOKE,
+                                HoldingHistoryType.ADJUSTMENT
                         ),
                         cursorCondition
                 )
@@ -112,6 +105,43 @@ public class HoldingQueryRepositoryImpl
                 )
                 .limit(limit)
                 .fetch();
+    }
+
+    @Override
+    public long findTotalSnapshotQuantity(
+            UUID assetId,
+            Instant cutoffExclusive
+    ) {
+        Long total = queryFactory
+                .select(snapshotBalance())
+                .from(history)
+                .join(holding)
+                .on(history.holdingId.eq(holding.id))
+                .where(
+                        holding.assetId.eq(assetId),
+                        history.createdAt.lt(cutoffExclusive),
+                        history.historyType.in(
+                                HoldingHistoryType.ALLOCATE,
+                                HoldingHistoryType.REVOKE,
+                                HoldingHistoryType.ADJUSTMENT
+                        )
+                )
+                .fetchOne();
+
+        return total == null ? 0L : total;
+    }
+
+    // 배정은 증가, 회수는 감소, 조정은 처리 전후 차이를 반영
+    private NumberExpression<Long> snapshotBalance() {
+        return new CaseBuilder()
+                .when(history.historyType.eq(HoldingHistoryType.ALLOCATE))
+                .then(history.quantity)
+                .when(history.historyType.eq(HoldingHistoryType.REVOKE))
+                .then(history.quantity.negate())
+                .when(history.historyType.eq(HoldingHistoryType.ADJUSTMENT))
+                .then(history.balanceAfter.subtract(history.balanceBefore))
+                .otherwise(0L)
+                .sum();
     }
 
     @Override

@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
+import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
@@ -58,6 +60,9 @@ class AssetCommandServiceTest {
 
     @Mock
     private S3StorageService s3StorageService;
+
+    @Mock
+    private SettlementServiceClient settlementServiceClient;
 
     @InjectMocks
     private AssetCommandService assetCommandService;
@@ -399,6 +404,15 @@ class AssetCommandServiceTest {
                 assetId, ownerId, "ISSUER");
 
         assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
+        ArgumentCaptor<FinalSettlementOpenRequest> requestCaptor =
+                ArgumentCaptor.forClass(FinalSettlementOpenRequest.class);
+        verify(settlementServiceClient).openFinalSettlement(
+                eq("SYSTEM"),
+                requestCaptor.capture()
+        );
+        assertEquals(assetId, requestCaptor.getValue().assetId());
+        assertEquals(asset.getUnitPrice(), requestCaptor.getValue().unitPrice());
+        assertNotNull(requestCaptor.getValue().terminatedAt());
     }
 
     @Test
@@ -417,6 +431,41 @@ class AssetCommandServiceTest {
         assertEquals(AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION,
                 exception.getErrorCode());
         assertEquals(AssetStatus.DRAFT, asset.getStatus());
+        verifyNoInteractions(settlementServiceClient);
+    }
+
+    @Test
+    @DisplayName("SYSTEM은 최종 정산 완료 후 자산을 종료한다")
+    void completesAssetTermination() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(
+                UUID.randomUUID(),
+                AssetStatus.TERMINATION_REQUESTED
+        );
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        assetCommandService.completeAssetTermination(assetId, "SYSTEM");
+
+        assertEquals(AssetStatus.TERMINATED, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("SYSTEM이 아니면 자산 종료를 확정할 수 없다")
+    void rejectsTerminationCompletionByNonSystem() {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> assetCommandService.completeAssetTermination(
+                        UUID.randomUUID(),
+                        "ADMIN"
+                )
+        );
+
+        assertEquals(
+                AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED,
+                exception.getErrorCode()
+        );
+        verifyNoInteractions(assetQueryRepository);
     }
 
     @Test

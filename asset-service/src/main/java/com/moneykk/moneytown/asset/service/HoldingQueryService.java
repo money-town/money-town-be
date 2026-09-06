@@ -115,9 +115,16 @@ public class HoldingQueryService {
                 ? holdings.get(holdings.size() - 1).holdingId()
                 : null;
 
+        long totalHoldingQuantity =
+                holdingQueryRepository.findTotalSnapshotQuantity(
+                        assetId,
+                        cutoffExclusive
+                );
+
         return new HoldingSnapshotResponse(
                 assetId,
                 asOf,
+                totalHoldingQuantity,
                 holdings,
                 nextCursor,
                 hasNext
