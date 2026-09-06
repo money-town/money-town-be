@@ -7,6 +7,8 @@ import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCommandService;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,6 +22,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+@Tag(
+        name = "청약 명령",
+        description = "투자자의 청약 접수 및 처리 API"
+)
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/offerings/{offeringId}/subscriptions")
@@ -27,11 +33,14 @@ public class SubscriptionCommandController {
 
     private final SubscriptionCommandService subscriptionCommandService;
 
-    /**
-     * 선착순 청약 접수
-     *
-     * INVESTOR만 접근할 수 있다.
-     */
+    @Operation(
+            summary = "선착순 청약 접수",
+            description = """
+                        INVESTOR가 모집 중인 공모에 청약을 요청합니다.
+                        사용자 자격, PreFDS 및 청약 수량을 검증한 후 수량을 확보하고,
+                        Wallet에 자금 동결을 비동기로 요청합니다.
+                    """
+    )
     @PostMapping
     public ResponseEntity<ApiResponse<SubscriptionCreateResponse>> createSubscription(
             @PathVariable UUID offeringId,
