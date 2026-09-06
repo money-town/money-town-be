@@ -265,6 +265,77 @@ class OutboxPublishSchedulerTest {
                 );
     }
 
+    @Test
+    @DisplayName("청약 실패 이벤트는 userId를 Kafka 메시지 Key로 사용한다")
+    void publishesSubscriptionFailedWithUserIdKey() {
+        UUID eventId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        String envelopeJson = """
+            {
+              "eventId": "%s",
+              "eventType": "SubscriptionFailed",
+              "aggregateId": "%s",
+              "userId": "%s",
+              "correlationId": "%s",
+              "payload": {
+                "userId": "%s",
+                "assetId": "%s",
+                "subscriptionId": "%s",
+                "failureCode": "INSUFFICIENT_BALANCE"
+              }
+            }
+            """.formatted(
+                eventId,
+                subscriptionId,
+                userId,
+                UUID.randomUUID(),
+                userId,
+                assetId,
+                subscriptionId
+        );
+
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        eventId,
+                        "subscription-events",
+                        envelopeJson,
+                        Instant.parse("2026-09-07T00:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(
+                event,
+                userId.toString()
+        )).thenReturn(successfulFuture());
+
+        when(outboxPublishService.markPublished(event))
+                .thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .claimPendingEvents(10);
+
+        verify(outboxKafkaPublisher)
+                .publish(
+                        event,
+                        userId.toString()
+                );
+
+        verify(outboxPublishService)
+                .markPublished(event);
+
+        verify(outboxPublishService, never())
+                .markFailedAttempt(
+                        any(),
+                        anyString()
+                );
+    }
 
     private OutboxPublishService.ClaimedEvent createEvent(
             UUID userId

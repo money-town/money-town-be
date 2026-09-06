@@ -27,6 +27,7 @@ public class SubscriptionEventPublisher {
     private static final String COMPENSATION_REQUESTED_TOPIC = "subscription-compensation-requested";
 
     private static final String LIMIT_EXCEEDED_EVENT_TYPE = "SubscriptionLimitExceeded";
+    private static final String FAILED_EVENT_TYPE = "SubscriptionFailed";
     private static final String POST_FDS_TOPIC = "subscription-events";
 
     private final OutboxEventStore outboxEventStore;
@@ -231,6 +232,71 @@ public class SubscriptionEventPublisher {
 
         outboxEventStore.save(
                 SUBSCRIPTION_REQUEST_AGGREGATE_TYPE,
+                POST_FDS_TOPIC,
+                envelope
+        );
+    }
+
+
+    /**
+     * Wallet HOLD 실패 처리와 공모 수량 복원이 완료되어
+     * 최종 REJECTED 상태가 된 청약의 실패 이벤트를 Outbox에 저장한다.
+     *
+     * 청약 상태 변경, 공모 수량 복원 및 수신 이벤트 처리 이력과
+     * 동일한 트랜잭션 안에서 호출해야 한다.
+     *
+     * @param subscription 최종 거절된 청약
+     * @param assetId 청약 대상 공모의 자산 ID
+     * @param correlationId Wallet HOLD 요청부터 이어진 추적 ID
+     */
+    public void publishFailed(
+            Subscription subscription,
+            UUID assetId,
+            String correlationId
+    ) {
+        validateCommon(subscription, correlationId);
+
+        Objects.requireNonNull(
+                assetId,
+                "assetId는 필수입니다."
+        );
+
+        if (subscription.getSubscriptionStatus()
+                != SubscriptionStatus.REJECTED) {
+            throw new IllegalStateException(
+                    "REJECTED 청약만 실패 이벤트를 생성할 수 있습니다."
+            );
+        }
+
+        String failureCode = subscription.getFailureCode();
+
+        if (failureCode == null
+                || failureCode.isBlank()
+                || failureCode.length() > 50) {
+            throw new IllegalStateException(
+                    "failureCode는 필수이며 50자를 초과할 수 없습니다."
+            );
+        }
+
+        SubscriptionFailedPayload payload =
+                new SubscriptionFailedPayload(
+                        subscription.getUserId(),
+                        assetId,
+                        subscription.getSubscriptionId(),
+                        failureCode
+                );
+
+        EventEnvelope<SubscriptionFailedPayload> envelope =
+                EventEnvelope.of(
+                        FAILED_EVENT_TYPE,
+                        subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(),
+                        correlationId,
+                        payload
+                );
+
+        outboxEventStore.save(
+                AGGREGATE_TYPE,
                 POST_FDS_TOPIC,
                 envelope
         );
