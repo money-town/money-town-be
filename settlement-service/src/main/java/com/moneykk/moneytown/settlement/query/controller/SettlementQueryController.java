@@ -8,6 +8,7 @@ import com.moneykk.moneytown.settlement.query.application.SettlementQueryService
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
+import com.moneykk.moneytown.settlement.query.dto.SettlementReconciliationResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -44,6 +45,14 @@ public class SettlementQueryController {
             @PageableDefault(size = 10) Pageable pageable) {
         PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(role, settlementBatchId, status, pageable);
         return ResponseEntity.ok(ApiResponse.success(response, "회차별 개별 지급 내역을 조회했습니다."));
+    }
+
+    @GetMapping("/settlements/{settlementBatchId}/reconciliation")
+    public ResponseEntity<ApiResponse<SettlementReconciliationResponse>> getReconciliation(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @PathVariable UUID settlementBatchId) {
+        SettlementReconciliationResponse response = settlementQueryService.getReconciliation(role, settlementBatchId);
+        return ResponseEntity.ok(ApiResponse.success(response, "배당 총액과 지급 내역의 정합성을 확인했습니다."));
     }
 
     // TODO: Gateway 인증/인가 정책 확정 후 INVESTOR 권한 및 사용자 정보 전달 방식 재검토

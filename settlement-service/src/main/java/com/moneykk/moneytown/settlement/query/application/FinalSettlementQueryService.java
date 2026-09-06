@@ -10,6 +10,7 @@ import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutR
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementBatchDetailResponse;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementReconciliationResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -56,6 +58,25 @@ public class FinalSettlementQueryService {
                 ? finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(finalSettlementBatchId, sortedPageable)
                 : finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(finalSettlementBatchId, status, sortedPageable);
         return PageResponse.from(payouts, FinalSettlementPayoutListItemResponse::of);
+    }
+
+    @Transactional(readOnly = true)
+    public FinalSettlementReconciliationResponse getReconciliation(String role, UUID finalSettlementBatchId) {
+        validateAdmin(role);
+        FinalSettlementBatch batch = finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
+                .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
+
+        List<FinalSettlementPayout> payouts =
+                finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(finalSettlementBatchId);
+
+        long expectedAmount = batch.getTotalAmount();
+        long totalPayoutAmount = payouts.stream().mapToLong(FinalSettlementPayout::getAmount).sum();
+        long paidAmount = payouts.stream()
+                .filter(payout -> payout.getStatus() == PayoutStatus.PAID)
+                .mapToLong(FinalSettlementPayout::getAmount)
+                .sum();
+
+        return FinalSettlementReconciliationResponse.of(finalSettlementBatchId, expectedAmount, totalPayoutAmount, paidAmount);
     }
 
     private void validateAdmin(String role) {

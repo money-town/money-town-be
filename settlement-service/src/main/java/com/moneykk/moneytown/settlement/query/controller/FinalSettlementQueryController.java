@@ -7,6 +7,7 @@ import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.query.application.FinalSettlementQueryService;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementBatchDetailResponse;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementReconciliationResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -44,5 +45,14 @@ public class FinalSettlementQueryController {
         PageResponse<FinalSettlementPayoutListItemResponse> response =
                 finalSettlementQueryService.getPayouts(role, finalSettlementBatchId, status, pageable);
         return ResponseEntity.ok(ApiResponse.success(response, "개별 반환 내역을 조회했습니다."));
+    }
+
+    @GetMapping("/final-settlements/{finalSettlementBatchId}/reconciliation")
+    public ResponseEntity<ApiResponse<FinalSettlementReconciliationResponse>> getReconciliation(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @PathVariable UUID finalSettlementBatchId) {
+        FinalSettlementReconciliationResponse response =
+                finalSettlementQueryService.getReconciliation(role, finalSettlementBatchId);
+        return ResponseEntity.ok(ApiResponse.success(response, "원금반환 총액과 지급 내역의 정합성을 확인했습니다."));
     }
 }

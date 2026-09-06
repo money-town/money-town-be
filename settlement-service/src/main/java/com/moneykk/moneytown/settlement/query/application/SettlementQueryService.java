@@ -11,6 +11,7 @@ import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
+import com.moneykk.moneytown.settlement.query.dto.SettlementReconciliationResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -65,6 +67,24 @@ public class SettlementQueryService {
         Page<DividendPayoutRepository.MyDividendPayoutRow> payouts =
                 dividendPayoutRepository.findMyDividendPayouts(investorId, assetId, unsortedPageable);
         return PageResponse.from(payouts, MyDividendPayoutListItemResponse::of);
+    }
+
+    @Transactional(readOnly = true)
+    public SettlementReconciliationResponse getReconciliation(String role, UUID settlementBatchId) {
+        validateAdmin(role);
+        SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
+                .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
+
+        List<DividendPayout> payouts = dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId);
+
+        long expectedAmount = batch.getTotalAmount() - batch.getRemainderAmount();
+        long totalPayoutAmount = payouts.stream().mapToLong(DividendPayout::getAmount).sum();
+        long paidAmount = payouts.stream()
+                .filter(payout -> payout.getStatus() == PayoutStatus.PAID)
+                .mapToLong(DividendPayout::getAmount)
+                .sum();
+
+        return SettlementReconciliationResponse.of(settlementBatchId, expectedAmount, totalPayoutAmount, paidAmount);
     }
 
     private void validateAdmin(String role) {
