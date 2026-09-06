@@ -26,6 +26,15 @@ public class SubscriptionEventPublisher {
 
     private final OutboxEventStore outboxEventStore;
 
+    /*
+     * TODO: Analysis 담당자 반영 확인
+     * - 외부 eventType은 SubscriptionFailed,
+     *   SubscriptionLimitExceeded 형식 사용
+     * - Analysis EventType.fromEventName() 매핑 추가
+     * - requestedQuantity, maxSubscriptionQuantity,
+     *   failureCode 수신 Payload 반영
+     */
+
     /**
      * 청약금 동결 요청 이벤트를 Outbox에 저장한다.
      *

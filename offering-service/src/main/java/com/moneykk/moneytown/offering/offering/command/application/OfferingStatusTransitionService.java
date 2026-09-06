@@ -159,6 +159,12 @@ public class OfferingStatusTransitionService {
     /**
      * 공모 취소 유형에 따라 보상 대상 청약을 전환하고
      * 보상 요청 이벤트를 Outbox에 저장한다.
+     *
+     * TODO: Holding 담당자와 늦은 지분 배정 차단 계약 확정
+     * - 배정 전 회수 요청 수신 시 subscriptionId 기준 배정 금지 기록
+     * - 이후 늦게 도착한 SubscriptionConfirmed의 지분 배정 차단
+     * - 배정과 회수 동시 처리 시 잠금 및 멱등 처리 방식 확정
+     * - 늦은 배정 차단 시 HoldingAllocationFailed 오류 코드 확정
      */
     private void startSubscriptionCompensations(
             Offering offering,

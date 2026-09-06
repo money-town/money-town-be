@@ -252,6 +252,13 @@ public class WalletHoldResultService {
             return;
         }
 
+        /*
+         * TODO: Wallet 담당자와 WalletHoldFailed.reason 계약 확정
+         * - INSUFFICIENT_BALANCE와 INSUFFICIENT_AVAILABLE_BALANCE 중 하나로 통일
+         * - INVALID_AMOUNT, BALANCE_OVERFLOW 등 업무 실패 코드 구분
+         * - 확정된 reason을 SubscriptionFailed.failureCode로 그대로 전달
+         * - 시스템 예외는 실패 이벤트가 아닌 Kafka 재시도 대상으로 처리
+         */
         subscription.startHoldFailureCompensation(
                 envelope.payload().reason()
         );
