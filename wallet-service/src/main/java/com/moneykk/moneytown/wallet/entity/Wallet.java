@@ -97,8 +97,7 @@ public class Wallet extends BaseUpdatableEntity {
         }
     }
 
-    // long 덧셈 오버플로가 나면(이론상 balance가 Long.MAX_VALUE에 근접한 경우)
-    // 값이 음수로 뒤집히는 대신 명시적인 BusinessException으로 막는다.
+    // long 덧셈 오버플로가 나면, 값이 음수로 뒤집히는 대신 명시적인 BusinessException으로 막는다.
     private static long addExact(long a, long b) {
         try {
             return Math.addExact(a, b);
