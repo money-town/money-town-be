@@ -15,6 +15,31 @@ spring:
     listener:
       ack-mode: record
 
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.7
+  http:
+    client:
+      read-timeout: 60s
+      connect-timeout: 3s
+
+  cloud:
+    openfeign:
+      client:
+        config:
+          default: # 모든 Feign 클라 공통
+            connect-timeout: 2000       # ms
+            read-timeout: 5000          # ms
+            logger-level: basic
+          offering-service:
+            read-timeout: 3000
+          asset-service:
+            read-timeout: 5000          # 벌크 조회라 좀 넉넉히
+
 fds:
   pre:
     rules:
