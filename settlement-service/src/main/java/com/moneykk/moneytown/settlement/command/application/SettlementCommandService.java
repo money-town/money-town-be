@@ -42,9 +42,19 @@ public class SettlementCommandService {
     private final AssetServiceClient assetServiceClient;
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
+    // 수익 폴링 스케줄러가 자동으로 개시할 때 사용 — 사람의 요청이 아니므로 ADMIN 검사를 거치지 않는다.
+    @Transactional
+    public SettlementBatchResponse openBatchAutomatically(UUID assetId, UUID revenueId) {
+        return openBatchInternal(assetId, revenueId);
+    }
+
     @Transactional
     public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId) {
         validateAdmin(role);
+        return openBatchInternal(assetId, revenueId);
+    }
+
+    private SettlementBatchResponse openBatchInternal(UUID assetId, UUID revenueId) {
         guardAgainstDuplicateOrConcurrentBatch(assetId, revenueId);
 
         RevenueResponse revenue = fetchAndValidateRevenue(assetId, revenueId);

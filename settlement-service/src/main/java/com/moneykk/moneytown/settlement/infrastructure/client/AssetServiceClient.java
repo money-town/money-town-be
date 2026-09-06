@@ -3,6 +3,7 @@ package com.moneykk.moneytown.settlement.infrastructure.client;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
+import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatusUpdateRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatusUpdateResponse;
@@ -35,4 +36,7 @@ public interface AssetServiceClient {
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @PathVariable("revenueId") UUID revenueId,
             @RequestBody RevenueTransferStatusUpdateRequest request);
+
+    @GetMapping("/api/v1/internal/revenues")
+    ApiResponse<ReadyRevenueListResponse> getReadyRevenues(@RequestParam(value = "cursor", required = false) UUID cursor);
 }
