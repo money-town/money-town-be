@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -22,23 +23,38 @@ public class OutboxPublishScheduler {
     private final OutboxKafkaPublisher outboxKafkaPublisher;
     private final ObjectMapper objectMapper;
 
+    @Value("${outbox.publish.batch-size:10}")
+    private int batchSize;
+
     @Scheduled(fixedDelayString = "${outbox.publish.fixed-delay-ms:1000}")
-    public void publishPendingEvent() {
+    public void publishPendingEvents() {
         List<OutboxPublishService.ClaimedEvent> events;
 
         try {
-            events = outboxPublishService.claimPendingEvents(1);
+            events = outboxPublishService.claimPendingEvents(batchSize);
         } catch (Exception e) {
             log.error("Outbox 이벤트 선점 실패", e);
             return;
         }
 
-        if (events.isEmpty()) {
-            return;
+        for (OutboxPublishService.ClaimedEvent event : events) {
+            boolean continuePublishing = publishClaimedEvent(event);
+
+            if (!continuePublishing) {
+                return;
+            }
         }
+    }
 
-        OutboxPublishService.ClaimedEvent event = events.get(0);
-
+    /**
+     * 선점한 Outbox 이벤트 한 건을 발행하고 결과를 기록한다.
+     *
+     * @return 다음 이벤트 발행을 계속할 수 있으면 true,
+     * 스레드 인터럽트로 중단해야 하면 false
+     */
+    private boolean publishClaimedEvent(
+            OutboxPublishService.ClaimedEvent event
+    ) {
         try {
             String messageKey = resolveMessageKey(event);
 
@@ -48,24 +64,37 @@ public class OutboxPublishScheduler {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            // 전송 결과가 불확실하므로 PROCESSING을 유지하고 복구 대상으로 남긴다.
-            log.warn("Outbox 발행 대기 중 인터럽트. eventId={}",
-                    event.eventId());
-            return;
+            /*
+             * 애플리케이션 종료 등으로 스레드가 중단된 경우
+             * 남은 이벤트는 PROCESSING 복구 스케줄러가 다시 처리한다.
+             */
+            log.warn(
+                    "Outbox 발행 대기 중 인터럽트. eventId={}",
+                    event.eventId()
+            );
+            return false;
 
         } catch (TimeoutException e) {
-            // 기다리는 시간이 끝났어도 실제 Kafka 전송은 진행 중일 수 있다.
-            log.warn("Outbox 발행 결과 대기 시간 초과. 복구 대기. eventId={}",
-                    event.eventId());
-            return;
+            /*
+             * 대기 시간이 끝났어도 Kafka 전송은 진행 중일 수 있으므로
+             * 실패로 확정하지 않고 PROCESSING 복구 대상으로 남긴다.
+             */
+            log.warn(
+                    "Outbox 발행 결과 대기 시간 초과. 복구 대기. eventId={}",
+                    event.eventId()
+            );
+            return true;
 
         } catch (ExecutionException e) {
-            recordFailure(event, e.getCause() != null ? e.getCause() : e);
-            return;
+            recordFailure(
+                    event,
+                    e.getCause() != null ? e.getCause() : e
+            );
+            return true;
 
         } catch (Exception e) {
             recordFailure(event, e);
-            return;
+            return true;
         }
 
         // Kafka 성공 후 DB 기록 실패를 전송 실패로 처리하지 않도록 분리한다.
@@ -73,13 +102,20 @@ public class OutboxPublishScheduler {
             boolean updated = outboxPublishService.markPublished(event);
 
             if (!updated) {
-                log.warn("Outbox 발행 성공 결과 미반영: 상태 또는 시도 변경. eventId={}",
-                        event.eventId());
+                log.warn(
+                        "Outbox 발행 성공 결과 미반영: 상태 또는 시도 변경. eventId={}",
+                        event.eventId()
+                );
             }
         } catch (Exception e) {
-            log.error("Kafka 발행 성공 후 Outbox 결과 저장 실패. eventId={}",
-                    event.eventId(), e);
+            log.error(
+                    "Kafka 발행 성공 후 Outbox 결과 저장 실패. eventId={}",
+                    event.eventId(),
+                    e
+            );
         }
+
+        return true;
     }
 
     @Scheduled(fixedDelayString = "${outbox.publish.recovery-delay-ms:30000}")

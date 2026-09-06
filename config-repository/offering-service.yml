@@ -25,6 +25,11 @@ spring:
     listener:
       ack-mode: record
 
+  task:
+    scheduling:
+      pool:
+        size: 2
+
   cloud:
     openfeign:
       client:
@@ -43,3 +48,7 @@ spring:
 
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
+
+outbox:
+  publish:
+    batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
