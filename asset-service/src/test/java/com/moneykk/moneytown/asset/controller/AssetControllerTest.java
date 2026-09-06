@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.asset.controller;
 
+import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.entity.Asset;
@@ -146,7 +147,11 @@ class AssetControllerTest {
                 100_000_000L, BigDecimal.ZERO, Map.of("appraisalAmount", 100_000_000L), 10_000L);
         when(queryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
         AssetCommandService realService = new AssetCommandService(
-                mock(AssetRepository.class), queryRepository, mock(com.moneykk.moneytown.asset.service.S3StorageService.class));
+                mock(AssetRepository.class),
+                queryRepository,
+                mock(com.moneykk.moneytown.asset.service.S3StorageService.class),
+                mock(SettlementServiceClient.class)
+        );
         MockMvc realMvc = MockMvcBuilders.standaloneSetup(
                         new AssetController(realService, mock(AssetQueryService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
