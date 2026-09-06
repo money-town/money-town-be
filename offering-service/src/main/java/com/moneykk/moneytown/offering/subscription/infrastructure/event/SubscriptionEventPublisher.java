@@ -15,6 +15,8 @@ import java.util.UUID;
 public class SubscriptionEventPublisher {
 
     private static final String AGGREGATE_TYPE = "SUBSCRIPTION";
+    private static final String SUBSCRIPTION_REQUEST_AGGREGATE_TYPE = "SUBSCRIPTION_REQUEST";
+
     private static final String RESERVED_EVENT_TYPE = "SubscriptionReserved";
     private static final String RESERVED_TOPIC = "subscription-reserved";
 
@@ -23,6 +25,9 @@ public class SubscriptionEventPublisher {
 
     private static final String COMPENSATION_REQUESTED_EVENT_TYPE = "SubscriptionCompensationRequested";
     private static final String COMPENSATION_REQUESTED_TOPIC = "subscription-compensation-requested";
+
+    private static final String LIMIT_EXCEEDED_EVENT_TYPE = "SubscriptionLimitExceeded";
+    private static final String POST_FDS_TOPIC = "subscription-events";
 
     private final OutboxEventStore outboxEventStore;
 
@@ -179,6 +184,58 @@ public class SubscriptionEventPublisher {
         );
     }
 
+    /**
+     * 사용자가 공모의 1인당 최대 청약 수량을 초과하여 요청한 경우
+     * PostFDS 집계를 위한 이벤트를 Outbox에 저장한다.
+     *
+     * 청약 엔티티 생성 전에 발생하는 이벤트이므로
+     * subscriptionId는 Payload에 null로 전달한다.
+     *
+     * Outbox의 aggregateId는 null일 수 없으므로
+     * 청약 요청을 선점할 때 생성한 idempotencyRequestId를 사용한다.
+     */
+    public void publishLimitExceeded(
+            UUID idempotencyRequestId,
+            UUID userId,
+            UUID assetId,
+            Long requestedQuantity,
+            Long maxSubscriptionQuantity,
+            String correlationId
+    ) {
+        validateLimitExceeded(
+                idempotencyRequestId,
+                userId,
+                assetId,
+                requestedQuantity,
+                maxSubscriptionQuantity,
+                correlationId
+        );
+
+        SubscriptionLimitExceededPayload payload =
+                new SubscriptionLimitExceededPayload(
+                        userId,
+                        assetId,
+                        null,
+                        requestedQuantity,
+                        maxSubscriptionQuantity
+                );
+
+        EventEnvelope<SubscriptionLimitExceededPayload> envelope =
+                EventEnvelope.of(
+                        LIMIT_EXCEEDED_EVENT_TYPE,
+                        idempotencyRequestId.toString(),
+                        userId,
+                        correlationId,
+                        payload
+                );
+
+        outboxEventStore.save(
+                SUBSCRIPTION_REQUEST_AGGREGATE_TYPE,
+                POST_FDS_TOPIC,
+                envelope
+        );
+    }
+
     private void validateCommon(
             Subscription subscription,
             String correlationId
@@ -192,6 +249,48 @@ public class SubscriptionEventPublisher {
                 subscription.getUserId(),
                 "userId는 필수입니다."
         );
+
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "correlationId는 필수입니다."
+            );
+        }
+    }
+
+    private void validateLimitExceeded(
+            UUID idempotencyRequestId,
+            UUID userId,
+            UUID assetId,
+            Long requestedQuantity,
+            Long maxSubscriptionQuantity,
+            String correlationId
+    ) {
+        Objects.requireNonNull(
+                idempotencyRequestId,
+                "idempotencyRequestId는 필수입니다."
+        );
+        Objects.requireNonNull(
+                userId,
+                "userId는 필수입니다."
+        );
+        Objects.requireNonNull(
+                assetId,
+                "assetId는 필수입니다."
+        );
+        Objects.requireNonNull(
+                requestedQuantity,
+                "requestedQuantity는 필수입니다."
+        );
+        Objects.requireNonNull(
+                maxSubscriptionQuantity,
+                "maxSubscriptionQuantity는 필수입니다."
+        );
+
+        if (requestedQuantity <= maxSubscriptionQuantity) {
+            throw new IllegalArgumentException(
+                    "요청 수량은 최대 청약 수량보다 커야 합니다."
+            );
+        }
 
         if (correlationId == null || correlationId.isBlank()) {
             throw new IllegalArgumentException(
