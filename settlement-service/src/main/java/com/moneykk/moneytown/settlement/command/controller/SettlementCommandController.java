@@ -6,6 +6,7 @@ import com.moneykk.moneytown.settlement.command.application.DividendDisbursement
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
 import com.moneykk.moneytown.settlement.command.dto.OpenSettlementRequest;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
+import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ public class SettlementCommandController {
 
     private final SettlementCommandService settlementCommandService;
     private final DividendDisbursementService dividendDisbursementService;
+    private final RevenueTransferStatusNotifier revenueTransferStatusNotifier;
 
     @PostMapping("/settlements")
     public ResponseEntity<ApiResponse<SettlementBatchResponse>> openSettlementBatch(
@@ -33,6 +35,7 @@ public class SettlementCommandController {
             @Valid @RequestBody OpenSettlementRequest request) {
         SettlementBatchResponse response =
                 settlementCommandService.openBatch(role, request.assetId(), request.revenueId());
+        revenueTransferStatusNotifier.notifyTransferred(response.revenueId());
         dividendDisbursementService.disburseAsync(response.settlementBatchId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "정산 회차가 개시되었습니다."));
