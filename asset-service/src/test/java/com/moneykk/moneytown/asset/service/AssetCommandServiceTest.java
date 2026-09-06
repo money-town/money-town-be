@@ -51,6 +51,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class AssetCommandServiceTest {
@@ -419,7 +421,7 @@ class AssetCommandServiceTest {
         );
         assertEquals(assetId, requestCaptor.getValue().assetId());
         assertEquals(asset.getUnitPrice(), requestCaptor.getValue().unitPrice());
-        assertNotNull(requestCaptor.getValue().terminatedAt());
+        assertEquals(asset.getTerminationRequestedAt(), requestCaptor.getValue().terminatedAt());
     }
 
     @Test
@@ -448,15 +450,25 @@ class AssetCommandServiceTest {
         runTransactionsImmediately();
         UUID assetId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
-        Asset asset = assetForUpdate(ownerId, AssetStatus.TERMINATION_REQUESTED);
+        Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
         when(assetQueryRepository.findActiveByIdForUpdate(assetId))
                 .thenReturn(Optional.of(asset));
+        doThrow(new RuntimeException("settlement unavailable"))
+                .doNothing()
+                .when(settlementServiceClient)
+                .openFinalSettlement(eq("SYSTEM"), any(FinalSettlementOpenRequest.class));
 
+        assertThrows(RuntimeException.class,
+                () -> assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER"));
         assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER");
 
         assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
-        verify(settlementServiceClient).openFinalSettlement(
-                eq("SYSTEM"), any(FinalSettlementOpenRequest.class));
+        ArgumentCaptor<FinalSettlementOpenRequest> requestCaptor =
+                ArgumentCaptor.forClass(FinalSettlementOpenRequest.class);
+        verify(settlementServiceClient, times(2)).openFinalSettlement(
+                eq("SYSTEM"), requestCaptor.capture());
+        assertEquals(requestCaptor.getAllValues().get(0).terminatedAt(),
+                requestCaptor.getAllValues().get(1).terminatedAt());
     }
 
     @Test

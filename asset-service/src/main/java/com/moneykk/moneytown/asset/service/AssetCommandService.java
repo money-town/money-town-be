@@ -215,15 +215,8 @@ public class AssetCommandService {
             );
         }
 
-        boolean retry = asset.getStatus() == AssetStatus.TERMINATION_REQUESTED;
-        Instant terminatedAt = retry && asset.getUpdatedAt() != null
-                ? asset.getUpdatedAt()
-                : Instant.now();
-
-        // 정산 호출 실패 후 같은 요청을 보내면 최초 종료 요청 시각으로 다시 호출
-        if (!retry) {
-            asset.changeStatus(AssetStatus.TERMINATION_REQUESTED, null);
-        }
+        // 재시도해도 최초 종료 요청 시각을 그대로 사용
+        Instant terminatedAt = asset.requestTermination();
 
         return new FinalSettlementOpenRequest(
                 assetId,
