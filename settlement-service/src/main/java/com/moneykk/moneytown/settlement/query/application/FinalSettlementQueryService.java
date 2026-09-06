@@ -26,11 +26,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FinalSettlementQueryService {
 
+    private static final String ADMIN_ROLE = "ADMIN";
+
     private final FinalSettlementBatchRepository finalSettlementBatchRepository;
     private final FinalSettlementPayoutRepository finalSettlementPayoutRepository;
 
     @Transactional(readOnly = true)
-    public FinalSettlementBatchDetailResponse getFinalSettlementBatch(UUID finalSettlementBatchId) {
+    public FinalSettlementBatchDetailResponse getFinalSettlementBatch(String role, UUID finalSettlementBatchId) {
+        validateAdmin(role);
         FinalSettlementBatch batch = finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
                 .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
 
@@ -38,7 +41,8 @@ public class FinalSettlementQueryService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<FinalSettlementPayoutListItemResponse> getPayouts(UUID finalSettlementBatchId, PayoutStatus status, Pageable pageable) {
+    public PageResponse<FinalSettlementPayoutListItemResponse> getPayouts(String role, UUID finalSettlementBatchId, PayoutStatus status, Pageable pageable) {
+        validateAdmin(role);
         if (!finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(finalSettlementBatchId)) {
             throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);
         }
@@ -52,6 +56,12 @@ public class FinalSettlementQueryService {
                 ? finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(finalSettlementBatchId, sortedPageable)
                 : finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(finalSettlementBatchId, status, sortedPageable);
         return PageResponse.from(payouts, FinalSettlementPayoutListItemResponse::of);
+    }
+
+    private void validateAdmin(String role) {
+        if (!ADMIN_ROLE.equals(role)) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+        }
     }
 
     private FinalSettlementBatchDetailResponse.Progress buildProgress(UUID finalSettlementBatchId) {

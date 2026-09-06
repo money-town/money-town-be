@@ -19,6 +19,7 @@ import java.util.UUID;
 public class AssetHoldingsSnapshotFetcher {
 
     private static final int MAX_PAGES = 1000;
+    private static final String SYSTEM_ROLE = "SYSTEM";
 
     private final AssetServiceClient assetServiceClient;
 
@@ -35,7 +36,7 @@ public class AssetHoldingsSnapshotFetcher {
 
             String requestCursor = cursor;
             HoldingsSnapshotResponse page = FeignExceptionTranslator.call(
-                    () -> assetServiceClient.getHoldingsSnapshot(assetId, asOf, requestCursor).data(),
+                    () -> assetServiceClient.getHoldingsSnapshot(SYSTEM_ROLE, assetId, asOf, requestCursor).data(),
                     SettlementErrorCode.ASSET_HOLDINGS_NOT_FOUND);
 
             if (page.holdings() != null) {

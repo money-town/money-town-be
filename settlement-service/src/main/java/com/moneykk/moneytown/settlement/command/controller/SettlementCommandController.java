@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.settlement.command.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.settlement.command.application.DividendDisbursementService;
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
 import com.moneykk.moneytown.settlement.command.dto.OpenSettlementRequest;
@@ -12,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,22 +27,22 @@ public class SettlementCommandController {
     private final SettlementCommandService settlementCommandService;
     private final DividendDisbursementService dividendDisbursementService;
 
-    //TODO: 인가 코드 추가
     @PostMapping("/settlements")
     public ResponseEntity<ApiResponse<SettlementBatchResponse>> openSettlementBatch(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OpenSettlementRequest request) {
         SettlementBatchResponse response =
-                settlementCommandService.openBatch(request.assetId(), request.revenueId());
+                settlementCommandService.openBatch(role, request.assetId(), request.revenueId());
         dividendDisbursementService.disburseAsync(response.settlementBatchId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "정산 회차가 개시되었습니다."));
     }
 
-    //TODO: 인가 코드 추가
     @PostMapping("/settlements/{settlementBatchId}/retry")
     public ResponseEntity<ApiResponse<SettlementBatchResponse>> retrySettlementBatch(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @PathVariable UUID settlementBatchId) {
-        SettlementBatchResponse response = settlementCommandService.retryBatch(settlementBatchId);
+        SettlementBatchResponse response = settlementCommandService.retryBatch(role, settlementBatchId);
         dividendDisbursementService.disburseAsync(response.settlementBatchId());
         return ResponseEntity.ok(ApiResponse.success(response, "정산 회차 재시도가 접수되었습니다."));
     }

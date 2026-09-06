@@ -13,6 +13,9 @@ public enum SettlementErrorCode implements ErrorCode {
     REVENUE_ASSET_MISMATCH(HttpStatus.BAD_REQUEST, "SETTLEMENT_400_01", "수익 데이터의 자산과 요청한 자산이 일치하지 않습니다."),
     REVENUE_AMOUNT_INVALID(HttpStatus.BAD_REQUEST, "SETTLEMENT_400_03", "수익 금액(총수익/비용/수수료)이 올바르지 않습니다."),
 
+    SETTLEMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "SETTLEMENT_403_01", "정산 회차 관련 기능은 ADMIN 권한으로만 이용할 수 있습니다."),
+    FINAL_SETTLEMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "SETTLEMENT_403_02", "최종 정산 회차 관련 기능은 ADMIN 권한으로만 이용할 수 있습니다."),
+
     REVENUE_NOT_READY(HttpStatus.CONFLICT, "SETTLEMENT_409_01", "정산 전달 대기(READY) 상태의 수익이 아닙니다."),
     DISTRIBUTABLE_AMOUNT_NOT_POSITIVE(HttpStatus.CONFLICT, "SETTLEMENT_409_02", "배당 가능 총액이 0원 이하라 정산 회차를 개시할 수 없습니다."),
     SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE(HttpStatus.CONFLICT, "SETTLEMENT_409_03", "이미 해당 수익 건으로 개시된 정산 회차가 존재합니다."),

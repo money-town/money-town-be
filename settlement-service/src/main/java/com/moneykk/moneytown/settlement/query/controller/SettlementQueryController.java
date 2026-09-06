@@ -2,6 +2,7 @@ package com.moneykk.moneytown.settlement.query.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.query.application.SettlementQueryService;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
@@ -27,21 +28,21 @@ public class SettlementQueryController {
 
     private final SettlementQueryService settlementQueryService;
 
-    //TODO: 인가 코드 추가
     @GetMapping("/settlements/{settlementBatchId}")
     public ResponseEntity<ApiResponse<SettlementBatchDetailResponse>> getSettlementBatch(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @PathVariable UUID settlementBatchId) {
-        SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(settlementBatchId);
+        SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(role, settlementBatchId);
         return ResponseEntity.ok(ApiResponse.success(response, "정산 회차 상태를 조회했습니다."));
     }
 
-    //TODO: 인가 코드 추가
     @GetMapping("/settlements/{settlementBatchId}/payouts")
     public ResponseEntity<ApiResponse<PageResponse<DividendPayoutListItemResponse>>> getPayouts(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @PathVariable UUID settlementBatchId,
             @RequestParam(required = false) PayoutStatus status,
             @PageableDefault(size = 10) Pageable pageable) {
-        PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(settlementBatchId, status, pageable);
+        PageResponse<DividendPayoutListItemResponse> response = settlementQueryService.getPayouts(role, settlementBatchId, status, pageable);
         return ResponseEntity.ok(ApiResponse.success(response, "회차별 개별 지급 내역을 조회했습니다."));
     }
 

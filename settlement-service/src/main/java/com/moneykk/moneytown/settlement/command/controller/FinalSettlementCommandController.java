@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.settlement.command.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.settlement.command.application.FinalSettlementCommandService;
 import com.moneykk.moneytown.settlement.command.application.FinalSettlementDisbursementService;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse;
@@ -14,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,13 +39,13 @@ public class FinalSettlementCommandController {
                 .body(ApiResponse.success(response, "최종 정산 회차가 개시되었습니다."));
     }
 
-    //TODO: 인가 코드 추가 (ADMIN 권한)
     @PostMapping("/final-settlements/{finalSettlementBatchId}/retry")
     public ResponseEntity<ApiResponse<FinalSettlementRetryResponse>> retryFinalSettlement(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @PathVariable UUID finalSettlementBatchId,
             @RequestBody(required = false) FinalSettlementRetryRequest request) {
         FinalSettlementRetryResponse response = finalSettlementCommandService.retryFinalSettlement(
-                finalSettlementBatchId, request != null ? request : new FinalSettlementRetryRequest(null));
+                role, finalSettlementBatchId, request != null ? request : new FinalSettlementRetryRequest(null));
         finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
         return ResponseEntity.ok(ApiResponse.success(response, "실패 건 재처리가 시작되었습니다."));
     }

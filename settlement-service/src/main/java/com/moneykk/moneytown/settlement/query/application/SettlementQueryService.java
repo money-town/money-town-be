@@ -27,11 +27,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SettlementQueryService {
 
+    private static final String ADMIN_ROLE = "ADMIN";
+
     private final SettlementBatchRepository settlementBatchRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
 
     @Transactional(readOnly = true)
-    public SettlementBatchDetailResponse getSettlementBatch(UUID settlementBatchId) {
+    public SettlementBatchDetailResponse getSettlementBatch(String role, UUID settlementBatchId) {
+        validateAdmin(role);
         SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
                 .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
 
@@ -39,7 +42,8 @@ public class SettlementQueryService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<DividendPayoutListItemResponse> getPayouts(UUID settlementBatchId, PayoutStatus status, Pageable pageable) {
+    public PageResponse<DividendPayoutListItemResponse> getPayouts(String role, UUID settlementBatchId, PayoutStatus status, Pageable pageable) {
+        validateAdmin(role);
         if (!settlementBatchRepository.existsByIdAndIsDeletedFalse(settlementBatchId)) {
             throw new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
         }
@@ -61,6 +65,12 @@ public class SettlementQueryService {
         Page<DividendPayoutRepository.MyDividendPayoutRow> payouts =
                 dividendPayoutRepository.findMyDividendPayouts(investorId, assetId, unsortedPageable);
         return PageResponse.from(payouts, MyDividendPayoutListItemResponse::of);
+    }
+
+    private void validateAdmin(String role) {
+        if (!ADMIN_ROLE.equals(role)) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+        }
     }
 
     private SettlementBatchDetailResponse.PayoutSummary buildPayoutSummary(UUID settlementBatchId) {

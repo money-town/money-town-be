@@ -1,11 +1,13 @@
 package com.moneykk.moneytown.settlement.infrastructure.client;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalDate;
@@ -19,7 +21,8 @@ public interface AssetServiceClient {
                                              @PathVariable("revenueId") UUID revenueId);
 
     @GetMapping("/api/v1/assets/{assetId}/holdings")
-    ApiResponse<HoldingsSnapshotResponse> getHoldingsSnapshot(@PathVariable("assetId") UUID assetId,
+    ApiResponse<HoldingsSnapshotResponse> getHoldingsSnapshot(@RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+                                                               @PathVariable("assetId") UUID assetId,
                                                                @RequestParam("asOf") LocalDate asOf,
                                                                @RequestParam(value = "cursor", required = false) String cursor);
 }

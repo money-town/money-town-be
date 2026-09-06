@@ -34,6 +34,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SettlementCommandService {
 
+    private static final String ADMIN_ROLE = "ADMIN";
+
     private final SettlementBatchRepository settlementBatchRepository;
     private final HoldingSnapshotRepository holdingSnapshotRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
@@ -41,7 +43,8 @@ public class SettlementCommandService {
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @Transactional
-    public SettlementBatchResponse openBatch(UUID assetId, UUID revenueId) {
+    public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId) {
+        validateAdmin(role);
         guardAgainstDuplicateOrConcurrentBatch(assetId, revenueId);
 
         RevenueResponse revenue = fetchAndValidateRevenue(assetId, revenueId);
@@ -106,7 +109,8 @@ public class SettlementCommandService {
     }
 
     @Transactional
-    public SettlementBatchResponse retryBatch(UUID settlementBatchId) {
+    public SettlementBatchResponse retryBatch(String role, UUID settlementBatchId) {
+        validateAdmin(role);
         SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
                 .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
 
@@ -128,6 +132,12 @@ public class SettlementCommandService {
 
     private boolean isRetryable(SettlementStatus status) {
         return status == SettlementStatus.FAILED || status == SettlementStatus.PARTIAL_FAILED;
+    }
+
+    private void validateAdmin(String role) {
+        if (!ADMIN_ROLE.equals(role)) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+        }
     }
 
     private void guardAgainstDuplicateOrConcurrentBatch(UUID assetId, UUID revenueId) {
