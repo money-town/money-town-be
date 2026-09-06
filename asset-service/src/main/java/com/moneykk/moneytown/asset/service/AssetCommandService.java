@@ -14,6 +14,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -36,6 +37,7 @@ public class AssetCommandService {
     private final AssetQueryRepository assetQueryRepository;
     private final S3StorageService s3StorageService;
     private final SettlementServiceClient settlementServiceClient;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * 자산 등록
@@ -172,8 +174,19 @@ public class AssetCommandService {
     /**
      * 자산 운영 종료 요청
      */
-    @Transactional
     public void requestAssetTermination(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        FinalSettlementOpenRequest request = transactionTemplate.execute(status ->
+                prepareAssetTermination(assetId, userId, role));
+
+        // 자산 상태가 먼저 커밋된 후 정산 서비스를 호출
+        settlementServiceClient.openFinalSettlement("SYSTEM", request);
+    }
+
+    private FinalSettlementOpenRequest prepareAssetTermination(
             UUID assetId,
             UUID userId,
             String role
@@ -202,22 +215,20 @@ public class AssetCommandService {
             );
         }
 
-        Instant terminatedAt = Instant.now();
+        boolean retry = asset.getStatus() == AssetStatus.TERMINATION_REQUESTED;
+        Instant terminatedAt = retry && asset.getUpdatedAt() != null
+                ? asset.getUpdatedAt()
+                : Instant.now();
 
-        // 실제 상태 변경 가능 여부는 엔티티에서 검증
-        asset.changeStatus(
-                AssetStatus.TERMINATION_REQUESTED,
-                null
-        );
+        // 정산 호출 실패 후 같은 요청을 보내면 최초 종료 요청 시각으로 다시 호출
+        if (!retry) {
+            asset.changeStatus(AssetStatus.TERMINATION_REQUESTED, null);
+        }
 
-        // 정산 회차가 생성되지 않으면 자산 상태 변경도 롤백됨
-        settlementServiceClient.openFinalSettlement(
-                "SYSTEM",
-                new FinalSettlementOpenRequest(
-                        assetId,
-                        terminatedAt,
-                        asset.getUnitPrice()
-                )
+        return new FinalSettlementOpenRequest(
+                assetId,
+                terminatedAt,
+                asset.getUnitPrice()
         );
     }
 

@@ -28,6 +28,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -63,6 +66,9 @@ class AssetCommandServiceTest {
 
     @Mock
     private SettlementServiceClient settlementServiceClient;
+
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private AssetCommandService assetCommandService;
@@ -394,6 +400,7 @@ class AssetCommandServiceTest {
     @Test
     @DisplayName("자산운용자는 본인의 승인된 자산에 운영 종료를 요청한다")
     void issuerRequestsAssetTermination() {
+        runTransactionsImmediately();
         UUID assetId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
@@ -418,6 +425,7 @@ class AssetCommandServiceTest {
     @Test
     @DisplayName("작성 중인 자산에는 운영 종료를 요청할 수 없다")
     void rejectsTerminationRequestForDraftAsset() {
+        runTransactionsImmediately();
         UUID assetId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
@@ -432,6 +440,23 @@ class AssetCommandServiceTest {
                 exception.getErrorCode());
         assertEquals(AssetStatus.DRAFT, asset.getStatus());
         verifyNoInteractions(settlementServiceClient);
+    }
+
+    @Test
+    @DisplayName("정산 호출에 실패한 종료 요청은 같은 요청으로 재시도할 수 있다")
+    void retriesFinalSettlementForTerminationRequestedAsset() {
+        runTransactionsImmediately();
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.TERMINATION_REQUESTED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER");
+
+        assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
+        verify(settlementServiceClient).openFinalSettlement(
+                eq("SYSTEM"), any(FinalSettlementOpenRequest.class));
     }
 
     @Test
@@ -597,6 +622,13 @@ class AssetCommandServiceTest {
         // 테스트할 상태 지정
         ReflectionTestUtils.setField(asset, "status", status);
         return asset;
+    }
+
+    private void runTransactionsImmediately() {
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(org.mockito.Mockito.mock(TransactionStatus.class));
+        });
     }
 
     private AssetCreateRequest request(AssetType type) {

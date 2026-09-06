@@ -150,7 +150,8 @@ class AssetControllerTest {
                 mock(AssetRepository.class),
                 queryRepository,
                 mock(com.moneykk.moneytown.asset.service.S3StorageService.class),
-                mock(SettlementServiceClient.class)
+                mock(SettlementServiceClient.class),
+                mock(org.springframework.transaction.support.TransactionTemplate.class)
         );
         MockMvc realMvc = MockMvcBuilders.standaloneSetup(
                         new AssetController(realService, mock(AssetQueryService.class)))
