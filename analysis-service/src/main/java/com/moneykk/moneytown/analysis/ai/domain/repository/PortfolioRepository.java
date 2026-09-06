@@ -8,4 +8,6 @@ import java.util.UUID;
 
 public interface PortfolioRepository extends JpaRepository<Portfolio, UUID> {
     Optional<Portfolio> findByIdAndIsDeletedIsFalse(UUID id);
+
+    Optional<Portfolio> findByIdempotencyKey(UUID idempotencyKey);
 }
