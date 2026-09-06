@@ -54,7 +54,7 @@ class SettlementCommandServiceTest {
     private static final String ADMIN_ROLE = "ADMIN";
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final UUID REVENUE_ID = UUID.randomUUID();
-    // 자산 서비스에는 별도의 배당 기준일이 없어, periodEnd를 기준일로 사용한다.
+    // 배당 기준일 = periodEnd를 기준일로 사용.
     private static final LocalDate RECORD_DATE = LocalDate.of(2026, 9, 1);
 
     @Mock
@@ -84,7 +84,7 @@ class SettlementCommandServiceTest {
         when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
                 .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L))));
 
-        SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID);
+        SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
 
         assertThat(response.assetId()).isEqualTo(ASSET_ID);
         assertThat(response.revenueId()).isEqualTo(REVENUE_ID);
@@ -112,6 +112,27 @@ class SettlementCommandServiceTest {
         assertThat(payoutsCaptor.getValue()).hasSize(1);
         assertThat(payoutsCaptor.getValue().get(0).getInvestorId()).isEqualTo(investorId);
         assertThat(payoutsCaptor.getValue().get(0).getAmount()).isEqualTo(10_000_000L);
+    }
+
+    @Test
+    @DisplayName("배당 기준일이 명시되면 periodEnd 대신 그 값을 배당 기준일로 사용한다")
+    void usesExplicitRecordDateOverrideInsteadOfPeriodEnd() {
+        LocalDate explicitRecordDate = RECORD_DATE.plusDays(5);
+        stubNoExistingBatch();
+        RevenueResponse revenue = revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
+                RevenueTransferStatus.READY);
+        stubRevenue(revenue);
+        stubNoPreviousCompletedBatch();
+
+        when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, explicitRecordDate))
+                .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L))));
+
+        SettlementBatchResponse response =
+                settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, explicitRecordDate);
+
+        assertThat(response.recordDate()).isEqualTo(explicitRecordDate);
+        verify(assetHoldingsSnapshotFetcher).fetchAll(ASSET_ID, explicitRecordDate);
+        verify(assetHoldingsSnapshotFetcher, never()).fetchAll(ASSET_ID, RECORD_DATE);
     }
 
     @Nested
@@ -158,7 +179,7 @@ class SettlementCommandServiceTest {
         @Test
         @DisplayName("ADMIN이 아니면 정산 회차 개시 시 예외")
         void rejectsOpenBatchWhenNotAdmin() {
-            assertThatThrownBy(() -> settlementCommandService.openBatch("INVESTOR", ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch("INVESTOR", ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
@@ -187,7 +208,7 @@ class SettlementCommandServiceTest {
         void rejectsWhenBatchAlreadyExistsForRevenue() {
             when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(true);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
@@ -202,7 +223,7 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
                     .thenReturn(true);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
@@ -217,7 +238,7 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.saveAndFlush(any()))
                     .thenThrow(constraintViolation("uk_settlement_batches_revenue_id"));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
@@ -230,7 +251,7 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.saveAndFlush(any()))
                     .thenThrow(constraintViolation("uk_settlement_batches_asset_in_progress"));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
@@ -243,7 +264,7 @@ class SettlementCommandServiceTest {
             DataIntegrityViolationException unrecognized = constraintViolation("some_other_constraint");
             when(settlementBatchRepository.saveAndFlush(any())).thenThrow(unrecognized);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isSameAs(unrecognized);
         }
 
@@ -274,7 +295,7 @@ class SettlementCommandServiceTest {
             stubNoExistingBatch();
             stubRevenue(revenue(gross, expense, fee, RevenueTransferStatus.READY));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.REVENUE_AMOUNT_INVALID);
@@ -287,7 +308,7 @@ class SettlementCommandServiceTest {
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                     RevenueTransferStatus.TRANSFERRED));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.REVENUE_NOT_READY);
@@ -306,7 +327,7 @@ class SettlementCommandServiceTest {
                     RevenueTransferStatus.READY));
             stubNoPreviousCompletedBatch();
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
@@ -334,7 +355,7 @@ class SettlementCommandServiceTest {
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
                     .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
 
-            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID);
+            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
 
             assertThat(response.carriedInAmount()).isEqualTo(777L);
             assertThat(response.totalAmount()).isEqualTo(1_000_777L);
@@ -357,7 +378,7 @@ class SettlementCommandServiceTest {
 
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(0L, List.of()));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
@@ -379,7 +400,7 @@ class SettlementCommandServiceTest {
                     new HoldingItem(UUID.randomUUID(), investor1, 1L),
                     new HoldingItem(UUID.randomUUID(), investor2, 2L))));
 
-            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID);
+            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
 
             assertThat(response.payoutCount()).isEqualTo(2);
 
