@@ -13,7 +13,7 @@ RWA(실물자산) 조각투자 및 배당 정산 플랫폼입니다. Spring Boot
 - Spring Cloud 2025.0.0 (Eureka, Config Server, Gateway)
 - PostgreSQL 18.4 + pgvector (서비스별 논리 DB 분리)
 - Redis 7.4.7, Kafka 3.9.2
-- Spring AI 1.1.8 + Gemini + pgvector RAG
+- Spring AI 1.1.8 + OpenAI gpt-4o-mini (AI 포트폴리오 추천 / pgvector RAG는 도전 과제)
 - Slack API (이상 청약 알림)
 - Docker Compose, GitHub Actions
 - 배포: Amazon EC2(Docker Compose Blue/Green), Amazon RDS, S3, Nginx + Certbot
