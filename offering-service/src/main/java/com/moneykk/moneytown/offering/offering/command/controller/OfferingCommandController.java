@@ -5,10 +5,12 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.application.OfferingCommandService;
+import com.moneykk.moneytown.offering.offering.command.application.OfferingStatusTransitionService;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingRejectionRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.response.*;
+import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import java.util.UUID;
 public class OfferingCommandController {
 
     private final OfferingCommandService offeringCommandService;
+    private final OfferingStatusTransitionService offeringStatusTransitionService;
 
     /**
      * 공모 상품 등록
@@ -147,6 +150,57 @@ public class OfferingCommandController {
                         "공모 반려가 완료되었습니다."
                 )
         );
+    }
+
+    /**
+     * 관리자 공모 긴급 중단
+     *
+     * ADMIN만 접근할 수 있다.
+     * 보상 대상 또는 미해결 청약이 없으면 즉시 취소를 완료하고,
+     * 보상이 필요하면 CANCELLING 상태로 비동기 처리를 시작한다.
+     */
+    @PostMapping("/{offeringId}/cancellation")
+    public ResponseEntity<ApiResponse<OfferingCancellationResponse>>
+    cancelOfferingByAdmin(
+            @PathVariable UUID offeringId,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @RequestHeader(AuthHeaderConstants.CORRELATION_ID)
+            String correlationId
+    ) {
+        if (!"ADMIN".equalsIgnoreCase(role)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_MANAGEMENT_ACCESS_DENIED
+            );
+        }
+
+        /*
+         * userId는 JpaAuditingConfig가 요청 헤더에서 읽어
+         * updatedBy에 관리자 ID를 기록할 때 사용한다.
+         */
+        OfferingCancellationResponse response =
+                offeringStatusTransitionService.cancelByAdmin(
+                        offeringId,
+                        correlationId
+                );
+
+        if (response.offeringStatus() == OfferingStatus.CANCELLED) {
+            return ResponseEntity.ok(
+                    ApiResponse.success(
+                            response,
+                            "공모가 취소되었습니다."
+                    )
+            );
+        }
+
+        return ResponseEntity
+                .status(HttpStatus.ACCEPTED)
+                .body(
+                        ApiResponse.success(
+                                response,
+                                "공모 중단 요청이 접수되었습니다."
+                        )
+                );
     }
 
     /**
