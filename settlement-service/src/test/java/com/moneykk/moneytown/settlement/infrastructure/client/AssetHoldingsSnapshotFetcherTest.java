@@ -36,11 +36,11 @@ class AssetHoldingsSnapshotFetcherTest {
     private AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @Test
-    @DisplayName("단일 페이지면 한 번만 호출하고 그대로 반환한다")
+    @DisplayName("단일 페이지면 한 번만 호출하고, 지분 수량 합계는 직접 계산한다")
     void fetchesSinglePage() {
         HoldingItem item = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L);
         when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(page(100L, List.of(item), null, false), null));
+                .thenReturn(ApiResponse.success(page(List.of(item), null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
 
@@ -49,14 +49,14 @@ class AssetHoldingsSnapshotFetcherTest {
     }
 
     @Test
-    @DisplayName("여러 페이지로 나뉘어 오면 cursor를 따라가며 모두 모은다")
+    @DisplayName("여러 페이지로 나뉘어 오면 cursor를 따라가며 모두 모으고, 전체 페이지의 수량을 합산한다")
     void aggregatesAcrossPaginatedPages() {
         HoldingItem item1 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L);
         HoldingItem item2 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 2L);
         when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(page(3L, List.of(item1), "cursor-1", true), null));
+                .thenReturn(ApiResponse.success(page(List.of(item1), "cursor-1", true), null));
         when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, "cursor-1"))
-                .thenReturn(ApiResponse.success(page(3L, List.of(item2), null, false), null));
+                .thenReturn(ApiResponse.success(page(List.of(item2), null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
 
@@ -68,7 +68,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("hasNext=true인데 nextCursor가 null이면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorIsNullButHasNextTrue() {
         when(assetServiceClient.getHoldingsSnapshot(eq(ASSET_ID), eq(AS_OF), isNull()))
-                .thenReturn(ApiResponse.success(page(10L, List.of(), null, true), null));
+                .thenReturn(ApiResponse.success(page(List.of(), null, true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
                 .isInstanceOf(BusinessException.class)
@@ -80,9 +80,9 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("hasNext=true인데 nextCursor가 직전 요청 cursor와 동일하면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorRepeatsPreviousCursor() {
         when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(page(10L, List.of(), "cursor-1", true), null));
+                .thenReturn(ApiResponse.success(page(List.of(), "cursor-1", true), null));
         when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, "cursor-1"))
-                .thenReturn(ApiResponse.success(page(10L, List.of(), "cursor-1", true), null));
+                .thenReturn(ApiResponse.success(page(List.of(), "cursor-1", true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
                 .isInstanceOf(BusinessException.class)
@@ -97,10 +97,10 @@ class AssetHoldingsSnapshotFetcherTest {
                 .thenAnswer(invocation -> {
                     String requestedCursor = invocation.getArgument(2);
                     String nextCursor = requestedCursor + "-next";
-                    return ApiResponse.success(page(10L, List.of(), nextCursor, true), null);
+                    return ApiResponse.success(page(List.of(), nextCursor, true), null);
                 });
         when(assetServiceClient.getHoldingsSnapshot(eq(ASSET_ID), eq(AS_OF), isNull()))
-                .thenReturn(ApiResponse.success(page(10L, List.of(), "cursor-0", true), null));
+                .thenReturn(ApiResponse.success(page(List.of(), "cursor-0", true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
                 .isInstanceOf(BusinessException.class)
@@ -109,18 +109,18 @@ class AssetHoldingsSnapshotFetcherTest {
     }
 
     @Test
-    @DisplayName("items가 null인 페이지는 건너뛰고 계속 진행한다")
-    void skipsNullItemsPage() {
+    @DisplayName("holdings가 null인 페이지는 건너뛰고 계속 진행한다")
+    void skipsNullHoldingsPage() {
         when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(new HoldingsSnapshotResponse(ASSET_ID, AS_OF, 5L, null, null, false), null));
+                .thenReturn(ApiResponse.success(new HoldingsSnapshotResponse(ASSET_ID, AS_OF, null, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
 
         assertThat(result.items()).isEmpty();
-        assertThat(result.totalHoldingQuantity()).isEqualTo(5L);
+        assertThat(result.totalHoldingQuantity()).isZero();
     }
 
-    private HoldingsSnapshotResponse page(Long totalHoldingQuantity, List<HoldingItem> items, String nextCursor, boolean hasNext) {
-        return new HoldingsSnapshotResponse(ASSET_ID, AS_OF, totalHoldingQuantity, items, nextCursor, hasNext);
+    private HoldingsSnapshotResponse page(List<HoldingItem> holdings, String nextCursor, boolean hasNext) {
+        return new HoldingsSnapshotResponse(ASSET_ID, AS_OF, holdings, nextCursor, hasNext);
     }
 }

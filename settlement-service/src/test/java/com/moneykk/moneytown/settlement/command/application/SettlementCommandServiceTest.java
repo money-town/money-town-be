@@ -34,9 +34,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,11 +51,10 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SettlementCommandServiceTest {
 
-    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final UUID REVENUE_ID = UUID.randomUUID();
+    // 자산 서비스에는 별도의 배당 기준일이 없어, periodEnd를 기준일로 사용한다.
     private static final LocalDate RECORD_DATE = LocalDate.of(2026, 9, 1);
-    private static final Instant OCCURRED_AT = RECORD_DATE.atStartOfDay(SEOUL).toInstant();
 
     @Mock
     private SettlementBatchRepository settlementBatchRepository;
@@ -78,7 +75,7 @@ class SettlementCommandServiceTest {
     void opensSettlementBatchSuccessfully() {
         stubNoExistingBatch();
         RevenueResponse revenue = revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING);
+                RevenueTransferStatus.READY);
         stubRevenue(revenue);
         stubNoPreviousCompletedBatch();
 
@@ -188,7 +185,7 @@ class SettlementCommandServiceTest {
         private void stubHappyPathUpToInsert() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+                    RevenueTransferStatus.READY));
             stubNoPreviousCompletedBatch();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
                     .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
@@ -210,7 +207,7 @@ class SettlementCommandServiceTest {
         @DisplayName("수익 금액이 올바르지 않으면 예외")
         void rejectsInvalidAmounts(BigDecimal gross, BigDecimal expense, BigDecimal fee) {
             stubNoExistingBatch();
-            stubRevenue(revenue(gross, expense, fee, OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+            stubRevenue(revenue(gross, expense, fee, RevenueTransferStatus.READY));
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
@@ -219,11 +216,11 @@ class SettlementCommandServiceTest {
         }
 
         @Test
-        @DisplayName("수익이 PENDING 상태가 아니면 예외")
-        void rejectsWhenRevenueNotPending() {
+        @DisplayName("수익이 READY 상태가 아니면 예외")
+        void rejectsWhenRevenueNotReady() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.TRANSFERRED));
+                    RevenueTransferStatus.TRANSFERRED));
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
@@ -241,7 +238,7 @@ class SettlementCommandServiceTest {
         void rejectsWhenDistributableAmountNotPositive() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(1_000_000), BigDecimal.ZERO,
-                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+                    RevenueTransferStatus.READY));
             stubNoPreviousCompletedBatch();
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
@@ -257,7 +254,7 @@ class SettlementCommandServiceTest {
         void carriesInPreviousRemainder() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+                    RevenueTransferStatus.READY));
 
             SettlementBatch previousCompletedBatch = SettlementBatch.open(ASSET_ID, UUID.randomUUID(),
                     RECORD_DATE.minusMonths(1), 500_000L, 0L);
@@ -290,7 +287,7 @@ class SettlementCommandServiceTest {
         void rejectsWhenTotalHoldingQuantityInvalid() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+                    RevenueTransferStatus.READY));
             stubNoPreviousCompletedBatch();
 
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(0L, List.of()));
@@ -308,7 +305,7 @@ class SettlementCommandServiceTest {
         void createsPayoutForEachHolder() {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(300), BigDecimal.ZERO, BigDecimal.ZERO,
-                    OCCURRED_AT, RECORD_DATE, RevenueTransferStatus.PENDING));
+                    RevenueTransferStatus.READY));
             stubNoPreviousCompletedBatch();
 
             UUID investor1 = UUID.randomUUID();
@@ -445,9 +442,9 @@ class SettlementCommandServiceTest {
     }
 
     private RevenueResponse revenue(BigDecimal gross, BigDecimal expense, BigDecimal fee,
-                                     Instant occurredAt, LocalDate recordDate, RevenueTransferStatus transferStatus) {
+                                     RevenueTransferStatus transferStatus) {
         return new RevenueResponse(REVENUE_ID, ASSET_ID, "RENT", "PROPERTY_MANAGER", "REF-1",
-                gross, expense, fee, occurredAt, recordDate, transferStatus, occurredAt);
+                gross, expense, fee, "KRW", RECORD_DATE.minusMonths(1), RECORD_DATE, transferStatus);
     }
 
     private AssetHoldingsSnapshotFetcher.Aggregated aggregated(Long totalHoldingQuantity, List<HoldingItem> items) {
