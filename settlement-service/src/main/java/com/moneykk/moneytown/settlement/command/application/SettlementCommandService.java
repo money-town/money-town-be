@@ -15,7 +15,6 @@ import com.moneykk.moneytown.settlement.domain.service.DividendDistributionCalcu
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,8 +33,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class SettlementCommandService {
-
-    private static final ZoneId SETTLEMENT_ZONE = ZoneId.of("Asia/Seoul");
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final HoldingSnapshotRepository holdingSnapshotRepository;
@@ -49,7 +45,8 @@ public class SettlementCommandService {
         guardAgainstDuplicateOrConcurrentBatch(assetId, revenueId);
 
         RevenueResponse revenue = fetchAndValidateRevenue(assetId, revenueId);
-        LocalDate recordDate = revenue.recordDate();
+        // 자산 서비스에는 별도의 배당 기준일이 없어, 수익 발생 기간의 종료일(periodEnd)을 기준일로 사용한다.
+        LocalDate recordDate = revenue.periodEnd();
 
         long distributableAmount = calculateDistributableAmount(revenue);
         Optional<SettlementBatch> carryInSourceBatch = findCarryInSourceBatch(assetId);
@@ -59,7 +56,7 @@ public class SettlementCommandService {
             throw new BusinessException(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
         }
 
-        HoldingsSnapshotResponse holdingsSnapshot = fetchAndValidateHoldingsSnapshot(assetId, recordDate);
+        AssetHoldingsSnapshotFetcher.Aggregated holdingsSnapshot = fetchAndValidateHoldingsSnapshot(assetId, recordDate);
 
         SettlementBatch batch = SettlementBatch.open(assetId, revenueId, recordDate, distributableAmount, carriedInAmount);
         batch.markSnapshotTaken();
@@ -153,10 +150,7 @@ public class SettlementCommandService {
         if (isInvalidAmount(revenue)) {
             throw new BusinessException(SettlementErrorCode.REVENUE_AMOUNT_INVALID);
         }
-        if (isRecordDateBeforeOccurrence(revenue)) {
-            throw new BusinessException(SettlementErrorCode.REVENUE_PERIOD_INVALID);
-        }
-        if (revenue.transferStatus() != RevenueTransferStatus.PENDING) {
+        if (revenue.transferStatus() != RevenueTransferStatus.READY) {
             throw new BusinessException(SettlementErrorCode.REVENUE_NOT_READY);
         }
         return revenue;
@@ -166,15 +160,6 @@ public class SettlementCommandService {
         return revenue.grossAmount() == null || revenue.grossAmount().signum() <= 0
                 || revenue.expenseAmount() == null || revenue.expenseAmount().signum() < 0
                 || revenue.feeAmount() == null || revenue.feeAmount().signum() < 0;
-    }
-
-    // 배당 기준일(recordDate)이 수익 발생 시각(occurredAt)보다 앞설 수는 없다.
-    private boolean isRecordDateBeforeOccurrence(RevenueResponse revenue) {
-        if (revenue.recordDate() == null || revenue.occurredAt() == null) {
-            return true;
-        }
-        LocalDate occurredDate = revenue.occurredAt().atZone(SETTLEMENT_ZONE).toLocalDate();
-        return revenue.recordDate().isBefore(occurredDate);
     }
 
     private long calculateDistributableAmount(RevenueResponse revenue) {
@@ -190,7 +175,7 @@ public class SettlementCommandService {
                         assetId, SettlementStatus.COMPLETED, 0L);
     }
 
-    private HoldingsSnapshotResponse fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {
+    private AssetHoldingsSnapshotFetcher.Aggregated fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {
         AssetHoldingsSnapshotFetcher.Aggregated aggregated = assetHoldingsSnapshotFetcher.fetchAll(assetId, recordDate);
 
         Long totalHoldingQuantity = aggregated.totalHoldingQuantity();
@@ -198,10 +183,10 @@ public class SettlementCommandService {
             throw new BusinessException(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
         }
 
-        return new HoldingsSnapshotResponse(assetId, recordDate, totalHoldingQuantity, aggregated.items(), null, false);
+        return aggregated;
     }
 
-    private HoldingSnapshot captureHoldingSnapshot(SettlementBatch batch, HoldingsSnapshotResponse holdingsSnapshot) {
+    private HoldingSnapshot captureHoldingSnapshot(SettlementBatch batch, AssetHoldingsSnapshotFetcher.Aggregated holdingsSnapshot) {
         int totalHolders = (int) holdingsSnapshot.items().stream()
                 .filter(holding -> holding.quantity() != null && holding.quantity() > 0)
                 .count();

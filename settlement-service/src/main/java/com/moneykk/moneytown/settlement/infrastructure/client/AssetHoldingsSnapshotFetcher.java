@@ -24,7 +24,6 @@ public class AssetHoldingsSnapshotFetcher {
 
     public Aggregated fetchAll(UUID assetId, LocalDate asOf) {
         List<HoldingItem> allItems = new ArrayList<>();
-        Long totalHoldingQuantity = null;
         String cursor = null;
         boolean hasNext = true;
         int pageCount = 0;
@@ -39,10 +38,9 @@ public class AssetHoldingsSnapshotFetcher {
                     () -> assetServiceClient.getHoldingsSnapshot(assetId, asOf, requestCursor).data(),
                     SettlementErrorCode.ASSET_HOLDINGS_NOT_FOUND);
 
-            if (page.items() != null) {
-                allItems.addAll(page.items());
+            if (page.holdings() != null) {
+                allItems.addAll(page.holdings());
             }
-            totalHoldingQuantity = page.totalHoldingQuantity();
             hasNext = page.hasNext();
 
             String nextCursor = page.nextCursor();
@@ -51,6 +49,11 @@ public class AssetHoldingsSnapshotFetcher {
             }
             cursor = nextCursor;
         }
+
+        // 자산 서비스가 전체 발행 지분 수량을 내려주지 않아, 모든 페이지를 합친 뒤 직접 합산한다.
+        long totalHoldingQuantity = allItems.stream()
+                .mapToLong(item -> item.quantity() == null ? 0L : item.quantity())
+                .sum();
 
         return new Aggregated(allItems, totalHoldingQuantity);
     }
