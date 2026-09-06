@@ -12,7 +12,7 @@ public record TransactionListItemResponse(
         @Schema(description = "거래 금액") long amount,
         @Schema(description = "거래 처리 전 총 잔액") long balanceBefore,
         @Schema(description = "거래 처리 후 총 잔액") long balanceAfter,
-        @Schema(description = "타입별 참조 ID (예: HOLD/DEDUCT/REFUND는 subscriptionId, DIVIDEND는 settlementBatchId). DEPOSIT/WITHDRAW는 null")
+        @Schema(description = "타입별 참조 ID (HOLD/UNHOLD/DEDUCT/REFUND는 subscriptionId). DEPOSIT/WITHDRAW는 null")
         String referenceId,
         @Schema(description = "거래 처리 시각") Instant createdAt
 ) {
