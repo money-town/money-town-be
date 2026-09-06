@@ -115,6 +115,43 @@ class SettlementCommandServiceTest {
     }
 
     @Nested
+    @DisplayName("스케줄러 자동 개시 (ADMIN 검사 없음)")
+    class OpenBatchAutomatically {
+
+        @Test
+        @DisplayName("ADMIN 권한 없이도 openBatch와 동일하게 정산 회차를 정상적으로 개시한다")
+        void opensSettlementBatchWithoutAdminRole() {
+            stubNoExistingBatch();
+            RevenueResponse revenue = revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
+                    RevenueTransferStatus.READY);
+            stubRevenue(revenue);
+            stubNoPreviousCompletedBatch();
+
+            UUID investorId = UUID.randomUUID();
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
+                    .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L))));
+
+            SettlementBatchResponse response = settlementCommandService.openBatchAutomatically(ASSET_ID, REVENUE_ID);
+
+            assertThat(response.assetId()).isEqualTo(ASSET_ID);
+            assertThat(response.revenueId()).isEqualTo(REVENUE_ID);
+            assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
+            assertThat(response.payoutCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("이미 해당 수익 건으로 정산 회차가 있으면 예외 (openBatch와 동일한 검증을 그대로 적용)")
+        void rejectsWhenBatchAlreadyExistsForRevenue() {
+            when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(true);
+
+            assertThatThrownBy(() -> settlementCommandService.openBatchAutomatically(ASSET_ID, REVENUE_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
+        }
+    }
+
+    @Nested
     @DisplayName("ADMIN 권한 검증")
     class AdminAccessControl {
 
