@@ -57,6 +57,7 @@ public class SubscriptionCommandService {
     ) {
 
         validateIdempotencyKey(idempotencyKey);
+        validateCorrelationId(correlationId);
 
         String requestHash = subscriptionRequestHasher.hash(
                 offeringId,
@@ -312,6 +313,18 @@ public class SubscriptionCommandService {
         if (idempotencyKey.length() > 100) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_IDEMPOTENCY_KEY
+            );
+        }
+    }
+
+    /**
+     * 멱등 요청을 선점하기 전에 Correlation-ID를 검증한다.
+     */
+    private void validateCorrelationId(
+            String correlationId) {
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
     }
