@@ -51,6 +51,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SettlementCommandServiceTest {
 
+    private static final String ADMIN_ROLE = "ADMIN";
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final UUID REVENUE_ID = UUID.randomUUID();
     // 자산 서비스에는 별도의 배당 기준일이 없어, periodEnd를 기준일로 사용한다.
@@ -83,7 +84,7 @@ class SettlementCommandServiceTest {
         when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
                 .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L))));
 
-        SettlementBatchResponse response = settlementCommandService.openBatch(ASSET_ID, REVENUE_ID);
+        SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID);
 
         assertThat(response.assetId()).isEqualTo(ASSET_ID);
         assertThat(response.revenueId()).isEqualTo(REVENUE_ID);
@@ -114,6 +115,33 @@ class SettlementCommandServiceTest {
     }
 
     @Nested
+    @DisplayName("ADMIN 권한 검증")
+    class AdminAccessControl {
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정산 회차 개시 시 예외")
+        void rejectsOpenBatchWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementCommandService.openBatch("INVESTOR", ASSET_ID, REVENUE_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository, assetServiceClient);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정산 회차 재시도 시 예외")
+        void rejectsRetryBatchWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementCommandService.retryBatch("INVESTOR", UUID.randomUUID()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository, dividendPayoutRepository);
+        }
+    }
+
+    @Nested
     @DisplayName("중복/동시 진행 회차 가드")
     class DuplicateOrConcurrentBatchGuard {
 
@@ -122,7 +150,7 @@ class SettlementCommandServiceTest {
         void rejectsWhenBatchAlreadyExistsForRevenue() {
             when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(true);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
@@ -137,7 +165,7 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
                     .thenReturn(true);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
@@ -152,7 +180,7 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.saveAndFlush(any()))
                     .thenThrow(constraintViolation("uk_settlement_batches_revenue_id"));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
@@ -165,7 +193,7 @@ class SettlementCommandServiceTest {
             when(settlementBatchRepository.saveAndFlush(any()))
                     .thenThrow(constraintViolation("uk_settlement_batches_asset_in_progress"));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
@@ -178,7 +206,7 @@ class SettlementCommandServiceTest {
             DataIntegrityViolationException unrecognized = constraintViolation("some_other_constraint");
             when(settlementBatchRepository.saveAndFlush(any())).thenThrow(unrecognized);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isSameAs(unrecognized);
         }
 
@@ -209,7 +237,7 @@ class SettlementCommandServiceTest {
             stubNoExistingBatch();
             stubRevenue(revenue(gross, expense, fee, RevenueTransferStatus.READY));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.REVENUE_AMOUNT_INVALID);
@@ -222,7 +250,7 @@ class SettlementCommandServiceTest {
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                     RevenueTransferStatus.TRANSFERRED));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.REVENUE_NOT_READY);
@@ -241,7 +269,7 @@ class SettlementCommandServiceTest {
                     RevenueTransferStatus.READY));
             stubNoPreviousCompletedBatch();
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
@@ -269,7 +297,7 @@ class SettlementCommandServiceTest {
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
                     .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
 
-            SettlementBatchResponse response = settlementCommandService.openBatch(ASSET_ID, REVENUE_ID);
+            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID);
 
             assertThat(response.carriedInAmount()).isEqualTo(777L);
             assertThat(response.totalAmount()).isEqualTo(1_000_777L);
@@ -292,7 +320,7 @@ class SettlementCommandServiceTest {
 
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(0L, List.of()));
 
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ASSET_ID, REVENUE_ID))
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
@@ -314,7 +342,7 @@ class SettlementCommandServiceTest {
                     new HoldingItem(UUID.randomUUID(), investor1, 1L),
                     new HoldingItem(UUID.randomUUID(), investor2, 2L))));
 
-            SettlementBatchResponse response = settlementCommandService.openBatch(ASSET_ID, REVENUE_ID);
+            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID);
 
             assertThat(response.payoutCount()).isEqualTo(2);
 
@@ -341,7 +369,7 @@ class SettlementCommandServiceTest {
             when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batch.getId(), PayoutStatus.DEAD_LETTER))
                     .thenReturn(List.of(deadLetterPayout));
 
-            SettlementBatchResponse response = settlementCommandService.retryBatch(batch.getId());
+            SettlementBatchResponse response = settlementCommandService.retryBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.status()).isEqualTo(SettlementStatus.DISBURSING);
             assertThat(response.payoutCount()).isEqualTo(1);
@@ -367,7 +395,7 @@ class SettlementCommandServiceTest {
             when(dividendPayoutRepository.findBySettlementBatchIdAndStatusAndIsDeletedFalse(batch.getId(), PayoutStatus.DEAD_LETTER))
                     .thenReturn(List.of());
 
-            SettlementBatchResponse response = settlementCommandService.retryBatch(batch.getId());
+            SettlementBatchResponse response = settlementCommandService.retryBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.status()).isEqualTo(SettlementStatus.DISBURSING);
             assertThat(response.payoutCount()).isZero();
@@ -379,7 +407,7 @@ class SettlementCommandServiceTest {
             UUID unknownBatchId = UUID.randomUUID();
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(unknownBatchId)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> settlementCommandService.retryBatch(unknownBatchId))
+            assertThatThrownBy(() -> settlementCommandService.retryBatch(ADMIN_ROLE, unknownBatchId))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
@@ -393,7 +421,7 @@ class SettlementCommandServiceTest {
             SettlementBatch batch = batchWithStatus(SettlementStatus.CALCULATED);
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
 
-            assertThatThrownBy(() -> settlementCommandService.retryBatch(batch.getId()))
+            assertThatThrownBy(() -> settlementCommandService.retryBatch(ADMIN_ROLE, batch.getId()))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_RETRYABLE);

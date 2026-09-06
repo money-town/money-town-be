@@ -29,11 +29,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class FinalSettlementQueryServiceTest {
 
+    private static final String ADMIN_ROLE = "ADMIN";
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final Instant TERMINATED_AT = Instant.parse("2027-03-01T00:00:00Z");
 
@@ -44,6 +46,35 @@ class FinalSettlementQueryServiceTest {
 
     @InjectMocks
     private FinalSettlementQueryService finalSettlementQueryService;
+
+    @Nested
+    @DisplayName("ADMIN 권한 검증")
+    class AdminAccessControl {
+
+        @Test
+        @DisplayName("ADMIN이 아니면 최종 정산 회차 조회 시 예외")
+        void rejectsGetFinalSettlementBatchWhenNotAdmin() {
+            assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch("INVESTOR", UUID.randomUUID()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementBatchRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 회차별 반환 내역 조회 시 예외")
+        void rejectsGetPayoutsWhenNotAdmin() {
+            Pageable pageable = PageRequest.of(0, 20);
+
+            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts("INVESTOR", UUID.randomUUID(), null, pageable))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementBatchRepository, finalSettlementPayoutRepository);
+        }
+    }
 
     @Nested
     @DisplayName("최종 정산 회차 상태 조회")
@@ -66,7 +97,7 @@ class FinalSettlementQueryServiceTest {
                     ));
 
             FinalSettlementBatchDetailResponse response =
-                    finalSettlementQueryService.getFinalSettlementBatch(batch.getId());
+                    finalSettlementQueryService.getFinalSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.finalSettlementBatchId()).isEqualTo(batch.getId());
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
@@ -91,7 +122,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(List.of());
 
             FinalSettlementBatchDetailResponse response =
-                    finalSettlementQueryService.getFinalSettlementBatch(batch.getId());
+                    finalSettlementQueryService.getFinalSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.progress().totalCount()).isZero();
         }
@@ -103,7 +134,7 @@ class FinalSettlementQueryServiceTest {
             when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch(finalSettlementBatchId))
+            assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch(ADMIN_ROLE, finalSettlementBatchId))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);
@@ -127,7 +158,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<FinalSettlementPayoutListItemResponse> response =
-                    finalSettlementQueryService.getPayouts(batchId, null, requestedPageable);
+                    finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             FinalSettlementPayoutListItemResponse item = response.content().get(0);
@@ -155,7 +186,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<FinalSettlementPayoutListItemResponse> response =
-                    finalSettlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+                    finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.PAID, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
@@ -175,7 +206,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<FinalSettlementPayoutListItemResponse> response =
-                    finalSettlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+                    finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
@@ -188,7 +219,7 @@ class FinalSettlementQueryServiceTest {
             Pageable pageable = PageRequest.of(0, 20);
             when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
 
-            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts(batchId, null, pageable))
+            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);

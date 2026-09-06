@@ -32,11 +32,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SettlementQueryServiceTest {
 
+    private static final String ADMIN_ROLE = "ADMIN";
     private static final UUID SETTLEMENT_BATCH_ID = UUID.randomUUID();
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final UUID REVENUE_ID = UUID.randomUUID();
@@ -49,6 +51,35 @@ class SettlementQueryServiceTest {
 
     @InjectMocks
     private SettlementQueryService settlementQueryService;
+
+    @Nested
+    @DisplayName("ADMIN 권한 검증")
+    class AdminAccessControl {
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정산 회차 조회 시 예외")
+        void rejectsGetSettlementBatchWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementQueryService.getSettlementBatch("INVESTOR", SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 회차별 지급 내역 조회 시 예외")
+        void rejectsGetPayoutsWhenNotAdmin() {
+            Pageable pageable = PageRequest.of(0, 20);
+
+            assertThatThrownBy(() -> settlementQueryService.getPayouts("INVESTOR", SETTLEMENT_BATCH_ID, null, pageable))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository, dividendPayoutRepository);
+        }
+    }
 
     @Nested
     @DisplayName("정산 회차 상태 조회")
@@ -71,7 +102,7 @@ class SettlementQueryServiceTest {
                             statusCount(PayoutStatus.RETRYING, 1L)
                     ));
 
-            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(batch.getId());
+            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.settlementBatchId()).isEqualTo(batch.getId());
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
@@ -93,7 +124,7 @@ class SettlementQueryServiceTest {
             when(dividendPayoutRepository.countByStatusGrouped(batch.getId()))
                     .thenReturn(List.of());
 
-            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(batch.getId());
+            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.payoutSummary().totalCount()).isZero();
         }
@@ -104,7 +135,7 @@ class SettlementQueryServiceTest {
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(SETTLEMENT_BATCH_ID))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> settlementQueryService.getSettlementBatch(SETTLEMENT_BATCH_ID))
+            assertThatThrownBy(() -> settlementQueryService.getSettlementBatch(ADMIN_ROLE, SETTLEMENT_BATCH_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
@@ -128,7 +159,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<DividendPayoutListItemResponse> response =
-                    settlementQueryService.getPayouts(batchId, null, requestedPageable);
+                    settlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             DividendPayoutListItemResponse item = response.content().get(0);
@@ -156,7 +187,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<DividendPayoutListItemResponse> response =
-                    settlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+                    settlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.PAID, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
@@ -176,7 +207,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<DividendPayoutListItemResponse> response =
-                    settlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+                    settlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
@@ -189,7 +220,7 @@ class SettlementQueryServiceTest {
             Pageable pageable = PageRequest.of(0, 20);
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
 
-            assertThatThrownBy(() -> settlementQueryService.getPayouts(batchId, null, pageable))
+            assertThatThrownBy(() -> settlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);

@@ -39,7 +39,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("단일 페이지면 한 번만 호출하고, 지분 수량 합계는 직접 계산한다")
     void fetchesSinglePage() {
         HoldingItem item = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L);
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
                 .thenReturn(ApiResponse.success(page(List.of(item), null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
@@ -53,9 +53,9 @@ class AssetHoldingsSnapshotFetcherTest {
     void aggregatesAcrossPaginatedPages() {
         HoldingItem item1 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L);
         HoldingItem item2 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 2L);
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
                 .thenReturn(ApiResponse.success(page(List.of(item1), "cursor-1", true), null));
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, "cursor-1"))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, "cursor-1"))
                 .thenReturn(ApiResponse.success(page(List.of(item2), null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
@@ -67,7 +67,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("hasNext=true인데 nextCursor가 null이면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorIsNullButHasNextTrue() {
-        when(assetServiceClient.getHoldingsSnapshot(eq(ASSET_ID), eq(AS_OF), isNull()))
+        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), isNull()))
                 .thenReturn(ApiResponse.success(page(List.of(), null, true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
@@ -79,9 +79,9 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("hasNext=true인데 nextCursor가 직전 요청 cursor와 동일하면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorRepeatsPreviousCursor() {
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
                 .thenReturn(ApiResponse.success(page(List.of(), "cursor-1", true), null));
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, "cursor-1"))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, "cursor-1"))
                 .thenReturn(ApiResponse.success(page(List.of(), "cursor-1", true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
@@ -93,13 +93,13 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("cursor는 계속 바뀌지만 페이지 수가 상한을 넘으면 예외를 던진다")
     void throwsWhenPageCountExceedsCap() {
-        when(assetServiceClient.getHoldingsSnapshot(eq(ASSET_ID), eq(AS_OF), anyString()))
+        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), anyString()))
                 .thenAnswer(invocation -> {
-                    String requestedCursor = invocation.getArgument(2);
+                    String requestedCursor = invocation.getArgument(3);
                     String nextCursor = requestedCursor + "-next";
                     return ApiResponse.success(page(List.of(), nextCursor, true), null);
                 });
-        when(assetServiceClient.getHoldingsSnapshot(eq(ASSET_ID), eq(AS_OF), isNull()))
+        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), isNull()))
                 .thenReturn(ApiResponse.success(page(List.of(), "cursor-0", true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
@@ -111,7 +111,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("holdings가 null인 페이지는 건너뛰고 계속 진행한다")
     void skipsNullHoldingsPage() {
-        when(assetServiceClient.getHoldingsSnapshot(ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
                 .thenReturn(ApiResponse.success(new HoldingsSnapshotResponse(ASSET_ID, AS_OF, null, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
