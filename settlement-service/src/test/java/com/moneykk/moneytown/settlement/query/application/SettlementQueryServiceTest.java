@@ -11,6 +11,7 @@ import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
+import com.moneykk.moneytown.settlement.query.dto.SettlementReconciliationResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,81 @@ class SettlementQueryServiceTest {
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
 
             verifyNoInteractions(settlementBatchRepository, dividendPayoutRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정합성 검증 조회 시 예외")
+        void rejectsGetReconciliationWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementQueryService.getReconciliation("INVESTOR", SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository, dividendPayoutRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("정합성 검증")
+    class GetReconciliation {
+
+        @Test
+        @DisplayName("지급 내역 합계가 배당 총액과 일치하면 reconciled=true를 반환한다")
+        void returnsReconciledTrueWhenAmountsMatch() {
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            batch.markSnapshotTaken();
+            batch.markCalculated(40L);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(Optional.of(batch));
+
+            DividendPayout paid = DividendPayout.queue(batch.getId(), UUID.randomUUID(), BigDecimal.valueOf(0.6), 5_980L);
+            paid.markProcessing();
+            paid.markPaid();
+            DividendPayout deadLetter = DividendPayout.queue(batch.getId(), UUID.randomUUID(), BigDecimal.valueOf(0.4), 3_980L);
+            deadLetter.markProcessing();
+            deadLetter.markDeadLetter();
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(List.of(paid, deadLetter));
+
+            SettlementReconciliationResponse response = settlementQueryService.getReconciliation(ADMIN_ROLE, batch.getId());
+
+            assertThat(response.settlementBatchId()).isEqualTo(batch.getId());
+            assertThat(response.expectedAmount()).isEqualTo(9_960L);
+            assertThat(response.totalPayoutAmount()).isEqualTo(9_960L);
+            assertThat(response.paidAmount()).isEqualTo(5_980L);
+            assertThat(response.reconciled()).isTrue();
+        }
+
+        @Test
+        @DisplayName("지급 내역 합계가 배당 총액과 다르면 reconciled=false를 반환한다")
+        void returnsReconciledFalseWhenAmountsMismatch() {
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            batch.markSnapshotTaken();
+            batch.markCalculated(0L);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(Optional.of(batch));
+
+            DividendPayout payout = DividendPayout.queue(batch.getId(), UUID.randomUUID(), BigDecimal.ONE, 9_000L);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(List.of(payout));
+
+            SettlementReconciliationResponse response = settlementQueryService.getReconciliation(ADMIN_ROLE, batch.getId());
+
+            assertThat(response.expectedAmount()).isEqualTo(10_000L);
+            assertThat(response.totalPayoutAmount()).isEqualTo(9_000L);
+            assertThat(response.reconciled()).isFalse();
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
+        void throwsWhenBatchNotFound() {
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(SETTLEMENT_BATCH_ID))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> settlementQueryService.getReconciliation(ADMIN_ROLE, SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
         }
     }
 
