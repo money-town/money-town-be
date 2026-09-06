@@ -166,9 +166,7 @@ public class WalletService {
         return SettlementDepositResponse.from(existing);
     }
 
-    // walletTransactionService.deposit/withdraw는 별도 빈의 @Transactional 메서드라서, 이 예외는
-    // 그 트랜잭션이 완전히 롤백되고 난 뒤(트랜잭션 밖)에 도착한다.
-    // 즉, UNIQUE 제약을 "누가 먼저 저장했는지" 가려주는 심판으로 쓰고, 진 쪽은 그 결과를 그대로 반환한다.
+    // UNIQUE 제약으로 동시 삽입 승부를 가린 뒤, 진 쪽은 이긴 쪽 결과를 그대로 반환한다.
     private TransactionResponse recoverFromConcurrentDuplicate(DataIntegrityViolationException cause, Long walletId,
                                                                  WalletTransactionType type, String idempotencyKey, long amount) {
         WalletTransaction winner = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
@@ -177,10 +175,7 @@ public class WalletService {
         return buildIdempotentResponse(winner, walletId, type, amount);
     }
 
-    // 동일 idempotencyKey로 이미 처리된 거래가 있을 때: 그 거래가 "내 지갑" 것이고 타입+금액까지 똑같으면
-    // 그 결과를 그대로 재반환하고(재시도 허용), 지갑이 다르거나 타입/금액이 다르면 충돌로 처리한다.
-    // walletId까지 확인하는 이유는, 다른 유저가 우연히 같은 idempotencyKey를 썼을 때
-    // 그 유저의 거래 정보(잔액 등)가 그대로 반환되는 걸 막기 위해서다.
+    // 지갑/타입/금액까지 같아야 재시도로 인정, 다르면 충돌(다른 유저의 결과 유출 방지).
     private TransactionResponse buildIdempotentResponse(WalletTransaction existing, Long walletId,
                                                           WalletTransactionType type, long requestedAmount) {
         if (!existing.getWalletId().equals(walletId) || existing.getType() != type || existing.getAmount() != requestedAmount) {
