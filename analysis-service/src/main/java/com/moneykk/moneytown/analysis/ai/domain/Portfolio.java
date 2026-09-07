@@ -11,6 +11,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,7 +20,12 @@ import lombok.RequiredArgsConstructor;
 import java.time.Instant;
 import java.util.UUID;
 
-@Table(name = "p_ai_portfolios")
+@Table(name = "p_ai_portfolios",
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_ai_portfolios_user_idempotency",
+        columnNames = {"user_id", "idempotency_key"})
+    }
+)
 @Entity
 @Getter
 @RequiredArgsConstructor(access = AccessLevel.PROTECTED)
@@ -30,7 +36,7 @@ public class Portfolio extends BaseUpdatableEntity {
     @Column(name = "ai_portfolio_id")
     private UUID id;
 
-    @Column(name = "idempotency_key", nullable = false, unique = true)
+    @Column(name = "idempotency_key", nullable = false)
     private UUID idempotencyKey;
 
     @Column(name = "user_id", nullable = false)
