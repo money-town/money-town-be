@@ -2,9 +2,13 @@ package com.moneykk.moneytown.settlement.global.config;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.settlement.command.application.DividendDisbursementService;
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
+import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
+import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
@@ -16,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +37,10 @@ class RevenuePollingSchedulerTest {
     private AssetServiceClient assetServiceClient;
     @Mock
     private SettlementCommandService settlementCommandService;
+    @Mock
+    private RevenueTransferStatusNotifier revenueTransferStatusNotifier;
+    @Mock
+    private DividendDisbursementService dividendDisbursementService;
 
     @InjectMocks
     private RevenuePollingScheduler revenuePollingScheduler;
@@ -41,13 +50,23 @@ class RevenuePollingSchedulerTest {
     void opensBatchForEachReadyRevenueInSinglePage() {
         RevenueResponse revenue1 = revenue(UUID.randomUUID(), UUID.randomUUID());
         RevenueResponse revenue2 = revenue(UUID.randomUUID(), UUID.randomUUID());
+        SettlementBatchResponse response1 = batchResponse(revenue1);
+        SettlementBatchResponse response2 = batchResponse(revenue2);
         when(assetServiceClient.getReadyRevenues(null))
                 .thenReturn(ApiResponse.success(page(List.of(revenue1, revenue2), null, false), null));
+        when(settlementCommandService.openBatchAutomatically(revenue1.assetId(), revenue1.revenueId()))
+                .thenReturn(response1);
+        when(settlementCommandService.openBatchAutomatically(revenue2.assetId(), revenue2.revenueId()))
+                .thenReturn(response2);
 
         revenuePollingScheduler.pollReadyRevenues();
 
         verify(settlementCommandService).openBatchAutomatically(revenue1.assetId(), revenue1.revenueId());
         verify(settlementCommandService).openBatchAutomatically(revenue2.assetId(), revenue2.revenueId());
+        verify(revenueTransferStatusNotifier).notifyTransferred(revenue1.revenueId());
+        verify(revenueTransferStatusNotifier).notifyTransferred(revenue2.revenueId());
+        verify(dividendDisbursementService).disburseAsync(response1.settlementBatchId());
+        verify(dividendDisbursementService).disburseAsync(response2.settlementBatchId());
     }
 
     @Test
@@ -60,6 +79,10 @@ class RevenuePollingSchedulerTest {
                 .thenReturn(ApiResponse.success(page(List.of(revenue1), cursor, true), null));
         when(assetServiceClient.getReadyRevenues(cursor))
                 .thenReturn(ApiResponse.success(page(List.of(revenue2), null, false), null));
+        when(settlementCommandService.openBatchAutomatically(revenue1.assetId(), revenue1.revenueId()))
+                .thenReturn(batchResponse(revenue1));
+        when(settlementCommandService.openBatchAutomatically(revenue2.assetId(), revenue2.revenueId()))
+                .thenReturn(batchResponse(revenue2));
 
         revenuePollingScheduler.pollReadyRevenues();
 
@@ -76,10 +99,14 @@ class RevenuePollingSchedulerTest {
                 .thenReturn(ApiResponse.success(page(List.of(failing, succeeding), null, false), null));
         when(settlementCommandService.openBatchAutomatically(failing.assetId(), failing.revenueId()))
                 .thenThrow(new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET));
+        when(settlementCommandService.openBatchAutomatically(succeeding.assetId(), succeeding.revenueId()))
+                .thenReturn(batchResponse(succeeding));
 
         revenuePollingScheduler.pollReadyRevenues();
 
         verify(settlementCommandService).openBatchAutomatically(succeeding.assetId(), succeeding.revenueId());
+        verify(revenueTransferStatusNotifier).notifyTransferred(succeeding.revenueId());
+        verify(revenueTransferStatusNotifier, never()).notifyTransferred(failing.revenueId());
     }
 
     @Test
@@ -101,5 +128,10 @@ class RevenuePollingSchedulerTest {
 
     private ReadyRevenueListResponse page(List<RevenueResponse> revenues, UUID nextCursor, boolean hasNext) {
         return new ReadyRevenueListResponse(revenues, nextCursor, hasNext);
+    }
+
+    private SettlementBatchResponse batchResponse(RevenueResponse revenue) {
+        return new SettlementBatchResponse(UUID.randomUUID(), revenue.assetId(), revenue.revenueId(),
+                LocalDate.of(2026, 9, 1), 1_000_000L, 0L, 0L, SettlementStatus.CALCULATED, 1, Instant.now());
     }
 }
