@@ -106,6 +106,7 @@ class WalletHoldServiceTest {
 
         walletHoldService.processReservation(reservedEvent(1_000L));
 
+        verify(walletHoldRepository, never()).save(any());
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("WALLET_NOT_FOUND", captor.getValue().payload().reason());
