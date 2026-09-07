@@ -9,7 +9,6 @@ import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
 import com.moneykk.moneytown.settlement.command.dto.OpenFinalSettlementRequest;
-import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -37,9 +36,9 @@ public class FinalSettlementCommandController implements FinalSettlementCommandA
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OpenFinalSettlementRequest request) {
         FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(role, request);
-        // 신규 생성된 배치도 이 시점엔 이미 CALCULATED이므로, CALCULATED 여부 하나로 신규/재호출을 함께 판단한다.
-        // COMPLETED/DISBURSING/PARTIAL_FAILED/FAILED 상태의 기존 배치는 여기서 다시 지급을 시작하지 않는다(재처리는 retryFinalSettlement 전용 경로).
-        if (response.status() == SettlementStatus.CALCULATED) {
+        // status==CALCULATED만으로는 "방금 생성됨"과 "이미 존재하지만 아직 disburse()가 markDisbursing()을 못 돌린 기존 배치 구분X
+        // 첫 요청 직후 재요청(멱등 재시도)이 짧은 창을 파고들면 같은 회차의 지급이 두 번 트리거 가능 -> 서비스가 명시적으로 내려주는 newlyCreated로만 판단한다.
+        if (response.newlyCreated()) {
             finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
         }
         return ResponseEntity.status(HttpStatus.CREATED)

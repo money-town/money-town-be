@@ -42,7 +42,7 @@ public class FinalSettlementCommandService {
         Optional<FinalSettlementBatch> existingBatch =
                 finalSettlementBatchRepository.findByAssetIdAndIsDeletedFalse(request.assetId());
         if (existingBatch.isPresent()) {
-            return FinalSettlementBatchResponse.of(existingBatch.get());
+            return FinalSettlementBatchResponse.of(existingBatch.get(), false);
         }
 
         LocalDate asOf = request.terminatedAt().atZone(SETTLEMENT_ZONE).toLocalDate();
@@ -67,7 +67,7 @@ public class FinalSettlementCommandService {
         finalSettlementBatchRepository.save(batch);
         finalSettlementPayoutRepository.saveAll(payouts);
 
-        return FinalSettlementBatchResponse.of(batch);
+        return FinalSettlementBatchResponse.of(batch, true);
     }
 
     @Transactional
