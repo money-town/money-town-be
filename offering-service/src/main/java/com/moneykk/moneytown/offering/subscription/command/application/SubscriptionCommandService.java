@@ -291,11 +291,8 @@ public class SubscriptionCommandService {
 
         if (status == IdempotencyRequestStatus.FAILED) {
             /*
-             * TODO:
-             * FAILED 상태의 동일 Idempotency-Key를
-             * 다시 사용할 수 있도록 할 것인지 정책 확정 필요.
-             *
-             * 현재는 자동 재처리하지 않는다.
+             * FAILED 상태의 요청은 동일한 Idempotency-Key로 재시도하지 않는다.
+             * 클라이언트는 새로운 요청에 새로운 Idempotency-Key를 사용해야 한다.
              */
             throw new BusinessException(
                     SubscriptionErrorCode.IDEMPOTENCY_REQUEST_FAILED
