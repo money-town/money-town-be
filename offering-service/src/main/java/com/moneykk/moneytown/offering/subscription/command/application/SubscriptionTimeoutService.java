@@ -37,9 +37,6 @@ public class SubscriptionTimeoutService {
      * 청약 상태 변경, 보상 진행 정보 생성 및 Outbox 저장은
      * 동일한 로컬 트랜잭션에서 처리한다.
      *
-     * TODO: 대량 타임아웃 발생 시
-     * 배치 크기 및 반복 처리 방식의 성능을 검증한다.
-     *
      * @return timeout 처리된 청약 수
      */
     @Transactional
