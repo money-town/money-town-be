@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
+import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
@@ -12,9 +14,11 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Locale;
 
 import java.util.UUID;
@@ -32,6 +36,8 @@ public class AssetCommandService {
     private final AssetRepository assetRepository;
     private final AssetQueryRepository assetQueryRepository;
     private final S3StorageService s3StorageService;
+    private final SettlementServiceClient settlementServiceClient;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * 자산 등록
@@ -163,6 +169,88 @@ public class AssetCommandService {
 
         // 실제 상태 전이는 엔티티에서 검증
         asset.changeStatus(nextStatus, rejectionReason);
+    }
+
+    /**
+     * 자산 운영 종료 요청
+     */
+    public void requestAssetTermination(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        FinalSettlementOpenRequest request = transactionTemplate.execute(status ->
+                prepareAssetTermination(assetId, userId, role));
+
+        // 자산 상태가 먼저 커밋된 후 정산 서비스를 호출
+        settlementServiceClient.openFinalSettlement("SYSTEM", request);
+    }
+
+    private FinalSettlementOpenRequest prepareAssetTermination(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        // 자산운용자와 관리자만 요청 가능
+        if (userId == null
+                || (!"ISSUER".equals(role)
+                && !"ADMIN".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED
+            );
+        }
+
+        // 동시에 상태가 변경되지 않도록 잠금 조회
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 자산운용자는 본인 자산만 종료 요청 가능
+        if (!"ADMIN".equals(role)
+                && !userId.equals(asset.getUserId())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED
+            );
+        }
+
+        // 재시도해도 최초 종료 요청 시각을 그대로 사용
+        Instant terminatedAt = asset.requestTermination();
+
+        return new FinalSettlementOpenRequest(
+                assetId,
+                terminatedAt,
+                asset.getUnitPrice()
+        );
+    }
+
+    /**
+     * 최종 정산 완료 후 자산 종료 확정
+     */
+    @Transactional
+    public void completeAssetTermination(
+            UUID assetId,
+            String role
+    ) {
+        if (!"SYSTEM".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED
+            );
+        }
+
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 정산 서비스가 같은 완료 요청을 다시 보내도 성공 처리
+        if (asset.getStatus() == AssetStatus.TERMINATED) {
+            return;
+        }
+
+        asset.changeStatus(AssetStatus.TERMINATED, null);
     }
 
     /**

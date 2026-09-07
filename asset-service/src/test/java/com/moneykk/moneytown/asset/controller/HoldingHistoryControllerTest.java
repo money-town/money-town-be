@@ -53,7 +53,7 @@ class HoldingHistoryControllerTest {
                 .standaloneSetup(holdingHistoryController)
                 .build();
 
-        mvc.perform(get("/api/v1/holdings/{holdingId}/histories", holdingId)
+        mvc.perform(get("/api/v1/assets/holdings/{holdingId}/histories", holdingId)
                         .header("X-User-Id", userId)
                         .header("X-User-Role", "INVESTOR"))
                 .andExpect(status().isOk());

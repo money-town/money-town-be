@@ -6,7 +6,10 @@ import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusRespons
 import com.moneykk.moneytown.asset.dto.response.HoldingHistoryItemResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingHistoryListResponse;
 import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingItemResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingListResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
+import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
@@ -184,6 +187,33 @@ class HoldingQueryServiceTest {
     }
 
     @Test
+    @DisplayName("내 전체 보유지분을 커서 방식으로 조회한다")
+    void returnsMyHoldingsWithNextCursor() {
+        UUID userId = UUID.randomUUID();
+        MyHoldingItemResponse first = new MyHoldingItemResponse(
+                UUID.randomUUID(), UUID.randomUUID(), "강남 오피스 A동",
+                AssetType.REAL_ESTATE, 100L, Instant.parse("2026-09-03T03:00:00Z"));
+        MyHoldingItemResponse second = new MyHoldingItemResponse(
+                UUID.randomUUID(), UUID.randomUUID(), "음원 저작권 A",
+                AssetType.MUSIC_COPYRIGHT, 50L, Instant.parse("2026-09-02T03:00:00Z"));
+        MyHoldingItemResponse extra = new MyHoldingItemResponse(
+                UUID.randomUUID(), UUID.randomUUID(), "강남 오피스 B동",
+                AssetType.REAL_ESTATE, 30L, Instant.parse("2026-09-01T03:00:00Z"));
+        when(holdingQueryRepository.findMyHoldings(
+                userId, null, 3, Sort.Direction.DESC))
+                .thenReturn(List.of(first, second, extra));
+
+        MyHoldingListResponse response = holdingQueryService.getMyHoldings(
+                userId, "INVESTOR", null, 2, Sort.Direction.DESC);
+
+        assertEquals(List.of(first, second), response.items());
+        assertEquals(second.holdingId(), response.nextCursor());
+        assertTrue(response.hasNext());
+        verify(holdingQueryRepository).findMyHoldings(
+                userId, null, 3, Sort.Direction.DESC);
+    }
+
+    @Test
     @DisplayName("처리 이력이 없으면 미처리 상태를 반환한다")
     void returnsNotProcessedWhenHistoryDoesNotExist() {
         UUID subscriptionId = UUID.randomUUID();
@@ -255,6 +285,8 @@ class HoldingQueryServiceTest {
                 .thenReturn(Optional.of(mock(Asset.class)));
         when(holdingQueryRepository.findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC))
                 .thenReturn(List.of());
+        when(holdingQueryRepository.findTotalSnapshotQuantity(assetId, expectedCutoff))
+                .thenReturn(0L);
 
         HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, null, 100, Sort.Direction.DESC);
 
@@ -262,6 +294,7 @@ class HoldingQueryServiceTest {
         assertEquals(assetId, response.assetId());
         assertEquals(asOf, response.asOf());
         assertTrue(response.holdings().isEmpty());
+        assertEquals(0L, response.totalHoldingQuantity());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
     }
@@ -282,10 +315,13 @@ class HoldingQueryServiceTest {
                 .thenReturn(Optional.of(mock(Asset.class)));
         when(holdingQueryRepository.findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC))
                 .thenReturn(rows);
+        when(holdingQueryRepository.findTotalSnapshotQuantity(assetId, cutoff))
+                .thenReturn(30L);
 
         HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, cursor, 2, Sort.Direction.DESC);
 
         assertEquals(rows, response.holdings());
+        assertEquals(30L, response.totalHoldingQuantity());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
         verify(holdingQueryRepository).findSnapshotByAssetId(assetId, cutoff, cursor, 3, Sort.Direction.DESC);
@@ -330,11 +366,15 @@ class HoldingQueryServiceTest {
         when(holdingQueryRepository.findSnapshotByAssetId(
                 assetId, cutoffExclusive, null, 3, direction
         )).thenReturn(List.of(first, second, extra));
+        when(holdingQueryRepository.findTotalSnapshotQuantity(
+                assetId, cutoffExclusive
+        )).thenReturn(60L);
 
         HoldingSnapshotResponse response =
                 holdingQueryService.getSnapshot(assetId, asOf, null, 2, direction);
 
         assertEquals(List.of(first, second), response.holdings());
+        assertEquals(60L, response.totalHoldingQuantity());
         assertEquals(secondHoldingId, response.nextCursor());
         assertTrue(response.hasNext());
         assertEquals(asOf, response.asOf());
