@@ -24,6 +24,8 @@ import java.util.Set;
 @EnableConfigurationProperties(JwtProperties.class)
 public class JwtDecoderConfig {
 
+    // JWT 검증
+
     private static final String TOKEN_TYPE_CLAIM = "tokenType";
     private static final String ACCESS_TOKEN_TYPE = "ACCESS";
     private static final String ROLE_CLAIM = "role";
