@@ -26,7 +26,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1")
 public interface FinalSettlementCommandApi {
 
-    //TODO: 인가 코드 추가 (SYSTEM 권한)
     @Operation(
             tags = "Final Settlement Internal",
             summary = "최종 정산 회차 개시 (자산 서비스 전용 내부 API)",
@@ -40,6 +39,10 @@ public interface FinalSettlementCommandApi {
                     description = "최종 정산 회차 개시 성공 (이미 존재하면 기존 회차를 그대로 반환)",
                     content = @Content(schema = @Schema(implementation = FinalSettlementBatchResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "SYSTEM 권한이 아님 (SETTLEMENT_403_03)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "409",
                     description = "종료 시점(terminatedAt) 기준 보유자가 존재하지 않음 (SETTLEMENT_409_07)",
                     content = @Content(schema = @Schema(implementation = ApiResponse.class))),
@@ -50,6 +53,7 @@ public interface FinalSettlementCommandApi {
     })
     @PostMapping("/internal/final-settlements")
     ResponseEntity<ApiResponse<FinalSettlementBatchResponse>> openFinalSettlement(
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OpenFinalSettlementRequest request);
 
     @Operation(

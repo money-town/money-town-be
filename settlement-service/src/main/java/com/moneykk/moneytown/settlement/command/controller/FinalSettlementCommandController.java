@@ -30,12 +30,12 @@ public class FinalSettlementCommandController implements FinalSettlementCommandA
     private final FinalSettlementCommandService finalSettlementCommandService;
     private final FinalSettlementDisbursementService finalSettlementDisbursementService;
 
-    //TODO: 인가 코드 추가 (SYSTEM 권한)
     @Override
     @PostMapping("/internal/final-settlements")
     public ResponseEntity<ApiResponse<FinalSettlementBatchResponse>> openFinalSettlement(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OpenFinalSettlementRequest request) {
-        FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request);
+        FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(role, request);
         finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "최종 정산 회차가 개시되었습니다."));

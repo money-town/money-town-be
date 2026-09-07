@@ -15,6 +15,7 @@ public enum SettlementErrorCode implements ErrorCode {
 
     SETTLEMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "SETTLEMENT_403_01", "정산 회차 관련 기능은 ADMIN 권한으로만 이용할 수 있습니다."),
     FINAL_SETTLEMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "SETTLEMENT_403_02", "최종 정산 회차 관련 기능은 ADMIN 권한으로만 이용할 수 있습니다."),
+    FINAL_SETTLEMENT_SYSTEM_ACCESS_DENIED(HttpStatus.FORBIDDEN, "SETTLEMENT_403_03", "최종 정산 회차 개시는 SYSTEM 권한(자산 서비스)만 호출할 수 있습니다."),
 
     REVENUE_NOT_READY(HttpStatus.CONFLICT, "SETTLEMENT_409_01", "정산 전달 대기(READY) 상태의 수익이 아닙니다."),
     DISTRIBUTABLE_AMOUNT_NOT_POSITIVE(HttpStatus.CONFLICT, "SETTLEMENT_409_02", "배당 가능 총액이 0원 이하라 정산 회차를 개시할 수 없습니다."),

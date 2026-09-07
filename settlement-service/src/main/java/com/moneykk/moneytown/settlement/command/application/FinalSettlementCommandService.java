@@ -30,13 +30,15 @@ public class FinalSettlementCommandService {
 
     private static final ZoneId SETTLEMENT_ZONE = ZoneId.of("Asia/Seoul");
     private static final String ADMIN_ROLE = "ADMIN";
+    private static final String SYSTEM_ROLE = "SYSTEM";
 
     private final FinalSettlementBatchRepository finalSettlementBatchRepository;
     private final FinalSettlementPayoutRepository finalSettlementPayoutRepository;
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @Transactional
-    public FinalSettlementBatchResponse openFinalSettlement(OpenFinalSettlementRequest request) {
+    public FinalSettlementBatchResponse openFinalSettlement(String role, OpenFinalSettlementRequest request) {
+        validateSystem(role);
         Optional<FinalSettlementBatch> existingBatch =
                 finalSettlementBatchRepository.findByAssetIdAndIsDeletedFalse(request.assetId());
         if (existingBatch.isPresent()) {
@@ -99,6 +101,12 @@ public class FinalSettlementCommandService {
     private void validateAdmin(String role) {
         if (!ADMIN_ROLE.equals(role)) {
             throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+        }
+    }
+
+    private void validateSystem(String role) {
+        if (!SYSTEM_ROLE.equals(role)) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_SYSTEM_ACCESS_DENIED);
         }
     }
 
