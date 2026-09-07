@@ -16,9 +16,12 @@ import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,6 +44,9 @@ public class PortfolioGenerator {
 
     private static final int MAX_ATTEMPTS = 2;
 
+    @Value("${spring.ai.portfolio.asset-enrich-enabled:false}")
+    private boolean assetEnrichEnabled;
+
     @Async("aiTaskExecutor")
     public void generate(UUID portfolioId) {
         long t0 = System.currentTimeMillis();
@@ -59,7 +65,7 @@ public class PortfolioGenerator {
             Map<UUID, AssetSummary> assetById = fetchAssets(offerings);
 
             // 3. 병합
-            List<PortfolioCandidate> candidates = merge(offerings, assetById);
+            List<PortfolioCandidate> candidates = merge(offerings, assetById, Instant.now());
             Set<UUID> validOfferingIds = candidates.stream()
                     .map(PortfolioCandidate::offeringId)
                     .collect(Collectors.toSet());
@@ -152,6 +158,8 @@ public class PortfolioGenerator {
     }
 
     private Map<UUID, AssetSummary> fetchAssets(List<OfferingSummary> offerings){
+        if(!assetEnrichEnabled) return Map.of();
+
         List<UUID> ids = offerings.stream()
                 .map(OfferingSummary::assetId).distinct().toList();
         try{
@@ -168,11 +176,25 @@ public class PortfolioGenerator {
     }
 
     private List<PortfolioCandidate> merge(List<OfferingSummary> offerings,
-                                           Map<UUID, AssetSummary> assetById){
+                                           Map<UUID, AssetSummary> assetById,
+                                           Instant now){
+
+
         return offerings.stream().map(o ->{
             AssetSummary a = assetById.get(o.assetId());
+            long total = o.totalQuantity() != null ? o.totalQuantity() : 0L;
+            long remaining = o.remainingQuantity() != null ? o.remainingQuantity() : 0L;
+            long price = o.pricePerUnit() != null ? o.pricePerUnit() : 0L;
+
+            int ratePercent = total > 0
+                    ? (int) Math.round((total - remaining) * 100.0 / total)
+                    : 0;
+            long raise = price * total;
+            long days = Math.max(0, Duration.between(now, o.endAt()).toDays());
+
             return new PortfolioCandidate(
-                    o.offeringId(), o.title(), o.pricePerUnit(), o.remainingQuantity(), o.endAt(),
+                    o.offeringId(), o.title(), price, total, remaining,
+                    ratePercent, raise, days, o.endAt(),
                     a != null ? a.assetType() : null,
                     a != null ? a.expectedReturnRate() : null,
                     a != null ? a.valuationAmount() : null,
