@@ -43,6 +43,7 @@ import static org.mockito.Mockito.when;
 class FinalSettlementCommandServiceTest {
 
     private static final String ADMIN_ROLE = "ADMIN";
+    private static final String SYSTEM_ROLE = "SYSTEM";
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final LocalDate TERMINATED_DATE = LocalDate.of(2026, 8, 31);
@@ -67,7 +68,7 @@ class FinalSettlementCommandServiceTest {
         when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
                 .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), investorId, 900L))));
 
-        FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request());
+        FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
 
         assertThat(response.assetId()).isEqualTo(ASSET_ID);
         assertThat(response.totalAmount()).isEqualTo(900_000_000L);
@@ -91,6 +92,22 @@ class FinalSettlementCommandServiceTest {
     }
 
     @Nested
+    @DisplayName("SYSTEM 권한 검증")
+    class SystemAccessValidation {
+
+        @Test
+        @DisplayName("SYSTEM이 아니면 최종 정산 개시 시 예외")
+        void rejectsWhenNotSystem() {
+            assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(ADMIN_ROLE, request()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_SYSTEM_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementBatchRepository, finalSettlementPayoutRepository, assetHoldingsSnapshotFetcher);
+        }
+    }
+
+    @Nested
     @DisplayName("중복 호출(멱등) 처리")
     class DuplicateCallIdempotency {
 
@@ -101,7 +118,7 @@ class FinalSettlementCommandServiceTest {
             existingBatch.markCalculated();
             when(finalSettlementBatchRepository.findByAssetIdAndIsDeletedFalse(ASSET_ID)).thenReturn(Optional.of(existingBatch));
 
-            FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request());
+            FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
 
             assertThat(response.finalSettlementBatchId()).isEqualTo(existingBatch.getId());
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
@@ -127,7 +144,7 @@ class FinalSettlementCommandServiceTest {
                     new HoldingItem(UUID.randomUUID(), investor1, 100L),
                     new HoldingItem(UUID.randomUUID(), investor2, 200L))));
 
-            FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(request());
+            FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
 
             assertThat(response.totalAmount()).isEqualTo(300_000_000L);
 
@@ -150,7 +167,7 @@ class FinalSettlementCommandServiceTest {
                     new HoldingItem(UUID.randomUUID(), investorWithZeroHolding, 0L)
             )));
 
-            finalSettlementCommandService.openFinalSettlement(request());
+            finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
 
             @SuppressWarnings("unchecked")
             ArgumentCaptor<List<FinalSettlementPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
@@ -171,7 +188,7 @@ class FinalSettlementCommandServiceTest {
             stubNoExistingBatch();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE)).thenReturn(aggregated(List.of()));
 
-            assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(request()))
+            assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request()))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_HOLDERS_NOT_FOUND);
@@ -187,7 +204,7 @@ class FinalSettlementCommandServiceTest {
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
                     .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 0L))));
 
-            assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(request()))
+            assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request()))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_HOLDERS_NOT_FOUND);
