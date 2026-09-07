@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.wallet.service;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.exception.ErrorCode;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionCompensationRequestedPayload;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.entity.Wallet;
@@ -19,13 +21,19 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -110,6 +118,23 @@ class WalletHoldServiceTest {
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("WALLET_NOT_FOUND", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("wallet.hold()가 WalletErrorCode가 아닌 예외를 던지면 실패 이벤트로 뭉개지 않고 그대로 다시 던진다")
+    void processReservation_unexpectedErrorCode_rethrowsWithoutPublishing() {
+        Wallet wallet = mock(Wallet.class);
+        when(wallet.getId()).thenReturn(1L);
+        BusinessException unexpected = new BusinessException(unexpectedErrorCode());
+        doThrow(unexpected).when(wallet).hold(anyLong());
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        BusinessException thrown = assertThrows(BusinessException.class,
+                () -> walletHoldService.processReservation(reservedEvent(1_000L)));
+
+        assertSame(unexpected, thrown);
+        verifyNoInteractions(walletEventPublisher);
     }
 
     @Test
@@ -225,5 +250,25 @@ class WalletHoldServiceTest {
     private EventEnvelope<SubscriptionCompensationRequestedPayload> compensationEvent() {
         return EventEnvelope.of("SubscriptionCompensationRequested", subscriptionId.toString(), userId, "corr-1",
                 new SubscriptionCompensationRequestedPayload("OFFERING_UNDERFILLED"));
+    }
+
+    // WalletErrorCode가 아닌 임의의 ErrorCode 구현체 (다른 도메인/모듈의 오류 코드가 섞여 들어온 상황을 흉내)
+    private ErrorCode unexpectedErrorCode() {
+        return new ErrorCode() {
+            @Override
+            public HttpStatus getStatus() {
+                return HttpStatus.INTERNAL_SERVER_ERROR;
+            }
+
+            @Override
+            public String getCode() {
+                return "OTHER_500_01";
+            }
+
+            @Override
+            public String getMessage() {
+                return "예상하지 못한 오류";
+            }
+        };
     }
 }
