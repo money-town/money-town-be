@@ -2,7 +2,9 @@ package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
+import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositResponse;
@@ -21,10 +23,12 @@ import java.util.UUID;
 public class FinalSettlementDisbursementService {
 
     private static final String SYSTEM_ROLE = "SYSTEM";
+    private static final List<SettlementStatus> FAILURE_STATUSES = List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED);
 
     private final FinalSettlementPayoutWriter payoutWriter;
     private final WalletServiceClient walletServiceClient;
     private final AssetServiceClient assetServiceClient;
+    private final SettlementFailureNotifier settlementFailureNotifier;
 
     @Async("disbursementTaskExecutor")
     public void disburseAsync(UUID finalSettlementBatchId) {
@@ -37,8 +41,13 @@ public class FinalSettlementDisbursementService {
         List<FinalSettlementPayout> claimedPayouts = payoutWriter.claimPendingPayouts(finalSettlementBatchId);
         claimedPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
 
-        payoutWriter.updateBatchStatus(finalSettlementBatchId)
-                .ifPresent(assetId -> notifyAssetTerminationCompleted(finalSettlementBatchId, assetId));
+        payoutWriter.updateBatchStatus(finalSettlementBatchId).ifPresent(batch -> {
+            if (batch.getStatus() == SettlementStatus.COMPLETED) {
+                notifyAssetTerminationCompleted(finalSettlementBatchId, batch.getAssetId());
+            } else if (FAILURE_STATUSES.contains(batch.getStatus())) {
+                settlementFailureNotifier.notifyFinalSettlementBatchFailed(batch);
+            }
+        });
     }
 
     // COMPLETED로 확정됐지만 자산 서비스 통보에 아직 성공하지 못한 회차를 재호출한다. 자산 서비스 API는 멱등하다.
