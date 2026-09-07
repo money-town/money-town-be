@@ -126,12 +126,27 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("KYC/거래가능상태 요건을 못 갖췄으면 충전이 거부된다")
-    void deposit_ineligibleUser_throwsBusinessException() {
+    @DisplayName("KYC 상태가 유효하지 않으면(만료 시각은 유효해도) 충전이 거부된다")
+    void deposit_ineligibleByStatus_throwsBusinessException() {
         Wallet wallet = walletWithId(1L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
-        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleResponse());
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByStatusResponse());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.deposit(investorId, "key-1", 1_000L));
+
+        assertEquals(WalletErrorCode.INELIGIBLE_FOR_TRANSACTION, exception.getErrorCode());
+        verify(walletTransactionService, never()).deposit(any(), any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("KYC 상태는 유효해도 만료 시각이 지났으면 충전이 거부된다")
+    void deposit_ineligibleByExpiry_throwsBusinessException() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByExpiryResponse());
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.deposit(investorId, "key-1", 1_000L));
@@ -150,7 +165,7 @@ class WalletServiceTest {
 
         TransactionResponse response = walletService.deposit(investorId, "key-1", 1_000L);
 
-        assertEquals(1_000L, response.amount());
+        assertEquals(TransactionResponse.from(existing), response);
         verify(userServiceClient, never()).getInvestmentEligibility(any());
         verify(walletTransactionService, never()).deposit(any(), any(), anyLong());
     }
@@ -181,6 +196,20 @@ class WalletServiceTest {
     }
 
     @Test
+    @DisplayName("같은 멱등키로 조회된 거래가 다른 타입이면 충돌로 처리한다")
+    void deposit_sameKeyDifferentType_throwsConflict() {
+        Wallet wallet = walletWithId(1L);
+        WalletTransaction existing = withdrawTransaction(1L, 1_000L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.deposit(investorId, "key-1", 1_000L));
+
+        assertEquals(WalletErrorCode.IDEMPOTENCY_KEY_CONFLICT, exception.getErrorCode());
+    }
+
+    @Test
     @DisplayName("동시 요청으로 멱등키 UNIQUE 제약을 위반해도, 먼저 처리된 결과를 그대로 반환한다 (동시성 복구)")
     void deposit_concurrentDuplicate_recoversExistingResult() {
         Wallet wallet = walletWithId(1L);
@@ -195,7 +224,7 @@ class WalletServiceTest {
 
         TransactionResponse response = walletService.deposit(investorId, "key-1", 1_000L);
 
-        assertEquals(1_000L, response.amount());
+        assertEquals(TransactionResponse.from(winner), response);
     }
 
     @Test
@@ -228,7 +257,7 @@ class WalletServiceTest {
 
         TransactionResponse response = walletService.withdraw(investorId, "key-1", 500L);
 
-        assertEquals(500L, response.amount());
+        assertEquals(TransactionResponse.from(winner), response);
     }
 
     private ApiResponse<UserInvestmentEligibilityResponse> eligibleResponse() {
@@ -236,9 +265,14 @@ class WalletServiceTest {
                 investorId, "ACTIVE", "VERIFIED", Instant.now().plusSeconds(3600)), "ok");
     }
 
-    private ApiResponse<UserInvestmentEligibilityResponse> ineligibleResponse() {
+    private ApiResponse<UserInvestmentEligibilityResponse> ineligibleByStatusResponse() {
         return ApiResponse.success(new UserInvestmentEligibilityResponse(
-                investorId, "ACTIVE", "EXPIRED", Instant.now().minusSeconds(3600)), "ok");
+                investorId, "ACTIVE", "EXPIRED", Instant.now().plusSeconds(3600)), "ok");
+    }
+
+    private ApiResponse<UserInvestmentEligibilityResponse> ineligibleByExpiryResponse() {
+        return ApiResponse.success(new UserInvestmentEligibilityResponse(
+                investorId, "ACTIVE", "VERIFIED", Instant.now().minusSeconds(3600)), "ok");
     }
 
     private WalletTransaction depositTransaction(Long walletId, long amount) {
