@@ -51,7 +51,7 @@ class WalletHoldServiceTest {
 
     @Test
     @DisplayName("가용잔액이 부족하면 동결 없이 실패 이벤트만 발행한다")
-    void processReservation_insufficientBalance_publishesFailedEvent() {
+    void processReservation_insufficientAvailableBalance_publishesFailedEvent() {
         Wallet wallet = walletWithId(1L, 0L);
         when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
@@ -63,7 +63,52 @@ class WalletHoldServiceTest {
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("WalletHoldFailed", captor.getValue().eventType());
-        assertEquals("INSUFFICIENT_BALANCE", captor.getValue().payload().reason());
+        assertEquals("INSUFFICIENT_AVAILABLE_BALANCE", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("동결 금액이 0 이하면 동결 없이 INVALID_AMOUNT 실패 이벤트를 발행한다")
+    void processReservation_invalidAmount_publishesFailedEvent() {
+        Wallet wallet = walletWithId(1L, 1_000L);
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        walletHoldService.processReservation(reservedEvent(0L));
+
+        verify(walletHoldRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishHoldResult(captor.capture());
+        assertEquals("INVALID_AMOUNT", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("동결 잔액 합계가 Long 범위를 초과하면 BALANCE_OVERFLOW 실패 이벤트를 발행한다")
+    void processReservation_balanceOverflow_publishesFailedEvent() {
+        Wallet wallet = walletWithId(1L, 0L);
+        ReflectionTestUtils.setField(wallet, "holdBalance", Long.MAX_VALUE - 1);
+        ReflectionTestUtils.setField(wallet, "availableBalance", Long.MAX_VALUE);
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        walletHoldService.processReservation(reservedEvent(2L));
+
+        verify(walletHoldRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishHoldResult(captor.capture());
+        assertEquals("BALANCE_OVERFLOW", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("지갑이 없으면 WALLET_NOT_FOUND 실패 이벤트를 발행한다")
+    void processReservation_walletNotFound_publishesFailedEvent() {
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.empty());
+
+        walletHoldService.processReservation(reservedEvent(1_000L));
+
+        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishHoldResult(captor.capture());
+        assertEquals("WALLET_NOT_FOUND", captor.getValue().payload().reason());
     }
 
     @Test

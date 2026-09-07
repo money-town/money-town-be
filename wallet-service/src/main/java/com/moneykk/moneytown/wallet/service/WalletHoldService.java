@@ -45,8 +45,8 @@ public class WalletHoldService {
 
         Optional<Wallet> walletOpt = walletRepository.findByUserIdForUpdate(event.userId());
         if (walletOpt.isEmpty()) {
-            walletEventPublisher.publishHoldResult(
-                    WalletHoldResultPayload.failed(aggregateId, event.userId(), event.correlationId(), null, "WALLET_NOT_FOUND"));
+            walletEventPublisher.publishHoldResult(WalletHoldResultPayload.failed(
+                    aggregateId, event.userId(), event.correlationId(), null, WalletErrorCode.WALLET_NOT_FOUND.name()));
             return;
         }
 
@@ -57,8 +57,9 @@ public class WalletHoldService {
         try {
             wallet.hold(amount);
         } catch (BusinessException e) {
+            // PostFDS 연동을 위해 Offering이 이 reason을 그대로 저장·전달하기로 확정 — 실제 실패 원인 그대로 전달
             walletEventPublisher.publishHoldResult(WalletHoldResultPayload.failed(
-                    aggregateId, event.userId(), event.correlationId(), wallet.getId(), "INSUFFICIENT_BALANCE"));
+                    aggregateId, event.userId(), event.correlationId(), wallet.getId(), errorCodeName(e)));
             return;
         } // 예외 X, 결과를 이벤트로만 알림
 
@@ -121,6 +122,12 @@ public class WalletHoldService {
                     aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
             ); // 이미 처리됨 (재전송된 보상 요청)
         }
+    }
+
+    // BusinessException.getErrorCode()는 ErrorCode 인터페이스라 name()이 없음 — wallet.hold()가
+    // 던지는 예외는 전부 WalletErrorCode 인스턴스이므로 캐스팅해서 enum 이름을 그대로 꺼낸다.
+    private String errorCodeName(BusinessException e) {
+        return ((WalletErrorCode) e.getErrorCode()).name();
     }
 
     private void releaseHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
