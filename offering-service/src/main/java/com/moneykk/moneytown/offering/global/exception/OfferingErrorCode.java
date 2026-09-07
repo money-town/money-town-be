@@ -137,6 +137,11 @@ public enum OfferingErrorCode implements ErrorCode {
             "OFFERING_409_11",
             "현재 상태에서는 공모 취소 처리를 시작할 수 없습니다."
     ),
+    OFFERING_CANCELLATION_COMPLETION_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "OFFERING_409_12",
+            "현재 상태에서는 공모 취소를 완료할 수 없습니다."
+    ),
 
     // 500
     ASSET_RESPONSE_INVALID(

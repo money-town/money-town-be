@@ -37,6 +37,7 @@ public class SubscriptionCommandController {
             @PathVariable UUID offeringId,
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @RequestHeader(AuthHeaderConstants.CORRELATION_ID) String correlationId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubscriptionCreateRequest request
     ) {
@@ -51,7 +52,8 @@ public class SubscriptionCommandController {
                         offeringId,
                         userId,
                         idempotencyKey,
-                        request
+                        request,
+                        correlationId
                 );
 
         return ResponseEntity

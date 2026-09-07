@@ -2,12 +2,14 @@ package com.moneykk.moneytown.offering.offering.command.application;
 
 import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
-import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -22,6 +25,10 @@ public class OfferingStatusTransitionService {
 
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
+
+    private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final SubscriptionCompensationRepository subscriptionCompensationRepository;
+    private final OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     private static final int TRANSITION_BATCH_SIZE = 100;
 
@@ -63,15 +70,22 @@ public class OfferingStatusTransitionService {
     public int startUnderSubscribedCancellations() {
 
         List<Offering> offerings =
-                offeringRepository
-                        .findAllByOfferingStatusAndEndAtLessThanEqualAndIsDeletedFalse(
-                                OfferingStatus.OPEN,
-                                Instant.now(),
-                                PageRequest.of(0, TRANSITION_BATCH_SIZE)
-                        );
+                offeringRepository.findUnderSubscribedOfferingsForUpdate(
+                        Instant.now(),
+                        PageRequest.of(0, TRANSITION_BATCH_SIZE)
+                );
 
         for (Offering offering : offerings) {
+
             offering.startUnderSubscribedCancellation();
+
+            /*
+             * 스케줄러에서 시작한 작업이므로 Gateway 요청 ID가 없다.
+             * 공모별 보상 작업의 추적 ID를 생성하고,
+             * 해당 공모의 청약별 이벤트에 동일하게 전달한다.
+             */
+            String correlationId = UUID.randomUUID().toString();
+
 
             List<Subscription> subscriptions =
                     subscriptionRepository
@@ -84,7 +98,24 @@ public class OfferingStatusTransitionService {
                 subscription.startCompensation(
                         CancellationType.OFFERING_UNDER_SUBSCRIBED
                 );
+
+                SubscriptionCompensation compensation =
+                        SubscriptionCompensation.create(
+                                subscription.getSubscriptionId()
+                        );
+
+                subscriptionCompensationRepository.save(compensation);
+
+                subscriptionEventPublisher.publishCompensationRequested(
+                        subscription,
+                        offering.getAssetId(),
+                        correlationId
+                );
             }
+            // 청약이 없거나 모든 청약이 이미 해결된 공모도 완료 여부를 확인한다.
+            offeringCompensationCompletionService.completeIfReady(
+                    offering.getOfferingId()
+            );
         }
 
         return offerings.size();

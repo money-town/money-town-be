@@ -52,11 +52,12 @@ public class SubscriptionCommandService {
             UUID offeringId,
             UUID userId,
             String idempotencyKey,
-            SubscriptionCreateRequest request
+            SubscriptionCreateRequest request,
+            String correlationId
     ) {
-        // TODO: SubscriptionReserved Outbox 저장 추가
 
         validateIdempotencyKey(idempotencyKey);
+        validateCorrelationId(correlationId);
 
         String requestHash = subscriptionRequestHasher.hash(
                 offeringId,
@@ -158,14 +159,15 @@ public class SubscriptionCommandService {
              * - remainingQuantity 조건부 UPDATE
              * - Subscription PROCESSING 생성
              * - Idempotency COMPLETED 처리
-             * - 추후 SubscriptionReserved Outbox 저장
+             * - SubscriptionReserved Outbox 저장
              */
             return subscriptionTransactionService.createSubscription(
                     offering.getOfferingId(),
                     userId,
                     idempotencyKey,
                     request.quantity(),
-                    offering.getPricePerUnit()
+                    offering.getPricePerUnit(),
+                    correlationId
             );
 
         } catch (BusinessException e) {
@@ -311,6 +313,18 @@ public class SubscriptionCommandService {
         if (idempotencyKey.length() > 100) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_IDEMPOTENCY_KEY
+            );
+        }
+    }
+
+    /**
+     * 멱등 요청을 선점하기 전에 Correlation-ID를 검증한다.
+     */
+    private void validateCorrelationId(
+            String correlationId) {
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
     }
