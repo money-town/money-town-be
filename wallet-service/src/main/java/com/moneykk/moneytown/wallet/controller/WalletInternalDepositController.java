@@ -47,7 +47,7 @@ public class WalletInternalDepositController {
 
     @Operation(
             summary = "자산종료 정산금 입금",
-            description = "Settlement 서비스가 자산종료 정산 원금 반환 시 호출한다. 배당금 입금 API와 동일하게 KYC 체크는 하지 않으며, "
+            description = "Settlement 서비스가 자산종료 정산 원금 반환 시 호출한다. 배당금 입금 API와 동일하게 KYC/거래가능상태 체크는 하지 않으며, "
                     + "Idempotency 처리 방식도 동일하다."
     )
     @PostMapping("/settlements")
