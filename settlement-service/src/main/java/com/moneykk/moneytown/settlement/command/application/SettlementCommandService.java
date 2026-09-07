@@ -15,7 +15,6 @@ import com.moneykk.moneytown.settlement.domain.service.DividendDistributionCalcu
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingsSnapshotResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -36,7 +34,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SettlementCommandService {
 
-    private static final ZoneId SETTLEMENT_ZONE = ZoneId.of("Asia/Seoul");
+    private static final String ADMIN_ROLE = "ADMIN";
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final HoldingSnapshotRepository holdingSnapshotRepository;
@@ -44,12 +42,25 @@ public class SettlementCommandService {
     private final AssetServiceClient assetServiceClient;
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
+    // 수익 폴링 스케줄러가 자동으로 개시할 때 사용 — 사람의 요청이 아니므로 ADMIN 검사X
+    // 배당 기준일을 직접 지정할 ADMIN 입력도 없으므로 항상 periodEnd로 대체
     @Transactional
-    public SettlementBatchResponse openBatch(UUID assetId, UUID revenueId) {
+    public SettlementBatchResponse openBatchAutomatically(UUID assetId, UUID revenueId) {
+        return openBatchInternal(assetId, revenueId, null);
+    }
+
+    @Transactional
+    public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
+        validateAdmin(role);
+        return openBatchInternal(assetId, revenueId, recordDateOverride);
+    }
+
+    private SettlementBatchResponse openBatchInternal(UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
         guardAgainstDuplicateOrConcurrentBatch(assetId, revenueId);
 
         RevenueResponse revenue = fetchAndValidateRevenue(assetId, revenueId);
-        LocalDate recordDate = revenue.recordDate();
+        // 배당 기준일은 정산 회차가 자체적으로 관리하는 값(ADMIN이 명시하면 그 값을 쓰고, 미지정 시에만 수익 발생 기간 종료일로 대체)
+        LocalDate recordDate = recordDateOverride != null ? recordDateOverride : revenue.periodEnd();
 
         long distributableAmount = calculateDistributableAmount(revenue);
         Optional<SettlementBatch> carryInSourceBatch = findCarryInSourceBatch(assetId);
@@ -59,7 +70,7 @@ public class SettlementCommandService {
             throw new BusinessException(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
         }
 
-        HoldingsSnapshotResponse holdingsSnapshot = fetchAndValidateHoldingsSnapshot(assetId, recordDate);
+        AssetHoldingsSnapshotFetcher.Aggregated holdingsSnapshot = fetchAndValidateHoldingsSnapshot(assetId, recordDate);
 
         SettlementBatch batch = SettlementBatch.open(assetId, revenueId, recordDate, distributableAmount, carriedInAmount);
         batch.markSnapshotTaken();
@@ -109,7 +120,8 @@ public class SettlementCommandService {
     }
 
     @Transactional
-    public SettlementBatchResponse retryBatch(UUID settlementBatchId) {
+    public SettlementBatchResponse retryBatch(String role, UUID settlementBatchId) {
+        validateAdmin(role);
         SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
                 .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
 
@@ -133,6 +145,12 @@ public class SettlementCommandService {
         return status == SettlementStatus.FAILED || status == SettlementStatus.PARTIAL_FAILED;
     }
 
+    private void validateAdmin(String role) {
+        if (!ADMIN_ROLE.equals(role)) {
+            throw new BusinessException(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+        }
+    }
+
     private void guardAgainstDuplicateOrConcurrentBatch(UUID assetId, UUID revenueId) {
         if (settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(revenueId)) {
             throw new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
@@ -153,10 +171,7 @@ public class SettlementCommandService {
         if (isInvalidAmount(revenue)) {
             throw new BusinessException(SettlementErrorCode.REVENUE_AMOUNT_INVALID);
         }
-        if (isRecordDateBeforeOccurrence(revenue)) {
-            throw new BusinessException(SettlementErrorCode.REVENUE_PERIOD_INVALID);
-        }
-        if (revenue.transferStatus() != RevenueTransferStatus.PENDING) {
+        if (revenue.transferStatus() != RevenueTransferStatus.READY) {
             throw new BusinessException(SettlementErrorCode.REVENUE_NOT_READY);
         }
         return revenue;
@@ -166,15 +181,6 @@ public class SettlementCommandService {
         return revenue.grossAmount() == null || revenue.grossAmount().signum() <= 0
                 || revenue.expenseAmount() == null || revenue.expenseAmount().signum() < 0
                 || revenue.feeAmount() == null || revenue.feeAmount().signum() < 0;
-    }
-
-    // 배당 기준일(recordDate)이 수익 발생 시각(occurredAt)보다 앞설 수는 없다.
-    private boolean isRecordDateBeforeOccurrence(RevenueResponse revenue) {
-        if (revenue.recordDate() == null || revenue.occurredAt() == null) {
-            return true;
-        }
-        LocalDate occurredDate = revenue.occurredAt().atZone(SETTLEMENT_ZONE).toLocalDate();
-        return revenue.recordDate().isBefore(occurredDate);
     }
 
     private long calculateDistributableAmount(RevenueResponse revenue) {
@@ -190,7 +196,7 @@ public class SettlementCommandService {
                         assetId, SettlementStatus.COMPLETED, 0L);
     }
 
-    private HoldingsSnapshotResponse fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {
+    private AssetHoldingsSnapshotFetcher.Aggregated fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {
         AssetHoldingsSnapshotFetcher.Aggregated aggregated = assetHoldingsSnapshotFetcher.fetchAll(assetId, recordDate);
 
         Long totalHoldingQuantity = aggregated.totalHoldingQuantity();
@@ -198,10 +204,10 @@ public class SettlementCommandService {
             throw new BusinessException(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
         }
 
-        return new HoldingsSnapshotResponse(assetId, recordDate, totalHoldingQuantity, aggregated.items(), null, false);
+        return aggregated;
     }
 
-    private HoldingSnapshot captureHoldingSnapshot(SettlementBatch batch, HoldingsSnapshotResponse holdingsSnapshot) {
+    private HoldingSnapshot captureHoldingSnapshot(SettlementBatch batch, AssetHoldingsSnapshotFetcher.Aggregated holdingsSnapshot) {
         int totalHolders = (int) holdingsSnapshot.items().stream()
                 .filter(holding -> holding.quantity() != null && holding.quantity() > 0)
                 .count();

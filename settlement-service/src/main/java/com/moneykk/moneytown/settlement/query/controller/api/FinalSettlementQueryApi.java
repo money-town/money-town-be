@@ -1,0 +1,104 @@
+package com.moneykk.moneytown.settlement.query.controller.api;
+
+import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementBatchDetailResponse;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementReconciliationResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.UUID;
+
+@Tag(name = "Final Settlement", description = "최종 정산(원금반환) 조회 및 개시·재시도 커맨드 API")
+@RequestMapping("/api/v1")
+public interface FinalSettlementQueryApi {
+
+    @Operation(
+            summary = "최종 정산 회차 상태 조회",
+            description = "ADMIN 권한으로 최종 정산(원금반환) 회차 상태와 반환 건수 집계(전체/완료/실패/대기중)를 조회한다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = FinalSettlementBatchDetailResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "ADMIN 권한이 아님 (SETTLEMENT_403_02)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "최종 정산 회차를 찾을 수 없음 (SETTLEMENT_404_04)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @GetMapping("/final-settlements/{finalSettlementBatchId}")
+    ResponseEntity<ApiResponse<FinalSettlementBatchDetailResponse>> getFinalSettlementBatch(
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Parameter(description = "조회할 최종 정산 회차 ID") @PathVariable UUID finalSettlementBatchId);
+
+    @Operation(
+            summary = "회차별 개별 반환 내역 조회",
+            description = "ADMIN 권한으로 최종 정산 회차의 투자자별 원금반환 내역을 페이지 조회한다. status를 생략하면 전체 상태를 조회하며, "
+                    + "DEAD_LETTER로 필터링하면 retryCount 내림차순, 그 외에는 amount 내림차순으로 정렬된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = PageResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "ADMIN 권한이 아님 (SETTLEMENT_403_02)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "최종 정산 회차를 찾을 수 없음 (SETTLEMENT_404_04)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @GetMapping("/final-settlements/{finalSettlementBatchId}/payouts")
+    ResponseEntity<ApiResponse<PageResponse<FinalSettlementPayoutListItemResponse>>> getPayouts(
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Parameter(description = "조회할 최종 정산 회차 ID") @PathVariable UUID finalSettlementBatchId,
+            @Parameter(description = "반환 상태 필터 (생략 시 전체 조회)") @RequestParam(required = false) PayoutStatus status,
+            @PageableDefault(size = 20) Pageable pageable);
+
+    @Operation(
+            summary = "최종 정산 회차 정합성 검증",
+            description = "ADMIN 권한으로 원금반환 총액(totalAmount)과 반환 내역 전체 합계를 대사한다. "
+                    + "두 값이 다르면(reconciled=false) 반환 건 누락·중복 등 데이터 정합성 문제를 의심할 수 있다. "
+                    + "paidAmount는 PAID 상태 건만 합산한 참고값이다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "조회 성공 (reconciled 값과 무관하게 200으로 응답)",
+                    content = @Content(schema = @Schema(implementation = FinalSettlementReconciliationResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "ADMIN 권한이 아님 (SETTLEMENT_403_02)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "최종 정산 회차를 찾을 수 없음 (SETTLEMENT_404_04)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @GetMapping("/final-settlements/{finalSettlementBatchId}/reconciliation")
+    ResponseEntity<ApiResponse<FinalSettlementReconciliationResponse>> getReconciliation(
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Parameter(description = "정합성을 검증할 최종 정산 회차 ID") @PathVariable UUID finalSettlementBatchId);
+}
