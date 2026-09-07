@@ -221,9 +221,10 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(inProgress));
 
-        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<FinalSettlementBatch> result = finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CALCULATED);
+        assertThat(result).isEmpty();
         verify(finalSettlementBatchRepository, never()).save(batch);
     }
 
@@ -237,14 +238,15 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(processing));
 
-        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<FinalSettlementBatch> result = finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CALCULATED);
+        assertThat(result).isEmpty();
         verify(finalSettlementBatchRepository, never()).save(batch);
     }
 
     @Test
-    @DisplayName("updateBatchStatus: 전부 성공하면 COMPLETED로 전환한다")
+    @DisplayName("updateBatchStatus: 전부 성공하면 COMPLETED로 전환하고 배치를 반환한다")
     void updateBatchStatus_marksCompletedWhenAllPaid() {
         FinalSettlementBatch batch = calculatedBatch();
         FinalSettlementPayout paid = queuedPayout();
@@ -253,16 +255,17 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(paid));
 
-        Optional<UUID> completedAssetId =
+        Optional<FinalSettlementBatch> result =
                 finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
-        assertThat(completedAssetId).contains(ASSET_ID);
+        assertThat(result).contains(batch);
+        assertThat(result).get().extracting(FinalSettlementBatch::getAssetId).isEqualTo(ASSET_ID);
         verify(finalSettlementBatchRepository).save(batch);
     }
 
     @Test
-    @DisplayName("updateBatchStatus: 일부만 DEAD_LETTER면 PARTIAL_FAILED로 전환한다")
+    @DisplayName("updateBatchStatus: 일부만 DEAD_LETTER면 PARTIAL_FAILED로 전환하고 배치를 반환한다")
     void updateBatchStatus_marksPartialFailedWhenSomeDeadLetter() {
         FinalSettlementBatch batch = calculatedBatch();
         FinalSettlementPayout paid = queuedPayout();
@@ -273,13 +276,14 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(paid, deadLetter));
 
-        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<FinalSettlementBatch> result = finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        assertThat(result).contains(batch);
     }
 
     @Test
-    @DisplayName("updateBatchStatus: 전부 DEAD_LETTER면 FAILED로 전환한다")
+    @DisplayName("updateBatchStatus: 전부 DEAD_LETTER면 FAILED로 전환하고 배치를 반환한다")
     void updateBatchStatus_marksFailedWhenAllDeadLetter() {
         FinalSettlementBatch batch = calculatedBatch();
         FinalSettlementPayout deadLetter = queuedPayout();
@@ -288,9 +292,10 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(deadLetter));
 
-        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<FinalSettlementBatch> result = finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
+        assertThat(result).contains(batch);
     }
 
     @Test

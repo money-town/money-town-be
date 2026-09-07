@@ -2,6 +2,9 @@ package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
+import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositResponse;
@@ -14,10 +17,13 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +43,8 @@ class DividendDisbursementServiceTest {
     private DividendPayoutWriter payoutWriter;
     @Mock
     private WalletServiceClient walletServiceClient;
+    @Mock
+    private SettlementFailureNotifier settlementFailureNotifier;
 
     @InjectMocks
     private DividendDisbursementService dividendDisbursementService;
@@ -179,6 +187,45 @@ class DividendDisbursementServiceTest {
     }
 
     @Test
+    @DisplayName("배당 회차가 FAILED로 확정되면 정산 실패 알림을 보낸다")
+    void notifiesFailureWhenBatchEndsFailed() {
+        UUID batchId = UUID.randomUUID();
+        SettlementBatch failedBatch = batchWithStatus(batchId, SettlementStatus.FAILED);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(failedBatch));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(settlementFailureNotifier).notifyDividendBatchFailed(failedBatch);
+    }
+
+    @Test
+    @DisplayName("배당 회차가 PARTIAL_FAILED로 확정되면 정산 실패 알림을 보낸다")
+    void notifiesFailureWhenBatchEndsPartialFailed() {
+        UUID batchId = UUID.randomUUID();
+        SettlementBatch partialFailedBatch = batchWithStatus(batchId, SettlementStatus.PARTIAL_FAILED);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(partialFailedBatch));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(settlementFailureNotifier).notifyDividendBatchFailed(partialFailedBatch);
+    }
+
+    @Test
+    @DisplayName("배당 회차가 COMPLETED로 확정되면 실패 알림을 보내지 않는다")
+    void doesNotNotifyFailureWhenBatchCompleted() {
+        UUID batchId = UUID.randomUUID();
+        SettlementBatch completedBatch = batchWithStatus(batchId, SettlementStatus.COMPLETED);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(completedBatch));
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(settlementFailureNotifier, never()).notifyDividendBatchFailed(any());
+    }
+
+    @Test
     @DisplayName("reclaimStalledProcessing: payoutWriter로 위임하고 결과를 그대로 반환한다")
     void reclaimStalledProcessingDelegatesToPayoutWriter() {
         Instant staleBefore = Instant.now();
@@ -188,5 +235,12 @@ class DividendDisbursementServiceTest {
 
         assertThat(reclaimed).isEqualTo(2);
         verify(payoutWriter).reclaimStalledProcessing(staleBefore);
+    }
+
+    private SettlementBatch batchWithStatus(UUID batchId, SettlementStatus status) {
+        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L, 0L);
+        ReflectionTestUtils.setField(batch, "id", batchId);
+        ReflectionTestUtils.setField(batch, "status", status);
+        return batch;
     }
 }
