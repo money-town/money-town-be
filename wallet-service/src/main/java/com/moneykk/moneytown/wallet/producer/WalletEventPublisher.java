@@ -5,6 +5,7 @@ import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -22,13 +23,23 @@ public class WalletEventPublisher {
 
     // EventEnvelope<T>는 제네릭이라 타입 소거 때문에 publish(EventEnvelope) 오버로드로 묶을 수 없어 메서드명을 분리한다.
     public void publishHoldResult(EventEnvelope<WalletHoldResultPayload> event) {
-        kafkaTemplate.send(WALLET_HOLD_RESULT_TOPIC, event.userId().toString(), event)
-                .whenComplete((result, ex) -> logIfFailed(WALLET_HOLD_RESULT_TOPIC, event.aggregateId(), ex));
+        send(WALLET_HOLD_RESULT_TOPIC, event.userId().toString(), event, event.aggregateId());
     }
 
     public void publishCompensationResult(EventEnvelope<WalletCompensationResultPayload> event) {
-        kafkaTemplate.send(WALLET_COMPENSATION_RESULT_TOPIC, event.userId().toString(), event)
-                .whenComplete((result, ex) -> logIfFailed(WALLET_COMPENSATION_RESULT_TOPIC, event.aggregateId(), ex));
+        send(WALLET_COMPENSATION_RESULT_TOPIC, event.userId().toString(), event, event.aggregateId());
+    }
+
+    // KafkaTemplate.send()는 비동기 API지만, producer 버퍼가 꽉 차는 등의 이유로 즉시 KafkaException을 던질 수도 있다.
+    // 그 경우 whenComplete가 등록조차 안 돼서 실패 로그가 안 남으므로 try/catch로 한 번 더 감싼다.
+    private void send(String topic, String key, Object event, String aggregateId) {
+        try {
+            kafkaTemplate.send(topic, key, event)
+                    .whenComplete((result, ex) -> logIfFailed(topic, aggregateId, ex));
+        } catch (KafkaException e) {
+            logIfFailed(topic, aggregateId, e);
+            throw e;
+        }
     }
 
     private void logIfFailed(String topic, String aggregateId, Throwable ex) {
