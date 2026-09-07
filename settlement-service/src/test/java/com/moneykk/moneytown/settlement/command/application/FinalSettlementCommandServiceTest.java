@@ -14,6 +14,7 @@ import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutR
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -22,8 +23,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -34,6 +37,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -55,6 +59,8 @@ class FinalSettlementCommandServiceTest {
     @Mock
     private FinalSettlementPayoutRepository finalSettlementPayoutRepository;
     @Mock
+    private FinalSettlementPayoutWriter finalSettlementPayoutWriter;
+    @Mock
     private AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
 
     @InjectMocks
@@ -73,18 +79,18 @@ class FinalSettlementCommandServiceTest {
         assertThat(response.assetId()).isEqualTo(ASSET_ID);
         assertThat(response.totalAmount()).isEqualTo(900_000_000L);
         assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
+        assertThat(response.newlyCreated()).isTrue();
 
         ArgumentCaptor<FinalSettlementBatch> batchCaptor = ArgumentCaptor.forClass(FinalSettlementBatch.class);
-        verify(finalSettlementBatchRepository).save(batchCaptor.capture());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FinalSettlementPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(finalSettlementPayoutWriter).saveNewBatch(batchCaptor.capture(), payoutsCaptor.capture());
         assertThat(batchCaptor.getValue().getStatus()).isEqualTo(SettlementStatus.CALCULATED);
         assertThat(batchCaptor.getValue().getAssetId()).isEqualTo(ASSET_ID);
         assertThat(batchCaptor.getValue().getTerminatedAt()).isEqualTo(TERMINATED_AT);
         assertThat(batchCaptor.getValue().getUnitPrice()).isEqualTo(UNIT_PRICE);
         assertThat(batchCaptor.getValue().getTotalAmount()).isEqualTo(900_000_000L);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<FinalSettlementPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(finalSettlementPayoutRepository).saveAll(payoutsCaptor.capture());
         assertThat(payoutsCaptor.getValue()).hasSize(1);
         assertThat(payoutsCaptor.getValue().get(0).getInvestorId()).isEqualTo(investorId);
         assertThat(payoutsCaptor.getValue().get(0).getQuantity()).isEqualTo(900L);
@@ -103,7 +109,8 @@ class FinalSettlementCommandServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_SYSTEM_ACCESS_DENIED);
 
-            verifyNoInteractions(finalSettlementBatchRepository, finalSettlementPayoutRepository, assetHoldingsSnapshotFetcher);
+            verifyNoInteractions(finalSettlementBatchRepository, finalSettlementPayoutRepository,
+                    finalSettlementPayoutWriter, assetHoldingsSnapshotFetcher);
         }
     }
 
@@ -124,9 +131,57 @@ class FinalSettlementCommandServiceTest {
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
             assertThat(response.totalAmount()).isEqualTo(900_000_000L);
             assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
+            // 기존 배치가 CALCULATED 상태라도(=아직 disburse()가 안 돈 상태) newlyCreated는 false다.
+            // 컨트롤러는 이 값만으로 재지급 트리거 여부를 판단하므로, 첫 요청 직후 재요청이 들어와도 중복 트리거되지 않는다.
+            assertThat(response.newlyCreated()).isFalse();
 
             verify(finalSettlementBatchRepository, never()).save(any());
-            verifyNoInteractions(assetHoldingsSnapshotFetcher, finalSettlementPayoutRepository);
+            verifyNoInteractions(assetHoldingsSnapshotFetcher, finalSettlementPayoutRepository, finalSettlementPayoutWriter);
+        }
+    }
+
+    @Nested
+    @DisplayName("동시 생성 경합 (uk_final_settlement_batches_asset_id 유니크 제약 위반)")
+    class ConcurrentCreationRace {
+
+        @Test
+        @DisplayName("동시 요청이 자산별 유니크 제약을 위반하면, 새 트랜잭션으로 기존 배치를 조회해 newlyCreated=false로 반환한다")
+        void returnsWinnerBatchWithNewlyCreatedFalseOnUniqueViolation() {
+            stubNoExistingBatch();
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
+                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 900L))));
+            doThrow(constraintViolation("uk_final_settlement_batches_asset_id"))
+                    .when(finalSettlementPayoutWriter).saveNewBatch(any(), any());
+
+            FinalSettlementBatch winnerBatch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
+            winnerBatch.markCalculated();
+            // 최초 조회(중복 없음) 이후, 유니크 제약 위반을 처리하는 재조회에서는 동시 요청이 먼저 커밋한 배치를 돌려준다.
+            when(finalSettlementBatchRepository.findByAssetIdAndIsDeletedFalse(ASSET_ID))
+                    .thenReturn(Optional.empty(), Optional.of(winnerBatch));
+
+            FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
+
+            assertThat(response.finalSettlementBatchId()).isEqualTo(winnerBatch.getId());
+            assertThat(response.newlyCreated()).isFalse();
+        }
+
+        @Test
+        @DisplayName("알 수 없는 제약 위반이면 원래 예외를 그대로 전파한다")
+        void propagatesUnrecognizedConstraintViolation() {
+            stubNoExistingBatch();
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
+                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 900L))));
+            DataIntegrityViolationException unrecognized = constraintViolation("some_other_constraint");
+            doThrow(unrecognized).when(finalSettlementPayoutWriter).saveNewBatch(any(), any());
+
+            assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request()))
+                    .isSameAs(unrecognized);
+        }
+
+        private DataIntegrityViolationException constraintViolation(String constraintName) {
+            ConstraintViolationException cause = new ConstraintViolationException(
+                    "duplicate key value violates unique constraint", new SQLException("duplicate key"), constraintName);
+            return new DataIntegrityViolationException("constraint violation", cause);
         }
     }
 
@@ -150,7 +205,7 @@ class FinalSettlementCommandServiceTest {
 
             @SuppressWarnings("unchecked")
             ArgumentCaptor<List<FinalSettlementPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
-            verify(finalSettlementPayoutRepository).saveAll(payoutsCaptor.capture());
+            verify(finalSettlementPayoutWriter).saveNewBatch(any(), payoutsCaptor.capture());
             assertThat(payoutsCaptor.getValue())
                     .extracting(FinalSettlementPayout::getInvestorId)
                     .containsExactlyInAnyOrder(investor1, investor2);
@@ -171,7 +226,7 @@ class FinalSettlementCommandServiceTest {
 
             @SuppressWarnings("unchecked")
             ArgumentCaptor<List<FinalSettlementPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
-            verify(finalSettlementPayoutRepository).saveAll(payoutsCaptor.capture());
+            verify(finalSettlementPayoutWriter).saveNewBatch(any(), payoutsCaptor.capture());
             assertThat(payoutsCaptor.getValue())
                     .extracting(FinalSettlementPayout::getInvestorId)
                     .containsExactly(investorWithHolding);
@@ -194,7 +249,7 @@ class FinalSettlementCommandServiceTest {
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_HOLDERS_NOT_FOUND);
 
             verify(finalSettlementBatchRepository, never()).save(any());
-            verifyNoInteractions(finalSettlementPayoutRepository);
+            verifyNoInteractions(finalSettlementPayoutRepository, finalSettlementPayoutWriter);
         }
 
         @Test
@@ -209,7 +264,7 @@ class FinalSettlementCommandServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_HOLDERS_NOT_FOUND);
 
-            verifyNoInteractions(finalSettlementPayoutRepository);
+            verifyNoInteractions(finalSettlementPayoutRepository, finalSettlementPayoutWriter);
         }
     }
 

@@ -43,6 +43,19 @@ class FinalSettlementPayoutWriterTest {
     private FinalSettlementPayoutWriter finalSettlementPayoutWriter;
 
     @Test
+    @DisplayName("saveNewBatch: 배치는 saveAndFlush로, 지급 건은 saveAll로 즉시 저장한다")
+    void savesNewBatchAndPayoutsImmediately() {
+        FinalSettlementBatch batch = calculatedBatch();
+        List<FinalSettlementPayout> payouts = List.of(
+                FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 900L, 900_000_000L));
+
+        finalSettlementPayoutWriter.saveNewBatch(batch, payouts);
+
+        verify(finalSettlementBatchRepository).saveAndFlush(batch);
+        verify(finalSettlementPayoutRepository).saveAll(payouts);
+    }
+
+    @Test
     @DisplayName("markDisbursing: 배치를 DISBURSING으로 전환하고 저장한다")
     void marksDisbursing() {
         FinalSettlementBatch batch = calculatedBatch();
@@ -278,6 +291,31 @@ class FinalSettlementPayoutWriterTest {
         finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("markAssetTerminationCompleted: 완료 시각을 저장한다")
+    void marksAssetTerminationCompleted() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        Instant completedAt = Instant.parse("2026-09-07T00:00:00Z");
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markAssetTerminationCompleted(batch.getId(), completedAt);
+
+        assertThat(batch.getAssetTerminationCompletedAt()).isEqualTo(completedAt);
+        verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("findCompletedBatchesPendingTerminationNotification: 리포지토리 조회 결과를 그대로 반환한다")
+    void findsCompletedBatchesPendingTerminationNotification() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        when(finalSettlementBatchRepository.findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED))
+                .thenReturn(List.of(batch));
+
+        List<FinalSettlementBatch> pending = finalSettlementPayoutWriter.findCompletedBatchesPendingTerminationNotification();
+
+        assertThat(pending).containsExactly(batch);
     }
 
     private FinalSettlementBatch calculatedBatch() {
