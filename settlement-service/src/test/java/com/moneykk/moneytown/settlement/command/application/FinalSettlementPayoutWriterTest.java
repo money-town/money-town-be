@@ -280,6 +280,31 @@ class FinalSettlementPayoutWriterTest {
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
     }
 
+    @Test
+    @DisplayName("markAssetTerminationCompleted: 완료 시각을 저장한다")
+    void marksAssetTerminationCompleted() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        Instant completedAt = Instant.parse("2026-09-07T00:00:00Z");
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markAssetTerminationCompleted(batch.getId(), completedAt);
+
+        assertThat(batch.getAssetTerminationCompletedAt()).isEqualTo(completedAt);
+        verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("findCompletedBatchesPendingTerminationNotification: 리포지토리 조회 결과를 그대로 반환한다")
+    void findsCompletedBatchesPendingTerminationNotification() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        when(finalSettlementBatchRepository.findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED))
+                .thenReturn(List.of(batch));
+
+        List<FinalSettlementBatch> pending = finalSettlementPayoutWriter.findCompletedBatchesPendingTerminationNotification();
+
+        assertThat(pending).containsExactly(batch);
+    }
+
     private FinalSettlementBatch calculatedBatch() {
         FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
         batch.markCalculated();
