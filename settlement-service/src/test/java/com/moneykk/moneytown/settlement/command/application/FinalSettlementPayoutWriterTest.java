@@ -43,6 +43,19 @@ class FinalSettlementPayoutWriterTest {
     private FinalSettlementPayoutWriter finalSettlementPayoutWriter;
 
     @Test
+    @DisplayName("saveNewBatch: 배치는 saveAndFlush로, 지급 건은 saveAll로 즉시 저장한다")
+    void savesNewBatchAndPayoutsImmediately() {
+        FinalSettlementBatch batch = calculatedBatch();
+        List<FinalSettlementPayout> payouts = List.of(
+                FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 900L, 900_000_000L));
+
+        finalSettlementPayoutWriter.saveNewBatch(batch, payouts);
+
+        verify(finalSettlementBatchRepository).saveAndFlush(batch);
+        verify(finalSettlementPayoutRepository).saveAll(payouts);
+    }
+
+    @Test
     @DisplayName("markDisbursing: 배치를 DISBURSING으로 전환하고 저장한다")
     void marksDisbursing() {
         FinalSettlementBatch batch = calculatedBatch();
