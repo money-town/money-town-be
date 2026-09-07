@@ -1,9 +1,12 @@
 package com.moneykk.moneytown.settlement.global.config;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.settlement.command.application.DividendDisbursementService;
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
+import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
+import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +34,8 @@ public class RevenuePollingScheduler {
 
     private final AssetServiceClient assetServiceClient;
     private final SettlementCommandService settlementCommandService;
+    private final RevenueTransferStatusNotifier revenueTransferStatusNotifier;
+    private final DividendDisbursementService dividendDisbursementService;
 
     @Scheduled(fixedDelay = POLL_INTERVAL_MS)
     public void pollReadyRevenues() {
@@ -61,7 +66,10 @@ public class RevenuePollingScheduler {
 
     private void tryOpenBatch(RevenueResponse revenue) {
         try {
-            settlementCommandService.openBatchAutomatically(revenue.assetId(), revenue.revenueId());
+            SettlementBatchResponse response =
+                    settlementCommandService.openBatchAutomatically(revenue.assetId(), revenue.revenueId());
+            revenueTransferStatusNotifier.notifyTransferred(response.revenueId());
+            dividendDisbursementService.disburseAsync(response.settlementBatchId());
         } catch (BusinessException e) {
             if (EXPECTED_SKIP_REASONS.contains(e.getErrorCode())) {
                 log.debug("정산 회차 자동 개시 건너뜀 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
