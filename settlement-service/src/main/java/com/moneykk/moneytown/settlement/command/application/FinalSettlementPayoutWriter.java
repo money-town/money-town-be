@@ -117,6 +117,20 @@ class FinalSettlementPayoutWriter {
                 : Optional.empty();
     }
 
+    @Transactional
+    public void markAssetTerminationCompleted(UUID finalSettlementBatchId, Instant completedAt) {
+        FinalSettlementBatch batch = loadBatch(finalSettlementBatchId);
+        batch.markAssetTerminationCompleted(completedAt);
+        finalSettlementBatchRepository.save(batch);
+    }
+
+    // COMPLETED인데 자산 서비스 종료 완료 통보에 아직 성공하지 못한(asset_termination_completed_at이 NULL인) 회차를 찾는다.
+    @Transactional(readOnly = true)
+    public List<FinalSettlementBatch> findCompletedBatchesPendingTerminationNotification() {
+        return finalSettlementBatchRepository
+                .findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED);
+    }
+
     private FinalSettlementBatch loadBatch(UUID finalSettlementBatchId) {
         return finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
                 .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
