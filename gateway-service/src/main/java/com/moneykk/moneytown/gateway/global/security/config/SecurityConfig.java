@@ -24,7 +24,6 @@ public class SecurityConfig {
     private final GatewayAuthenticationEntryPoint authenticationEntryPoint;
     private final GatewayAccessDeniedHandler accessDeniedHandler;
 
-    // TODO 사용자 목록·단건 조회 ADMIN 권한 제한
 
 
     @Bean
@@ -48,10 +47,10 @@ public class SecurityConfig {
                 )
 
                 .authorizeExchange(exchange -> exchange
-                        // 브라우저 CORS 사전 요청
+                        // CORS 사전 요청
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // 인증 없이 접근 가능한 Auth API
+                        // 공개 Auth API
                         .pathMatchers(
                                 HttpMethod.POST,
                                 "/api/v1/auth/signup",
@@ -66,6 +65,62 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/actuator/health"
                         ).permitAll()
+
+                        // 내 정보 조회·수정·탈퇴
+                        .pathMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
+                        .pathMatchers(HttpMethod.PATCH, "/api/v1/users/me").authenticated()
+                        .pathMatchers(HttpMethod.DELETE, "/api/v1/users/me").authenticated()
+
+                        // 관리자 사용자 목록·단건 조회
+                        .pathMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/users",
+                                "/api/v1/users/{userId}"
+                        ).hasRole("ADMIN")
+
+                        // 관리자 사용자 수정
+                        .pathMatchers(
+                                HttpMethod.PATCH,
+                                "/api/v1/users/{userId}"
+                        ).hasRole("ADMIN")
+
+                        // 관리자 사용자 탈퇴
+                        .pathMatchers(
+                                HttpMethod.DELETE,
+                                "/api/v1/users/{userId}"
+                        ).hasRole("ADMIN")
+
+                        // KYC 신청
+                        .pathMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/kyc-verifications"
+                        ).authenticated()
+
+                        // 내 KYC 현재 상태 조회
+                        .pathMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/kyc-verifications/me/current"
+                        ).authenticated()
+
+                        // 내 KYC 이력 조회 — 명세 기준 ADMIN
+                        .pathMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/kyc-verifications/me"
+                        ).hasRole("ADMIN")
+
+                        // 관리자 KYC 심사 목록·단건 조회
+                        .pathMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/kyc-verifications",
+                                "/api/v1/kyc-verifications/{kycId}"
+                        ).hasRole("ADMIN")
+
+                        // 관리자 KYC 승인·거절
+                        .pathMatchers(
+                                HttpMethod.PATCH,
+                                "/api/v1/kyc-verifications/{kycId}/approve",
+                                "/api/v1/kyc-verifications/{kycId}/reject"
+                        ).hasRole("ADMIN")
 
                         // 나머지 API는 JWT 인증 필요
                         .anyExchange().authenticated()

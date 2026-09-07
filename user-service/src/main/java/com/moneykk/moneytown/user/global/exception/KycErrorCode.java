@@ -8,7 +8,8 @@ public enum KycErrorCode implements ErrorCode {
 
     KYC_ALREADY_PENDING(HttpStatus.CONFLICT, "KYC_409_01", "이미 심사 중인 KYC 신청이 있습니다."),
 
-    KYC_NOT_PENDING(HttpStatus.CONFLICT, "KYC_409_02", "심사 대기 상태의 KYC만 처리할 수 있습니다.");
+    KYC_NOT_PENDING(HttpStatus.CONFLICT, "KYC_409_02", "심사 대기 상태의 KYC만 처리할 수 있습니다."),
+    KYC_ALREADY_VERIFIED(HttpStatus.CONFLICT,"KYC_409_03","이미 유효한 KYC 인증이 존재합니다.");
 
 
     private final HttpStatus status;

@@ -23,14 +23,7 @@ import java.util.UUID;
 public class UserController {
     private final UserService userService;
 
-    //사용자 전체 조회
-    @GetMapping("/users")
-    public ApiResponse<List<UserListResponse>> userList(){
 
-        return ApiResponse.success(userService.userList(),
-                "사용자 목록 조회 성공"
-        );
-    }
 
 
     // 내 정보 조회
@@ -44,6 +37,7 @@ public class UserController {
     }
 
 
+    // 내 정보 수정
     @PatchMapping("/users/me")
     public ApiResponse<UserResponse> updateUser(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
             ,@Valid @RequestBody UpdateMyInfoRequest request){
@@ -53,6 +47,7 @@ public class UserController {
 
     }
 
+    // 회원 탈퇴
     @DeleteMapping("/users/me")
     public ApiResponse<Void> deleteUser(@RequestHeader(AuthHeaderConstants.USER_ID)
                                             UUID userId){
@@ -64,6 +59,17 @@ public class UserController {
 
     // 관리자
 
+    // 사용자 목록 조회 및 검색
+    @GetMapping("/users")
+    public ApiResponse<List<UserListResponse>> userList(
+            @RequestParam(name = "name", required = false) String name
+    ){
+
+        return ApiResponse.success(userService.userList(name),
+                "사용자 목록 조회 성공"
+        );
+    }
+
     // 사용자 단건 조회
     @GetMapping("users/{userId}")
     public ApiResponse<UserResponse> getUser(@PathVariable UUID userId){
@@ -72,7 +78,7 @@ public class UserController {
     
     }
 
-    // TODO : 관리자가 사용자의 수정 및 탈퇴
+   
 
     // 관리자 단건 수정
     @PatchMapping("/users/{userId}")
@@ -85,6 +91,7 @@ public class UserController {
 
     }
 
+    // 관리자 사용자 탈퇴 처리
     @DeleteMapping("/users/{userId}")
     public ApiResponse<Void> deleteUserByAdmin(@RequestHeader(AuthHeaderConstants.USER_ID)
             UUID adminId,

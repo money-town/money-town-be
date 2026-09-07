@@ -1,18 +1,14 @@
 package com.moneykk.moneytown.user.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
-import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
-import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
-import com.moneykk.moneytown.user.dto.response.SignupResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.entity.User;
 import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,12 +23,19 @@ public class UserService {
     //CRUD
 
 
-    // 회원 전체 조회
+    // 사용자 목록 및 이름 검색
     @Transactional(readOnly = true)
-    public List<UserListResponse> userList(){
+    public List<UserListResponse> userList(String name){
+        List<User> users;
+        if (name == null || name.isBlank()) {
+            users = userRepository.findAllByIsDeletedFalse();
+        } else {
+            users = userRepository
+                    .findAllByNameContainingAndIsDeletedFalse(name.trim());
+        }
 
-        return userRepository.findAllByIsDeletedFalse()
-                .stream()
+
+        return users.stream()
                 .map(UserListResponse::from)
                 .toList();
 
