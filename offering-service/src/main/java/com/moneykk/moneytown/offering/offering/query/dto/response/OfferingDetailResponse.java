@@ -26,7 +26,7 @@ public record OfferingDetailResponse(
 
         @Schema(
                 description = "공모를 등록한 발행자 ID. 공모 소유자 또는 관리자 조회 시에만 포함됩니다.",
-                example = "7c9e6679-7425-40de-944b-e07fc1ball90ae7"
+                example = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
         )
         UUID issuerId,
 
