@@ -73,6 +73,7 @@ class FinalSettlementCommandServiceTest {
         assertThat(response.assetId()).isEqualTo(ASSET_ID);
         assertThat(response.totalAmount()).isEqualTo(900_000_000L);
         assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
+        assertThat(response.newlyCreated()).isTrue();
 
         ArgumentCaptor<FinalSettlementBatch> batchCaptor = ArgumentCaptor.forClass(FinalSettlementBatch.class);
         verify(finalSettlementBatchRepository).save(batchCaptor.capture());
@@ -124,6 +125,9 @@ class FinalSettlementCommandServiceTest {
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
             assertThat(response.totalAmount()).isEqualTo(900_000_000L);
             assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
+            // 기존 배치가 CALCULATED 상태라도(=아직 disburse()가 안 돈 상태) newlyCreated는 false다.
+            // 컨트롤러는 이 값만으로 재지급 트리거 여부를 판단하므로, 첫 요청 직후 재요청이 들어와도 중복 트리거되지 않는다.
+            assertThat(response.newlyCreated()).isFalse();
 
             verify(finalSettlementBatchRepository, never()).save(any());
             verifyNoInteractions(assetHoldingsSnapshotFetcher, finalSettlementPayoutRepository);
