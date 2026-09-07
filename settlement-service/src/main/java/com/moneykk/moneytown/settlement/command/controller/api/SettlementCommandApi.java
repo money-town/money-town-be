@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.util.UUID;
 
-@Tag(name = "Settlement", description = "정산 회차(배당) 개시·재시도 커맨드 API")
+@Tag(name = "Settlement", description = "정산 회차(배당) 조회 및 개시·재시도 커맨드 API")
 @RequestMapping("/api/v1")
 public interface SettlementCommandApi {
 
@@ -33,8 +33,7 @@ public interface SettlementCommandApi {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "201",
-                    description = "정산 회차 개시 성공",
-                    content = @Content(schema = @Schema(implementation = SettlementBatchResponse.class))),
+                    description = "정산 회차 개시 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
                     description = "수익 데이터의 자산 불일치(SETTLEMENT_400_01) 또는 수익 금액 무효(SETTLEMENT_400_03)",
@@ -70,8 +69,7 @@ public interface SettlementCommandApi {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
-                    description = "정산 회차 재시도 접수 성공",
-                    content = @Content(schema = @Schema(implementation = SettlementBatchResponse.class))),
+                    description = "정산 회차 재시도 접수 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "403",
                     description = "ADMIN 권한이 아님 (SETTLEMENT_403_01)",

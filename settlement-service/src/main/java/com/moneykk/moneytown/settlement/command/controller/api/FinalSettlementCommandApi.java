@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.util.UUID;
 
-@Tag(name = "Final Settlement", description = "최종 정산(원금반환) 개시·재시도 커맨드 API")
+@Tag(name = "Final Settlement", description = "최종 정산(원금반환) 조회 및 개시·재시도 커맨드 API")
 @RequestMapping("/api/v1")
 public interface FinalSettlementCommandApi {
 
@@ -36,8 +36,7 @@ public interface FinalSettlementCommandApi {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "201",
-                    description = "최종 정산 회차 개시 성공 (이미 존재하면 기존 회차를 그대로 반환)",
-                    content = @Content(schema = @Schema(implementation = FinalSettlementBatchResponse.class))),
+                    description = "최종 정산 회차 개시 성공 (이미 존재하면 기존 회차를 그대로 반환)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "403",
                     description = "SYSTEM 권한이 아님 (SETTLEMENT_403_03)",
@@ -65,8 +64,7 @@ public interface FinalSettlementCommandApi {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
-                    description = "최종 정산 실패 건 재처리 접수 성공",
-                    content = @Content(schema = @Schema(implementation = FinalSettlementRetryResponse.class))),
+                    description = "최종 정산 실패 건 재처리 접수 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "403",
                     description = "ADMIN 권한이 아님 (SETTLEMENT_403_02)",

@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.UUID;
 
-@Tag(name = "Settlement", description = "정산 회차(배당) 개시·재시도 커맨드 API")
+@Tag(name = "Settlement", description = "정산 회차(배당) 조회 및 개시·재시도 커맨드 API")
 @RequestMapping("/api/v1")
 public interface SettlementQueryApi {
 

@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.UUID;
 
-@Tag(name = "Final Settlement", description = "최종 정산(원금반환) 개시·재시도 커맨드 API")
+@Tag(name = "Final Settlement", description = "최종 정산(원금반환) 조회 및 개시·재시도 커맨드 API")
 @RequestMapping("/api/v1")
 public interface FinalSettlementQueryApi {
 
