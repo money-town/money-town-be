@@ -17,7 +17,7 @@ public record HoldingSnapshotResponse(
         long totalHoldingQuantity,
 
         // 기준일에 지분을 보유한 사용자 목록
-        List<HoldingSnapshotItemResponse> items,
+        List<HoldingSnapshotItemResponse> holdings,
 
         // 다음 페이지 조회에 사용할 보유지분 ID
         UUID nextCursor,

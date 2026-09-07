@@ -293,7 +293,7 @@ class HoldingQueryServiceTest {
         verify(holdingQueryRepository).findSnapshotByAssetId(assetId, expectedCutoff, null, 101, Sort.Direction.DESC);
         assertEquals(assetId, response.assetId());
         assertEquals(asOf, response.asOf());
-        assertTrue(response.items().isEmpty());
+        assertTrue(response.holdings().isEmpty());
         assertEquals(0L, response.totalHoldingQuantity());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
@@ -320,7 +320,7 @@ class HoldingQueryServiceTest {
 
         HoldingSnapshotResponse response = holdingQueryService.getSnapshot(assetId, asOf, cursor, 2, Sort.Direction.DESC);
 
-        assertEquals(rows, response.items());
+        assertEquals(rows, response.holdings());
         assertEquals(30L, response.totalHoldingQuantity());
         assertFalse(response.hasNext());
         assertNull(response.nextCursor());
@@ -373,7 +373,7 @@ class HoldingQueryServiceTest {
         HoldingSnapshotResponse response =
                 holdingQueryService.getSnapshot(assetId, asOf, null, 2, direction);
 
-        assertEquals(List.of(first, second), response.items());
+        assertEquals(List.of(first, second), response.holdings());
         assertEquals(60L, response.totalHoldingQuantity());
         assertEquals(secondHoldingId, response.nextCursor());
         assertTrue(response.hasNext());
