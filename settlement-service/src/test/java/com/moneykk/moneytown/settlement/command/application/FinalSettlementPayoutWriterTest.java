@@ -43,6 +43,19 @@ class FinalSettlementPayoutWriterTest {
     private FinalSettlementPayoutWriter finalSettlementPayoutWriter;
 
     @Test
+    @DisplayName("saveNewBatch: 배치는 saveAndFlush로, 지급 건은 saveAll로 즉시 저장한다")
+    void savesNewBatchAndPayoutsImmediately() {
+        FinalSettlementBatch batch = calculatedBatch();
+        List<FinalSettlementPayout> payouts = List.of(
+                FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 900L, 900_000_000L));
+
+        finalSettlementPayoutWriter.saveNewBatch(batch, payouts);
+
+        verify(finalSettlementBatchRepository).saveAndFlush(batch);
+        verify(finalSettlementPayoutRepository).saveAll(payouts);
+    }
+
+    @Test
     @DisplayName("markDisbursing: 배치를 DISBURSING으로 전환하고 저장한다")
     void marksDisbursing() {
         FinalSettlementBatch batch = calculatedBatch();
@@ -52,6 +65,54 @@ class FinalSettlementPayoutWriterTest {
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.DISBURSING);
         verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: 이미 DISBURSING이면 그대로 유지한 채 저장한다 (재처리 흐름과의 정합)")
+    void marksDisbursing_keepsDisbursingWhenAlreadyDisbursing() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.DISBURSING);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.DISBURSING);
+        verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: COMPLETED 배치는 되돌리지 않는다 (중복 호출 방지)")
+    void marksDisbursing_skipsWhenCompleted() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: PARTIAL_FAILED 배치는 되돌리지 않는다 (재처리는 retryFinalSettlement 전용 경로)")
+    void marksDisbursing_skipsWhenPartialFailed() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: FAILED 배치는 되돌리지 않는다 (재처리는 retryFinalSettlement 전용 경로)")
+    void marksDisbursing_skipsWhenFailed() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.FAILED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
     }
 
     @Test
@@ -232,9 +293,40 @@ class FinalSettlementPayoutWriterTest {
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
     }
 
+    @Test
+    @DisplayName("markAssetTerminationCompleted: 완료 시각을 저장한다")
+    void marksAssetTerminationCompleted() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        Instant completedAt = Instant.parse("2026-09-07T00:00:00Z");
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markAssetTerminationCompleted(batch.getId(), completedAt);
+
+        assertThat(batch.getAssetTerminationCompletedAt()).isEqualTo(completedAt);
+        verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("findCompletedBatchesPendingTerminationNotification: 리포지토리 조회 결과를 그대로 반환한다")
+    void findsCompletedBatchesPendingTerminationNotification() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        when(finalSettlementBatchRepository.findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED))
+                .thenReturn(List.of(batch));
+
+        List<FinalSettlementBatch> pending = finalSettlementPayoutWriter.findCompletedBatchesPendingTerminationNotification();
+
+        assertThat(pending).containsExactly(batch);
+    }
+
     private FinalSettlementBatch calculatedBatch() {
         FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
         batch.markCalculated();
+        return batch;
+    }
+
+    private FinalSettlementBatch batchWithStatus(SettlementStatus status) {
+        FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
+        ReflectionTestUtils.setField(batch, "status", status);
         return batch;
     }
 

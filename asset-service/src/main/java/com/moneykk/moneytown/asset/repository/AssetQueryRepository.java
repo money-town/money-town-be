@@ -13,6 +13,9 @@ public interface AssetQueryRepository {
     // 삭제되지 않은 자산 조회
     Optional<Asset> findActiveById(UUID assetId);
 
+    // 삭제되지 않은 여러 자산 조회
+    List<Asset> findActiveByIds(List<UUID> assetIds);
+
     // 지분 배정·회수용 잠금 조회
     Optional<Asset> findActiveByIdForUpdate(UUID assetId);
 

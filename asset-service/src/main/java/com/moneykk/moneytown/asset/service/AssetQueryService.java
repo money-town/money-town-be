@@ -1,9 +1,6 @@
 package com.moneykk.moneytown.asset.service;
 
-import com.moneykk.moneytown.asset.dto.response.AssetDetailResponse;
-import com.moneykk.moneytown.asset.dto.response.AssetListItemResponse;
-import com.moneykk.moneytown.asset.dto.response.AssetListResponse;
-import com.moneykk.moneytown.asset.dto.response.InternalAssetResponse;
+import com.moneykk.moneytown.asset.dto.response.*;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
@@ -36,6 +33,17 @@ public class AssetQueryService {
 
         // 내부 API 응답 생성
         return InternalAssetResponse.of(asset);
+    }
+
+    @Transactional(readOnly = true)
+    public List<InternalAssetSummaryResponse> getInternalAssets(
+            List<UUID> assetIds
+    ) {
+        // 삭제되지 않은 자산들을 한 번에 조회
+        return assetQueryRepository.findActiveByIds(assetIds)
+                .stream()
+                .map(InternalAssetSummaryResponse::from)
+                .toList();
     }
 
     /**

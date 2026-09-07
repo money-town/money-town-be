@@ -20,6 +20,8 @@ import java.util.UUID;
 @Slf4j
 public class FinalSettlementDisbursementService {
 
+    private static final String SYSTEM_ROLE = "SYSTEM";
+
     private final FinalSettlementPayoutWriter payoutWriter;
     private final WalletServiceClient walletServiceClient;
     private final AssetServiceClient assetServiceClient;
@@ -36,15 +38,27 @@ public class FinalSettlementDisbursementService {
         claimedPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
 
         payoutWriter.updateBatchStatus(finalSettlementBatchId)
-                .ifPresent(assetId ->
-                        assetServiceClient.completeAssetTermination(
-                                assetId,
-                                "SYSTEM"
-                        ));
+                .ifPresent(assetId -> notifyAssetTerminationCompleted(finalSettlementBatchId, assetId));
+    }
+
+    // COMPLETED로 확정됐지만 자산 서비스 통보에 아직 성공하지 못한 회차를 재호출한다. 자산 서비스 API는 멱등하다.
+    public void retryPendingAssetTerminationNotifications() {
+        payoutWriter.findCompletedBatchesPendingTerminationNotification()
+                .forEach(batch -> notifyAssetTerminationCompleted(batch.getId(), batch.getAssetId()));
     }
 
     public int reclaimStalledProcessing(Instant staleBefore) {
         return payoutWriter.reclaimStalledProcessing(staleBefore);
+    }
+
+    // 완료 시각은 자산 서비스 호출 성공 후에만 저장한다. 실패하면 NULL로 남겨 두고 스케줄러가 재시도한다.
+    private void notifyAssetTerminationCompleted(UUID finalSettlementBatchId, UUID assetId) {
+        try {
+            assetServiceClient.completeAssetTermination(assetId, SYSTEM_ROLE);
+            payoutWriter.markAssetTerminationCompleted(finalSettlementBatchId, Instant.now());
+        } catch (Exception e) {
+            log.warn("자산 서비스에 종료 완료 통보 실패 (finalSettlementBatchId={}, assetId={})", finalSettlementBatchId, assetId, e);
+        }
     }
 
     private void attempt(UUID finalSettlementBatchId, FinalSettlementPayout payout) {

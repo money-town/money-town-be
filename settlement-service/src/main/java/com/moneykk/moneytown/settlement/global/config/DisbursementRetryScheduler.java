@@ -42,6 +42,11 @@ public class DisbursementRetryScheduler {
     }
 
     @Scheduled(fixedDelay = RETRY_INTERVAL_MS)
+    public void retryPendingAssetTerminationNotifications() {
+        finalSettlementDisbursementService.retryPendingAssetTerminationNotifications();
+    }
+
+    @Scheduled(fixedDelay = RETRY_INTERVAL_MS)
     public void retryStuckFinalSettlementPayouts() {
         reclaimStalledFinalSettlementProcessing();
 

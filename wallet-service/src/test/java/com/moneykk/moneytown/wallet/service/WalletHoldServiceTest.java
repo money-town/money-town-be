@@ -1,6 +1,8 @@
 package com.moneykk.moneytown.wallet.service;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.exception.ErrorCode;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionCompensationRequestedPayload;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.entity.Wallet;
@@ -9,23 +11,32 @@ import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
+import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepository;
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -41,7 +52,12 @@ class WalletHoldServiceTest {
     @Mock
     private WalletTransactionRepository walletTransactionRepository;
     @Mock
+    private WalletExpiredReservationRepository walletExpiredReservationRepository;
+    @Mock
     private WalletEventPublisher walletEventPublisher;
+    // pg_advisory_xact_lock 네이티브 쿼리 체인만 통과시키면 되므로 deep stub으로 처리
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private EntityManager entityManager;
 
     @InjectMocks
     private WalletHoldService walletHoldService;
@@ -51,7 +67,7 @@ class WalletHoldServiceTest {
 
     @Test
     @DisplayName("가용잔액이 부족하면 동결 없이 실패 이벤트만 발행한다")
-    void processReservation_insufficientBalance_publishesFailedEvent() {
+    void processReservation_insufficientAvailableBalance_publishesFailedEvent() {
         Wallet wallet = walletWithId(1L, 0L);
         when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
         when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
@@ -63,7 +79,73 @@ class WalletHoldServiceTest {
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("WalletHoldFailed", captor.getValue().eventType());
-        assertEquals("INSUFFICIENT_BALANCE", captor.getValue().payload().reason());
+        assertEquals("INSUFFICIENT_AVAILABLE_BALANCE", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("동결 금액이 0 이하면 동결 없이 INVALID_AMOUNT 실패 이벤트를 발행한다")
+    void processReservation_invalidAmount_publishesFailedEvent() {
+        Wallet wallet = walletWithId(1L, 1_000L);
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        walletHoldService.processReservation(reservedEvent(0L));
+
+        verify(walletHoldRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishHoldResult(captor.capture());
+        assertEquals("INVALID_AMOUNT", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("동결 잔액 합계가 Long 범위를 초과하면 BALANCE_OVERFLOW 실패 이벤트를 발행한다")
+    void processReservation_balanceOverflow_publishesFailedEvent() {
+        Wallet wallet = walletWithId(1L, 0L);
+        ReflectionTestUtils.setField(wallet, "holdBalance", Long.MAX_VALUE - 1);
+        ReflectionTestUtils.setField(wallet, "availableBalance", Long.MAX_VALUE);
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        walletHoldService.processReservation(reservedEvent(2L));
+
+        verify(walletHoldRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishHoldResult(captor.capture());
+        assertEquals("BALANCE_OVERFLOW", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("지갑이 없으면 WALLET_NOT_FOUND 실패 이벤트를 발행한다")
+    void processReservation_walletNotFound_publishesFailedEvent() {
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.empty());
+
+        walletHoldService.processReservation(reservedEvent(1_000L));
+
+        verify(walletHoldRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishHoldResult(captor.capture());
+        assertEquals("WALLET_NOT_FOUND", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("wallet.hold()가 WalletErrorCode가 아닌 예외를 던지면 실패 이벤트로 뭉개지 않고 그대로 다시 던진다")
+    void processReservation_unexpectedErrorCode_rethrowsWithoutPublishing() {
+        Wallet wallet = mock(Wallet.class);
+        when(wallet.getId()).thenReturn(1L);
+        BusinessException unexpected = new BusinessException(unexpectedErrorCode());
+        doThrow(unexpected).when(wallet).hold(anyLong());
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        BusinessException thrown = assertThrows(BusinessException.class,
+                () -> walletHoldService.processReservation(reservedEvent(1_000L)));
+
+        assertSame(unexpected, thrown);
+        verifyNoInteractions(walletEventPublisher);
     }
 
     @Test
@@ -152,6 +234,60 @@ class WalletHoldServiceTest {
         assertEquals("NONE", captor.getValue().payload().compensationType());
     }
 
+    @Test
+    @DisplayName("HOLD가 없고 사유가 RESERVATION_EXPIRED면 만료로 기록하고 NONE을 발행한다")
+    void compensateHold_noHoldReservationExpired_recordsTombstoneAndPublishesNone() {
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.empty());
+        when(walletExpiredReservationRepository.existsById(subscriptionId)).thenReturn(false);
+
+        walletHoldService.compensateHold(compensationEvent("RESERVATION_EXPIRED"));
+
+        verify(walletExpiredReservationRepository).save(any());
+        verifyNoInteractions(walletRepository, walletTransactionRepository);
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("WalletCompensationSucceeded", captor.getValue().eventType());
+        assertEquals("NONE", captor.getValue().payload().compensationType());
+    }
+
+    @Test
+    @DisplayName("이미 만료 기록이 있으면 tombstone을 다시 저장하지 않고 NONE만 재발행한다 (멱등)")
+    void compensateHold_noHoldReservationExpired_alreadyTombstoned_doesNotSaveAgain() {
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.empty());
+        when(walletExpiredReservationRepository.existsById(subscriptionId)).thenReturn(true);
+
+        walletHoldService.compensateHold(compensationEvent("RESERVATION_EXPIRED"));
+
+        verify(walletExpiredReservationRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("NONE", captor.getValue().payload().compensationType());
+    }
+
+    @Test
+    @DisplayName("HOLD가 없고 사유가 RESERVATION_EXPIRED가 아니면 기존처럼 HOLD_NOT_FOUND를 반환한다")
+    void compensateHold_noHoldOtherReason_publishesHoldNotFound() {
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.empty());
+
+        walletHoldService.compensateHold(compensationEvent("OFFERING_UNDERFILLED"));
+
+        verify(walletExpiredReservationRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("WalletCompensationFailed", captor.getValue().eventType());
+        assertEquals("HOLD_NOT_FOUND", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("만료 기록이 있는 청약이면 HOLD를 만들지 않고 조용히 종료한다")
+    void processReservation_expiredReservationExists_isIgnored() {
+        when(walletExpiredReservationRepository.existsById(subscriptionId)).thenReturn(true);
+
+        walletHoldService.processReservation(reservedEvent(1_000L));
+
+        verifyNoInteractions(walletRepository, walletHoldRepository, walletTransactionRepository, walletEventPublisher);
+    }
+
     private Wallet walletWithId(Long id, long depositAmount) {
         Wallet wallet = new Wallet(userId);
         ReflectionTestUtils.setField(wallet, "id", id);
@@ -177,7 +313,31 @@ class WalletHoldServiceTest {
     }
 
     private EventEnvelope<SubscriptionCompensationRequestedPayload> compensationEvent() {
+        return compensationEvent("OFFERING_UNDERFILLED");
+    }
+
+    private EventEnvelope<SubscriptionCompensationRequestedPayload> compensationEvent(String reason) {
         return EventEnvelope.of("SubscriptionCompensationRequested", subscriptionId.toString(), userId, "corr-1",
-                new SubscriptionCompensationRequestedPayload("OFFERING_UNDERFILLED"));
+                new SubscriptionCompensationRequestedPayload(reason));
+    }
+
+    // WalletErrorCode가 아닌 임의의 ErrorCode 구현체 (다른 도메인/모듈의 오류 코드가 섞여 들어온 상황을 흉내)
+    private ErrorCode unexpectedErrorCode() {
+        return new ErrorCode() {
+            @Override
+            public HttpStatus getStatus() {
+                return HttpStatus.INTERNAL_SERVER_ERROR;
+            }
+
+            @Override
+            public String getCode() {
+                return "OTHER_500_01";
+            }
+
+            @Override
+            public String getMessage() {
+                return "예상하지 못한 오류";
+            }
+        };
     }
 }
