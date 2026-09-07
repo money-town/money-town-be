@@ -49,6 +49,7 @@ public enum AssetErrorCode implements ErrorCode {
     ASSET_UPDATE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_08", "현재 상태에서는 자산을 수정할 수 없습니다."),
     INVALID_ASSET_STATUS_TRANSITION(HttpStatus.CONFLICT, "ASSET_409_09", "허용되지 않은 자산 상태 변경입니다."),
     ASSET_DELETE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_10", "작성 중이거나 반려된 자산만 삭제할 수 있습니다."),
+    HOLDING_ALLOCATION_BLOCKED(HttpStatus.CONFLICT, "ASSET_409_11", "회수 또는 보상 처리된 청약에는 지분을 배정할 수 없습니다."),
 
     ASSET_DOCUMENT_STORAGE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "ASSET_500_01", "자산 문서 저장소 처리에 실패했습니다.");
 

@@ -13,12 +13,14 @@ import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import com.moneykk.moneytown.asset.repository.HoldingSubscriptionStateRepository;
 import org.springframework.data.domain.Sort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,6 +66,9 @@ class HoldingQueryServiceTest {
 
     @Mock
     private AssetQueryRepository assetQueryRepository;
+
+    @Mock
+    private HoldingSubscriptionStateRepository holdingSubscriptionStateRepository;
 
     @InjectMocks
     private HoldingQueryService holdingQueryService;
@@ -226,6 +231,7 @@ class HoldingQueryServiceTest {
         assertEquals(subscriptionId, response.subscriptionId());
         assertFalse(response.allocationProcessed());
         assertFalse(response.revocationProcessed());
+        assertFalse(response.allocationBlocked());
         assertEquals(0, response.allocatedQuantity());
         assertEquals(0, response.revokedQuantity());
         assertNull(response.holdingId());
@@ -269,7 +275,30 @@ class HoldingQueryServiceTest {
         assertEquals(10, response.revokedQuantity());
         assertTrue(response.allocationProcessed());
         assertTrue(response.revocationProcessed());
+        assertTrue(response.allocationBlocked());
         assertEquals(revokedAt, response.lastProcessedAt());
+    }
+
+    @Test
+    @DisplayName("배정 전 회수가 접수된 청약은 배정 차단 상태를 반환한다")
+    void returnsBlockedSubscriptionState() {
+        UUID subscriptionId = UUID.randomUUID();
+        HoldingSubscriptionState state =
+                new HoldingSubscriptionState(subscriptionId);
+        state.markBlocked("모집 미달 보상");
+        when(holdingSubscriptionStateRepository.findById(subscriptionId))
+                .thenReturn(Optional.of(state));
+        when(holdingHistoryRepository
+                .findAllBySubscriptionIdOrderByCreatedAtAsc(subscriptionId))
+                .thenReturn(List.of());
+
+        HoldingSubscriptionStatusResponse response =
+                holdingQueryService.getSubscriptionStatus(subscriptionId);
+
+        assertTrue(response.allocationBlocked());
+        assertFalse(response.allocationProcessed());
+        assertFalse(response.revocationProcessed());
+        assertEquals(state.getUpdatedAt(), response.lastProcessedAt());
     }
 
     @ParameterizedTest

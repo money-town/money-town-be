@@ -11,6 +11,7 @@ import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.*;
 import com.moneykk.moneytown.common.exception.BusinessException;
@@ -32,9 +33,21 @@ public class HoldingCommandService {
     private final HoldingRepository holdingRepository;
     private final HoldingHistoryRepository holdingHistoryRepository;
     private final HoldingQueryRepository holdingQueryRepository;
+    private final HoldingSubscriptionStateRepository holdingSubscriptionStateRepository;
 
     @Transactional
     public HoldingAllocationResponse allocate(HoldingAllocationRequest request) {
+        // 같은 청약의 배정과 회수가 동시에 처리되지 않도록 잠금
+        HoldingSubscriptionState subscriptionState =
+                lockSubscriptionState(request.subscriptionId());
+
+        // 회수나 보상이 먼저 처리된 청약은 배정하지 않음
+        if (subscriptionState.blocksAllocation()) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_ALLOCATION_BLOCKED
+            );
+        }
+
         // 중복 청약 확인
         Optional<HoldingHistory> existingHistory =
                 holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
@@ -43,6 +56,9 @@ public class HoldingCommandService {
                 );
 
         if (existingHistory.isPresent()) {
+            subscriptionState.markAllocated(
+                    existingHistory.get().getHoldingId()
+            );
             return alreadyProcessed(request, existingHistory.get());
         }
 
@@ -59,6 +75,9 @@ public class HoldingCommandService {
                 HoldingHistoryType.ALLOCATE
         );
         if (existingHistory.isPresent()) {
+            subscriptionState.markAllocated(
+                    existingHistory.get().getHoldingId()
+            );
             return alreadyProcessed(request, existingHistory.get());
         }
 
@@ -93,6 +112,7 @@ public class HoldingCommandService {
         );
 
         holdingHistoryRepository.save(history);
+        subscriptionState.markAllocated(holding.getId());
 
         return new HoldingAllocationResponse(
                 request.subscriptionId(),
@@ -137,6 +157,15 @@ public class HoldingCommandService {
             UUID holdingId,
             HoldingRevocationRequest request
     ) {
+        // 같은 청약의 배정과 회수가 동시에 처리되지 않도록 잠금
+        HoldingSubscriptionState subscriptionState =
+                lockSubscriptionState(request.subscriptionId());
+
+        // 배정 전 회수가 이미 접수된 경우 추가 작업 없음
+        if (subscriptionState.isBlocked()) {
+            return noAction(holdingId, request);
+        }
+
         // 이미 회수된 청약인지 확인
         Optional<HoldingHistory> existingHistory =
                 holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
@@ -145,6 +174,7 @@ public class HoldingCommandService {
                 );
 
         if (existingHistory.isPresent()) {
+            subscriptionState.markRevoked(holdingId);
             return alreadyRevoked(holdingId, request, existingHistory.get());
         }
 
@@ -157,6 +187,8 @@ public class HoldingCommandService {
 
         // 배정한 이력이 없으면 회수할 지분도 없음
         if (allocationHistoryOptional.isEmpty()) {
+            // 이후 늦게 도착하는 배정 요청을 차단함
+            subscriptionState.markBlocked(request.reason());
             return noAction(holdingId, request);
         }
 
@@ -191,6 +223,7 @@ public class HoldingCommandService {
                 );
 
         if (existingHistory.isPresent()) {
+            subscriptionState.markRevoked(holdingId);
             return alreadyRevoked(holdingId, request, existingHistory.get());
         }
 
@@ -220,6 +253,7 @@ public class HoldingCommandService {
         );
 
         holdingHistoryRepository.save(revocationHistory);
+        subscriptionState.markRevoked(holding.getId());
 
         return new HoldingRevocationResponse(
                 request.subscriptionId(),
@@ -368,5 +402,17 @@ public class HoldingCommandService {
                 0,
                 HoldingRevocationResult.NO_ACTION
         );
+    }
+
+    private HoldingSubscriptionState lockSubscriptionState(
+            UUID subscriptionId
+    ) {
+        // 상태 행이 없으면 생성한 뒤 같은 청약 행을 잠금
+        holdingSubscriptionStateRepository.insertIfAbsent(subscriptionId);
+        return holdingSubscriptionStateRepository
+                .findByIdForUpdate(subscriptionId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
     }
 }

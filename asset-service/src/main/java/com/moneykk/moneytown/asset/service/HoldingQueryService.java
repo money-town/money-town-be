@@ -4,11 +4,13 @@ import com.moneykk.moneytown.asset.dto.response.*;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import com.moneykk.moneytown.asset.repository.HoldingSubscriptionStateRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -34,9 +36,14 @@ public class HoldingQueryService {
     private final HoldingRepository holdingRepository;
     private final HoldingQueryRepository holdingQueryRepository;
     private final AssetQueryRepository assetQueryRepository;
+    private final HoldingSubscriptionStateRepository holdingSubscriptionStateRepository;
 
     @Transactional(readOnly = true)
     public HoldingSubscriptionStatusResponse getSubscriptionStatus(UUID subscriptionId) {
+        HoldingSubscriptionState subscriptionState =
+                holdingSubscriptionStateRepository.findById(subscriptionId)
+                        .orElse(null);
+
         // 청약 ID로 지분 이력 조회
         List<HoldingHistory> histories =
                 holdingHistoryRepository.findAllBySubscriptionIdOrderByCreatedAtAsc(subscriptionId);
@@ -45,7 +52,12 @@ public class HoldingQueryService {
         if (histories.isEmpty()) {
             return new HoldingSubscriptionStatusResponse(
                     subscriptionId, null, null, null,
-                    0, 0, false, false, null
+                    0, 0, false, false,
+                    subscriptionState != null
+                            && subscriptionState.blocksAllocation(),
+                    subscriptionState == null
+                            ? null
+                            : subscriptionState.getUpdatedAt()
             );
         }
 
@@ -76,6 +88,9 @@ public class HoldingQueryService {
                 revokedQuantity,
                 allocatedQuantity > 0,
                 revokedQuantity > 0,
+                revokedQuantity > 0
+                        || (subscriptionState != null
+                        && subscriptionState.blocksAllocation()),
                 lastProcessedAt
         );
     }

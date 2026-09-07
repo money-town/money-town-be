@@ -36,6 +36,23 @@ public class AssetQueryRepositoryImpl implements AssetQueryRepository {
     }
 
     @Override
+    public List<Asset> findActiveByIds(List<UUID> assetIds) {
+        // 빈 목록이면 조회하지 않음
+        if (assetIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 요청한 ID 중 삭제되지 않은 자산만 조회
+        return queryFactory
+                .selectFrom(asset)
+                .where(
+                        asset.id.in(assetIds),
+                        asset.isDeleted.isFalse()
+                )
+                .fetch();
+    }
+
+    @Override
     public Optional<Asset> findActiveByIdForUpdate(UUID assetId) {
         // 자산을 잠그고 조회
         Asset result = activeAssetQuery(assetId)
