@@ -124,10 +124,14 @@ public class WalletHoldService {
         }
     }
 
-    // BusinessException.getErrorCode()는 ErrorCode 인터페이스라 name()이 없음 — wallet.hold()가
-    // 던지는 예외는 전부 WalletErrorCode 인스턴스이므로 캐스팅해서 enum 이름을 그대로 꺼낸다.
+    // BusinessException.getErrorCode()는 ErrorCode 인터페이스라 name()이 없음 — WalletErrorCode일 때만
+    // enum 이름을 꺼내 실패 이벤트로 변환하고, 그 외(예상 못한) ErrorCode는 원래 예외 그대로 다시 던져서
+    // 실패 이벤트로 뭉개지 않고 Kafka 재시도 대상이 되게 한다.
     private String errorCodeName(BusinessException e) {
-        return ((WalletErrorCode) e.getErrorCode()).name();
+        if (e.getErrorCode() instanceof WalletErrorCode walletErrorCode) {
+            return walletErrorCode.name();
+        }
+        throw e;
     }
 
     private void releaseHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
