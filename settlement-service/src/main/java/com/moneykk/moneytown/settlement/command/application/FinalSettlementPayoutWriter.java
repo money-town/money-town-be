@@ -99,7 +99,7 @@ class FinalSettlementPayoutWriter {
     }
 
     @Transactional
-    public Optional<UUID> updateBatchStatus(UUID finalSettlementBatchId) {
+    public Optional<FinalSettlementBatch> updateBatchStatus(UUID finalSettlementBatchId) {
         FinalSettlementBatch batch = loadBatch(finalSettlementBatchId);
         List<FinalSettlementPayout> allPayouts =
                 finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(finalSettlementBatchId);
@@ -122,9 +122,7 @@ class FinalSettlementPayoutWriter {
         }
         finalSettlementBatchRepository.save(batch);
 
-        return batch.getStatus() == SettlementStatus.COMPLETED
-                ? Optional.of(batch.getAssetId())
-                : Optional.empty();
+        return Optional.of(batch);
     }
 
     @Transactional

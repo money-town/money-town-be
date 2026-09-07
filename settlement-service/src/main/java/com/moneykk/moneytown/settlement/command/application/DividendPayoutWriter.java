@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -80,14 +81,14 @@ class DividendPayoutWriter {
     }
 
     @Transactional
-    public void updateBatchStatus(UUID settlementBatchId) {
+    public Optional<SettlementBatch> updateBatchStatus(UUID settlementBatchId) {
         SettlementBatch batch = loadBatch(settlementBatchId);
         List<DividendPayout> allPayouts = dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId);
 
         boolean anyInProgress = allPayouts.stream()
                 .anyMatch(payout -> IN_PROGRESS_STATUSES.contains(payout.getStatus()));
         if (anyInProgress) {
-            return;
+            return Optional.empty();
         }
 
         boolean anyDeadLetter = allPayouts.stream().anyMatch(payout -> payout.getStatus() == PayoutStatus.DEAD_LETTER);
@@ -101,6 +102,7 @@ class DividendPayoutWriter {
             batch.markFailed();
         }
         settlementBatchRepository.save(batch);
+        return Optional.of(batch);
     }
 
     private SettlementBatch loadBatch(UUID settlementBatchId) {
