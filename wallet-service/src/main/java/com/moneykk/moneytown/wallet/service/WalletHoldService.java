@@ -5,6 +5,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionCompensationRequestedPayload;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.entity.Wallet;
+import com.moneykk.moneytown.wallet.entity.WalletExpiredReservation;
 import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
@@ -13,30 +14,47 @@ import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
 import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
+import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepository;
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class WalletHoldService {
 
+    private static final String REASON_RESERVATION_EXPIRED = "RESERVATION_EXPIRED";
+
     private final WalletRepository walletRepository;
     private final WalletHoldRepository walletHoldRepository;
     private final WalletTransactionRepository walletTransactionRepository;
+    private final WalletExpiredReservationRepository walletExpiredReservationRepository;
     private final WalletEventPublisher walletEventPublisher;
+    private final EntityManager entityManager;
 
     @Transactional
     public void processReservation(EventEnvelope<SubscriptionReservedPayload> event) // HOLD
     {
         String aggregateId = event.aggregateId();
         UUID subscriptionId = UUID.fromString(aggregateId);
+
+        // compensateHold()의 만료 기록과 동시에 들어와도 둘 중 하나만 반영되도록 직렬화
+        acquireSubscriptionLock(subscriptionId);
+
+        // 타임아웃으로 이미 만료 처리된 청약이면, 뒤늦게 도착한 예약이라 HOLD를 만들지 않고 조용히 종료
+        if (walletExpiredReservationRepository.existsById(subscriptionId)) {
+            log.info("만료 처리된 청약에 뒤늦게 도착한 SubscriptionReserved 무시: subscriptionId={}", subscriptionId);
+            return;
+        }
 
         // p_wallet_holds.subscription_id UNIQUE 제약 덕분에 자연 멱등 — 이미 처리된 청약이면 조용히 종료
         if (walletHoldRepository.findBySubscriptionId(subscriptionId).isPresent()) {
@@ -103,8 +121,18 @@ public class WalletHoldService {
         String aggregateId = event.aggregateId();
         UUID subscriptionId = UUID.fromString(aggregateId);
 
+        // processReservation()의 HOLD 생성과 동시에 들어와도 둘 중 하나만 반영되도록 직렬화
+        acquireSubscriptionLock(subscriptionId);
+
         Optional<WalletHold> holdOpt = walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId);
         if (holdOpt.isEmpty()) {
+            if (REASON_RESERVATION_EXPIRED.equals(event.payload().reason())) {
+                recordExpiredReservation(subscriptionId, event.payload().reason());
+                walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
+                        aggregateId, event.userId(), event.correlationId(), null, null, "NONE", null, null));
+                return;
+            }
+
             walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.failed(
                     aggregateId, event.userId(), event.correlationId(), null, null, "HOLD_NOT_FOUND"));
             return;
@@ -149,5 +177,23 @@ public class WalletHoldService {
 
         walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "REFUND", transaction.getId(), hold.getAmount()));
+    }
+
+    // subscriptionId 기준으로 processReservation()과 compensateHold()를 직렬화한다.
+    // 두 메서드가 각각 다른 테이블(p_wallet_holds/p_wallet_expired_reservations)에 쓰기 때문에
+    // 테이블 내 UNIQUE 제약만으로는 "둘 중 하나만 생성됨"을 보장할 수 없어서 추가함.
+    // 트랜잭션 스코프 락이라 커밋/롤백 시 자동 해제됨.
+    private void acquireSubscriptionLock(UUID subscriptionId) {
+        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(:key)")
+                .setParameter("key", subscriptionId.getMostSignificantBits())
+                .getSingleResult();
+    }
+
+    private void recordExpiredReservation(UUID subscriptionId, String reason) {
+        // 같은 보상 요청이 재발행돼도(Outbox 미구현으로 인한 재전송 등) 중복 기록하지 않음
+        if (walletExpiredReservationRepository.existsById(subscriptionId)) {
+            return;
+        }
+        walletExpiredReservationRepository.save(new WalletExpiredReservation(subscriptionId, reason));
     }
 }

@@ -9,12 +9,15 @@ import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
+import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepository;
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -41,7 +44,12 @@ class WalletHoldServiceTest {
     @Mock
     private WalletTransactionRepository walletTransactionRepository;
     @Mock
+    private WalletExpiredReservationRepository walletExpiredReservationRepository;
+    @Mock
     private WalletEventPublisher walletEventPublisher;
+    // pg_advisory_xact_lock 네이티브 쿼리 체인만 통과시키면 되므로 deep stub으로 처리
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private EntityManager entityManager;
 
     @InjectMocks
     private WalletHoldService walletHoldService;
@@ -152,6 +160,60 @@ class WalletHoldServiceTest {
         assertEquals("NONE", captor.getValue().payload().compensationType());
     }
 
+    @Test
+    @DisplayName("HOLD가 없고 사유가 RESERVATION_EXPIRED면 만료로 기록하고 NONE을 발행한다")
+    void compensateHold_noHoldReservationExpired_recordsTombstoneAndPublishesNone() {
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.empty());
+        when(walletExpiredReservationRepository.existsById(subscriptionId)).thenReturn(false);
+
+        walletHoldService.compensateHold(compensationEvent("RESERVATION_EXPIRED"));
+
+        verify(walletExpiredReservationRepository).save(any());
+        verifyNoInteractions(walletRepository, walletTransactionRepository);
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("WalletCompensationSucceeded", captor.getValue().eventType());
+        assertEquals("NONE", captor.getValue().payload().compensationType());
+    }
+
+    @Test
+    @DisplayName("이미 만료 기록이 있으면 tombstone을 다시 저장하지 않고 NONE만 재발행한다 (멱등)")
+    void compensateHold_noHoldReservationExpired_alreadyTombstoned_doesNotSaveAgain() {
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.empty());
+        when(walletExpiredReservationRepository.existsById(subscriptionId)).thenReturn(true);
+
+        walletHoldService.compensateHold(compensationEvent("RESERVATION_EXPIRED"));
+
+        verify(walletExpiredReservationRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("NONE", captor.getValue().payload().compensationType());
+    }
+
+    @Test
+    @DisplayName("HOLD가 없고 사유가 RESERVATION_EXPIRED가 아니면 기존처럼 HOLD_NOT_FOUND를 반환한다")
+    void compensateHold_noHoldOtherReason_publishesHoldNotFound() {
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.empty());
+
+        walletHoldService.compensateHold(compensationEvent("OFFERING_UNDERFILLED"));
+
+        verify(walletExpiredReservationRepository, never()).save(any());
+        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(walletEventPublisher).publishCompensationResult(captor.capture());
+        assertEquals("WalletCompensationFailed", captor.getValue().eventType());
+        assertEquals("HOLD_NOT_FOUND", captor.getValue().payload().reason());
+    }
+
+    @Test
+    @DisplayName("만료 기록이 있는 청약이면 HOLD를 만들지 않고 조용히 종료한다")
+    void processReservation_expiredReservationExists_isIgnored() {
+        when(walletExpiredReservationRepository.existsById(subscriptionId)).thenReturn(true);
+
+        walletHoldService.processReservation(reservedEvent(1_000L));
+
+        verifyNoInteractions(walletRepository, walletHoldRepository, walletTransactionRepository, walletEventPublisher);
+    }
+
     private Wallet walletWithId(Long id, long depositAmount) {
         Wallet wallet = new Wallet(userId);
         ReflectionTestUtils.setField(wallet, "id", id);
@@ -177,7 +239,11 @@ class WalletHoldServiceTest {
     }
 
     private EventEnvelope<SubscriptionCompensationRequestedPayload> compensationEvent() {
+        return compensationEvent("OFFERING_UNDERFILLED");
+    }
+
+    private EventEnvelope<SubscriptionCompensationRequestedPayload> compensationEvent(String reason) {
         return EventEnvelope.of("SubscriptionCompensationRequested", subscriptionId.toString(), userId, "corr-1",
-                new SubscriptionCompensationRequestedPayload("OFFERING_UNDERFILLED"));
+                new SubscriptionCompensationRequestedPayload(reason));
     }
 }
