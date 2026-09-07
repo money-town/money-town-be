@@ -55,6 +55,54 @@ class FinalSettlementPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("markDisbursing: 이미 DISBURSING이면 그대로 유지한 채 저장한다 (재처리 흐름과의 정합)")
+    void marksDisbursing_keepsDisbursingWhenAlreadyDisbursing() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.DISBURSING);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.DISBURSING);
+        verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: COMPLETED 배치는 되돌리지 않는다 (중복 호출 방지)")
+    void marksDisbursing_skipsWhenCompleted() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: PARTIAL_FAILED 배치는 되돌리지 않는다 (재처리는 retryFinalSettlement 전용 경로)")
+    void marksDisbursing_skipsWhenPartialFailed() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
+    @DisplayName("markDisbursing: FAILED 배치는 되돌리지 않는다 (재처리는 retryFinalSettlement 전용 경로)")
+    void marksDisbursing_skipsWhenFailed() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.FAILED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        finalSettlementPayoutWriter.markDisbursing(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
+        verify(finalSettlementBatchRepository, never()).save(batch);
+    }
+
+    @Test
     @DisplayName("markDisbursing: 존재하지 않는 배치면 예외")
     void marksDisbursing_batchNotFound() {
         UUID unknownBatchId = UUID.randomUUID();
@@ -233,6 +281,12 @@ class FinalSettlementPayoutWriterTest {
     private FinalSettlementBatch calculatedBatch() {
         FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
         batch.markCalculated();
+        return batch;
+    }
+
+    private FinalSettlementBatch batchWithStatus(SettlementStatus status) {
+        FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
+        ReflectionTestUtils.setField(batch, "status", status);
         return batch;
     }
 
