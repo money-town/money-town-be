@@ -23,7 +23,7 @@ spring:
           model: gpt-4o-mini
           temperature: 0.7
     portfolio:
-      asset-enrich-enabled: false가  # asset 다 개발될때 true로 변환
+      asset-enrich-enabled: false  # asset 다 개발될때 true로 변환
 
   http:
     client:
