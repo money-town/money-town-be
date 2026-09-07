@@ -9,6 +9,7 @@ import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
 import com.moneykk.moneytown.settlement.command.dto.OpenFinalSettlementRequest;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -36,7 +37,11 @@ public class FinalSettlementCommandController implements FinalSettlementCommandA
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Valid @RequestBody OpenFinalSettlementRequest request) {
         FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(role, request);
-        finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
+        // 신규 생성된 배치도 이 시점엔 이미 CALCULATED이므로, CALCULATED 여부 하나로 신규/재호출을 함께 판단한다.
+        // COMPLETED/DISBURSING/PARTIAL_FAILED/FAILED 상태의 기존 배치는 여기서 다시 지급을 시작하지 않는다(재처리는 retryFinalSettlement 전용 경로).
+        if (response.status() == SettlementStatus.CALCULATED) {
+            finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "최종 정산 회차가 개시되었습니다."));
     }
