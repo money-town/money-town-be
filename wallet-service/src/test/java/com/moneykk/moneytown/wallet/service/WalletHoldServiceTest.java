@@ -84,6 +84,7 @@ class WalletHoldServiceTest {
         walletHoldService.processReservation(reservedEvent(0L));
 
         verify(walletHoldRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("INVALID_AMOUNT", captor.getValue().payload().reason());
@@ -101,6 +102,7 @@ class WalletHoldServiceTest {
         walletHoldService.processReservation(reservedEvent(2L));
 
         verify(walletHoldRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("BALANCE_OVERFLOW", captor.getValue().payload().reason());
@@ -115,6 +117,7 @@ class WalletHoldServiceTest {
         walletHoldService.processReservation(reservedEvent(1_000L));
 
         verify(walletHoldRepository, never()).save(any());
+        verify(walletTransactionRepository, never()).save(any());
         ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(walletEventPublisher).publishHoldResult(captor.capture());
         assertEquals("WALLET_NOT_FOUND", captor.getValue().payload().reason());
