@@ -13,6 +13,7 @@ public record HoldingSubscriptionStatusResponse(
         long revokedQuantity,
         boolean allocationProcessed,
         boolean revocationProcessed,
+        boolean allocationBlocked,
         Instant lastProcessedAt
 ) {
 }

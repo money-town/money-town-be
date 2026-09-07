@@ -13,12 +13,15 @@ import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import com.moneykk.moneytown.asset.repository.HoldingSubscriptionStateRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,14 +32,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -56,8 +62,27 @@ class HoldingCommandServiceTest {
     @Mock
     private HoldingQueryRepository holdingQueryRepository;
 
+    @Mock
+    private HoldingSubscriptionStateRepository holdingSubscriptionStateRepository;
+
+    private final Map<UUID, HoldingSubscriptionState> subscriptionStates =
+            new HashMap<>();
+
     @InjectMocks
     private HoldingCommandService holdingCommandService;
+
+    @BeforeEach
+    void setUpSubscriptionStateLock() {
+        // 각 청약에 생성된 상태 행을 테스트 중에도 유지함
+        lenient().when(holdingSubscriptionStateRepository.findByIdForUpdate(any()))
+                .thenAnswer(invocation -> {
+                    UUID subscriptionId = invocation.getArgument(0);
+                    return Optional.of(subscriptionStates.computeIfAbsent(
+                            subscriptionId,
+                            HoldingSubscriptionState::new
+                    ));
+                });
+    }
 
     @Test
     void allocatesSharesAndSavesHistory() {
@@ -285,8 +310,48 @@ class HoldingCommandServiceTest {
         assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
         assertEquals(0, response.quantity());
         assertEquals(holdingId, response.holdingId());
+        assertEquals("청약 취소",
+                subscriptionStates.get(subscriptionId).getBlockReason());
+        assertTrue(subscriptionStates.get(subscriptionId).isBlocked());
         verifyNoInteractions(assetQueryRepository, holdingQueryRepository, holdingRepository);
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    @DisplayName("회수가 먼저 처리된 청약의 늦은 배정을 차단한다")
+    void blocksLateAllocationAfterRevocation() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        HoldingRevocationRequest revocationRequest =
+                new HoldingRevocationRequest(subscriptionId, "모집 미달 보상");
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.REVOKE
+        )).thenReturn(Optional.empty());
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.empty());
+
+        HoldingRevocationResponse revocationResponse =
+                holdingCommandService.revoke(holdingId, revocationRequest);
+
+        HoldingAllocationRequest allocationRequest =
+                new HoldingAllocationRequest(
+                        subscriptionId,
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        10
+                );
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingCommandService.allocate(allocationRequest)
+        );
+
+        assertEquals(HoldingRevocationResult.NO_ACTION,
+                revocationResponse.result());
+        assertEquals(AssetErrorCode.HOLDING_ALLOCATION_BLOCKED,
+                exception.getErrorCode());
+        verify(assetQueryRepository, never())
+                .findActiveByIdForUpdate(any());
     }
 
     @Test

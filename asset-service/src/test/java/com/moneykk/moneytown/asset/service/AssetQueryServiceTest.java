@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.asset.service;
 
 import com.moneykk.moneytown.asset.dto.response.InternalAssetResponse;
+import com.moneykk.moneytown.asset.dto.response.InternalAssetSummaryResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetDetailResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetListItemResponse;
 import com.moneykk.moneytown.asset.dto.response.AssetListResponse;
@@ -81,6 +82,44 @@ class AssetQueryServiceTest {
         assertEquals(10_000L, response.totalShareQuantity());
         assertEquals(0, response.allocatedQuantity());
         assertEquals(AssetStatus.APPROVED, response.assetStatus());
+    }
+
+    @Test
+    @DisplayName("여러 자산을 내부 요약 응답으로 변환한다")
+    void getsInternalAssets() {
+        Asset first = asset(UUID.randomUUID());
+        Asset second = asset(UUID.randomUUID());
+        List<UUID> assetIds = List.of(first.getId(), second.getId());
+        when(assetQueryRepository.findActiveByIds(assetIds))
+                .thenReturn(List.of(first, second));
+
+        List<InternalAssetSummaryResponse> responses =
+                assetQueryService.getInternalAssets(assetIds);
+
+        assertEquals(2, responses.size());
+        assertEquals(first.getId(), responses.get(0).assetId());
+        assertEquals(first.getType(), responses.get(0).assetType());
+        assertEquals(first.getAssetName(), responses.get(0).assetName());
+        assertEquals(first.getStatus(), responses.get(0).assetStatus());
+        assertEquals(first.getExpectedReturnRate(),
+                responses.get(0).expectedReturnRate());
+        assertEquals(first.getValuationAmount(),
+                responses.get(0).valuationAmount());
+        assertEquals(first.getDescription(), responses.get(0).description());
+        verify(assetQueryRepository).findActiveByIds(assetIds);
+    }
+
+    @Test
+    @DisplayName("조회 가능한 자산이 없으면 빈 목록을 반환한다")
+    void returnsEmptyInternalAssetList() {
+        List<UUID> assetIds = List.of(UUID.randomUUID());
+        when(assetQueryRepository.findActiveByIds(assetIds))
+                .thenReturn(List.of());
+
+        List<InternalAssetSummaryResponse> responses =
+                assetQueryService.getInternalAssets(assetIds);
+
+        assertTrue(responses.isEmpty());
     }
 
     @ParameterizedTest
