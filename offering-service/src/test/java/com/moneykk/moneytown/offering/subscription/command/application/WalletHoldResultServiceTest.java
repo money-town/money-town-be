@@ -297,7 +297,9 @@ class WalletHoldResultServiceTest {
 
         executeBusinessAction();
         stubSubscription(subscription);
-        stubOfferingForFailure(subscription);
+        Offering offering = stubOfferingForFailure(subscription);
+
+        when(offering.getAssetId()).thenReturn(assetId);
 
         when(offeringRepository.restoreQuantity(
                 offeringId,
@@ -328,9 +330,54 @@ class WalletHoldResultServiceTest {
                 subscription.getQuantity(),
                 JpaAuditingConfig.SYSTEM_USER_ID
         );
-        verifyNoInteractions(
-                subscriptionEventPublisher,
-                subscriptionCompensationRepository
+        verify(subscriptionEventPublisher, times(1)).publishFailed(
+                subscription,
+                assetId,
+                CORRELATION_ID
+        );
+
+        /*
+         * 다른 eventId로 실패 이벤트가 다시 도착해도
+         * 이미 REJECTED 상태이므로 PostFDS 이벤트를 다시 발행하지 않는다.
+         */
+        verifyNoMoreInteractions(subscriptionEventPublisher);
+        verifyNoInteractions(subscriptionCompensationRepository);
+    }
+
+
+    @Test
+    @DisplayName("동결 실패 수량 복원에 실패하면 청약 실패 이벤트를 발행하지 않는다")
+    void doesNotPublishSubscriptionFailedWhenQuantityRestoreFails() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+        stubSubscription(subscription);
+        stubOfferingForFailure(subscription);
+
+        when(offeringRepository.restoreQuantity(
+                offeringId,
+                subscription.getQuantity(),
+                JpaAuditingConfig.SYSTEM_USER_ID
+        )).thenReturn(0);
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                )
+        ).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("공모 수량 복원에 실패");
+
+        verify(offeringRepository).restoreQuantity(
+                offeringId,
+                subscription.getQuantity(),
+                JpaAuditingConfig.SYSTEM_USER_ID
+        );
+
+        verify(subscriptionEventPublisher, never()).publishFailed(
+                any(),
+                any(),
+                any()
         );
     }
 
@@ -525,12 +572,18 @@ class WalletHoldResultServiceTest {
                 .thenReturn(Optional.of(offering));
     }
 
-    private void stubOfferingForFailure(Subscription subscription) {
+    private Offering stubOfferingForFailure(
+            Subscription subscription
+    ) {
         when(subscriptionRepository.findOfferingIdBySubscriptionId(
                 subscription.getSubscriptionId()
         )).thenReturn(Optional.of(offeringId));
 
+        Offering offering = mock(Offering.class);
+
         when(offeringRepository.findByIdForUpdate(offeringId))
-                .thenReturn(Optional.of(mock(Offering.class)));
+                .thenReturn(Optional.of(offering));
+
+        return offering;
     }
 }

@@ -31,6 +31,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_400_05",
             "청약 금액이 허용 범위를 초과했습니다."
     ),
+    SUBSCRIPTION_LIMIT_EXCEEDED(
+            HttpStatus.BAD_REQUEST,
+            "SUBSCRIPTION_400_06",
+            "1인당 최대 청약 수량을 초과했습니다."
+    ),
 
     // 403 FORBIDDEN
     SUBSCRIPTION_ACCESS_DENIED(

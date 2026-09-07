@@ -4,6 +4,8 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
@@ -152,5 +154,113 @@ class OfferingTest {
         );
 
         return offering;
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = OfferingStatus.class,
+            names = {
+                    "SCHEDULED",
+                    "OPEN",
+                    "SOLD_OUT",
+                    "CLOSED"
+            }
+    )
+    @DisplayName("관리자는 승인 이후의 공모 상태에서 중단 처리를 시작할 수 있다")
+    void startsAdminCancellationFromAllowedStatus(
+            OfferingStatus currentStatus
+    ) {
+        // given
+        Offering offering =
+                createOfferingForAdminCancellation();
+
+        ReflectionTestUtils.setField(
+                offering,
+                "offeringStatus",
+                currentStatus
+        );
+
+        // when
+        offering.startAdminCancellation();
+
+        // then
+        assertThat(offering.getOfferingStatus())
+                .isEqualTo(OfferingStatus.CANCELLING);
+
+        assertThat(offering.getCancellationType())
+                .isEqualTo(CancellationType.ADMIN_CANCELLED);
+
+        /*
+         * 실제 취소 시각은 보상 완료 후
+         * completeCancellation()에서 기록한다.
+         */
+        assertThat(offering.getCancelledAt())
+                .isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = OfferingStatus.class,
+            names = {
+                    "DRAFT",
+                    "REVIEW_REQUESTED",
+                    "REJECTED",
+                    "CANCELLING",
+                    "CANCELLED"
+            }
+    )
+    @DisplayName("관리자 중단이 허용되지 않는 공모 상태에서는 예외가 발생한다")
+    void cannotStartAdminCancellationFromDisallowedStatus(
+            OfferingStatus currentStatus
+    ) {
+        // given
+        Offering offering =
+                createOfferingForAdminCancellation();
+
+        ReflectionTestUtils.setField(
+                offering,
+                "offeringStatus",
+                currentStatus
+        );
+
+        // when & then
+        assertThatThrownBy(
+                offering::startAdminCancellation
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                OfferingErrorCode
+                                        .OFFERING_CANCELLATION_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(offering.getOfferingStatus())
+                .isEqualTo(currentStatus);
+
+        assertThat(offering.getCancellationType())
+                .isNull();
+
+        assertThat(offering.getCancelledAt())
+                .isNull();
+    }
+
+    private Offering createOfferingForAdminCancellation() {
+        Instant now = Instant.now();
+
+        return Offering.create(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "관리자 중단 테스트 공모",
+                10_000L,
+                100L,
+                1L,
+                100L,
+                now.minusSeconds(3600),
+                now.plusSeconds(3600)
+        );
     }
 }

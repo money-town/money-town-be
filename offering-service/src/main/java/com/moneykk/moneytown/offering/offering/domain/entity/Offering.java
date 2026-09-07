@@ -148,11 +148,6 @@ public class Offering extends BaseUpdatableEntity {
      *
      * 심사 요청은 DRAFT 상태이면서
      * 공모 시작 시각 이전인 경우에만 가능하다.
-     *
-     * TODO: 심사 요청 정책 추가 구현
-     * - Asset Service 연동 후 Asset 상태가 여전히 APPROVED인지 Service에서 검증
-     * - 필수 첨부자료 존재 여부 검증
-     * - 기타 심사 요청 운영 정책 검증
      */
     public void requestReview() {
         if (offeringStatus != OfferingStatus.DRAFT) {
@@ -363,6 +358,33 @@ public class Offering extends BaseUpdatableEntity {
 
         this.offeringStatus = OfferingStatus.CANCELLING;
         this.cancellationType = CancellationType.UNDER_SUBSCRIBED;
+    }
+
+    /**
+     * 관리자 요청으로 공모 취소 절차를 시작한다.
+     *
+     * 승인 이후 모집 예정·진행·종료 상태의 공모만 중단할 수 있다.
+     * 실제 보상이 필요한지는 Application Service에서 청약 상태를 조회하여 판단한다.
+     *
+     * SCHEDULED 공모도 우선 CANCELLING으로 전환한 뒤,
+     * 미해결 청약이 없으면 같은 트랜잭션에서 CANCELLED로 완료한다.
+     */
+    public void startAdminCancellation() {
+
+        boolean allowedStatus =
+                offeringStatus == OfferingStatus.SCHEDULED
+                        || offeringStatus == OfferingStatus.OPEN
+                        || offeringStatus == OfferingStatus.SOLD_OUT
+                        || offeringStatus == OfferingStatus.CLOSED;
+
+        if (!allowedStatus) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_CANCELLATION_NOT_ALLOWED
+            );
+        }
+
+        this.offeringStatus = OfferingStatus.CANCELLING;
+        this.cancellationType = CancellationType.ADMIN_CANCELLED;
     }
 
     /**

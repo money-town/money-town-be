@@ -15,6 +15,8 @@ import java.util.UUID;
 public class SubscriptionEventPublisher {
 
     private static final String AGGREGATE_TYPE = "SUBSCRIPTION";
+    private static final String SUBSCRIPTION_REQUEST_AGGREGATE_TYPE = "SUBSCRIPTION_REQUEST";
+
     private static final String RESERVED_EVENT_TYPE = "SubscriptionReserved";
     private static final String RESERVED_TOPIC = "subscription-reserved";
 
@@ -24,7 +26,20 @@ public class SubscriptionEventPublisher {
     private static final String COMPENSATION_REQUESTED_EVENT_TYPE = "SubscriptionCompensationRequested";
     private static final String COMPENSATION_REQUESTED_TOPIC = "subscription-compensation-requested";
 
+    private static final String LIMIT_EXCEEDED_EVENT_TYPE = "SubscriptionLimitExceeded";
+    private static final String FAILED_EVENT_TYPE = "SubscriptionFailed";
+    private static final String POST_FDS_TOPIC = "subscription-events";
+
     private final OutboxEventStore outboxEventStore;
+
+    /*
+     * TODO: Analysis 담당자 반영 확인
+     * - 외부 eventType은 SubscriptionFailed,
+     *   SubscriptionLimitExceeded 형식 사용
+     * - Analysis EventType.fromEventName() 매핑 추가
+     * - requestedQuantity, maxSubscriptionQuantity,
+     *   failureCode 수신 Payload 반영
+     */
 
     /**
      * 청약금 동결 요청 이벤트를 Outbox에 저장한다.
@@ -170,6 +185,123 @@ public class SubscriptionEventPublisher {
         );
     }
 
+    /**
+     * 사용자가 공모의 1인당 최대 청약 수량을 초과하여 요청한 경우
+     * PostFDS 집계를 위한 이벤트를 Outbox에 저장한다.
+     *
+     * 청약 엔티티 생성 전에 발생하는 이벤트이므로
+     * subscriptionId는 Payload에 null로 전달한다.
+     *
+     * Outbox의 aggregateId는 null일 수 없으므로
+     * 청약 요청을 선점할 때 생성한 idempotencyRequestId를 사용한다.
+     */
+    public void publishLimitExceeded(
+            UUID idempotencyRequestId,
+            UUID userId,
+            UUID assetId,
+            Long requestedQuantity,
+            Long maxSubscriptionQuantity,
+            String correlationId
+    ) {
+        validateLimitExceeded(
+                idempotencyRequestId,
+                userId,
+                assetId,
+                requestedQuantity,
+                maxSubscriptionQuantity,
+                correlationId
+        );
+
+        SubscriptionLimitExceededPayload payload =
+                new SubscriptionLimitExceededPayload(
+                        userId,
+                        assetId,
+                        null,
+                        requestedQuantity,
+                        maxSubscriptionQuantity
+                );
+
+        EventEnvelope<SubscriptionLimitExceededPayload> envelope =
+                EventEnvelope.of(
+                        LIMIT_EXCEEDED_EVENT_TYPE,
+                        idempotencyRequestId.toString(),
+                        userId,
+                        correlationId,
+                        payload
+                );
+
+        outboxEventStore.save(
+                SUBSCRIPTION_REQUEST_AGGREGATE_TYPE,
+                POST_FDS_TOPIC,
+                envelope
+        );
+    }
+
+
+    /**
+     * Wallet HOLD 실패 처리와 공모 수량 복원이 완료되어
+     * 최종 REJECTED 상태가 된 청약의 실패 이벤트를 Outbox에 저장한다.
+     *
+     * 청약 상태 변경, 공모 수량 복원 및 수신 이벤트 처리 이력과
+     * 동일한 트랜잭션 안에서 호출해야 한다.
+     *
+     * @param subscription 최종 거절된 청약
+     * @param assetId 청약 대상 공모의 자산 ID
+     * @param correlationId Wallet HOLD 요청부터 이어진 추적 ID
+     */
+    public void publishFailed(
+            Subscription subscription,
+            UUID assetId,
+            String correlationId
+    ) {
+        validateCommon(subscription, correlationId);
+
+        Objects.requireNonNull(
+                assetId,
+                "assetId는 필수입니다."
+        );
+
+        if (subscription.getSubscriptionStatus()
+                != SubscriptionStatus.REJECTED) {
+            throw new IllegalStateException(
+                    "REJECTED 청약만 실패 이벤트를 생성할 수 있습니다."
+            );
+        }
+
+        String failureCode = subscription.getFailureCode();
+
+        if (failureCode == null
+                || failureCode.isBlank()
+                || failureCode.length() > 50) {
+            throw new IllegalStateException(
+                    "failureCode는 필수이며 50자를 초과할 수 없습니다."
+            );
+        }
+
+        SubscriptionFailedPayload payload =
+                new SubscriptionFailedPayload(
+                        subscription.getUserId(),
+                        assetId,
+                        subscription.getSubscriptionId(),
+                        failureCode
+                );
+
+        EventEnvelope<SubscriptionFailedPayload> envelope =
+                EventEnvelope.of(
+                        FAILED_EVENT_TYPE,
+                        subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(),
+                        correlationId,
+                        payload
+                );
+
+        outboxEventStore.save(
+                AGGREGATE_TYPE,
+                POST_FDS_TOPIC,
+                envelope
+        );
+    }
+
     private void validateCommon(
             Subscription subscription,
             String correlationId
@@ -183,6 +315,48 @@ public class SubscriptionEventPublisher {
                 subscription.getUserId(),
                 "userId는 필수입니다."
         );
+
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "correlationId는 필수입니다."
+            );
+        }
+    }
+
+    private void validateLimitExceeded(
+            UUID idempotencyRequestId,
+            UUID userId,
+            UUID assetId,
+            Long requestedQuantity,
+            Long maxSubscriptionQuantity,
+            String correlationId
+    ) {
+        Objects.requireNonNull(
+                idempotencyRequestId,
+                "idempotencyRequestId는 필수입니다."
+        );
+        Objects.requireNonNull(
+                userId,
+                "userId는 필수입니다."
+        );
+        Objects.requireNonNull(
+                assetId,
+                "assetId는 필수입니다."
+        );
+        Objects.requireNonNull(
+                requestedQuantity,
+                "requestedQuantity는 필수입니다."
+        );
+        Objects.requireNonNull(
+                maxSubscriptionQuantity,
+                "maxSubscriptionQuantity는 필수입니다."
+        );
+
+        if (requestedQuantity <= maxSubscriptionQuantity) {
+            throw new IllegalArgumentException(
+                    "요청 수량은 최대 청약 수량보다 커야 합니다."
+            );
+        }
 
         if (correlationId == null || correlationId.isBlank()) {
             throw new IllegalArgumentException(

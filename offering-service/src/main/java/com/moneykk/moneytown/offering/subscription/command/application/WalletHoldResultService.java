@@ -205,7 +205,9 @@ public class WalletHoldResultService {
                 ));
 
         // 모집 미달 처리와 동일하게 공모 → 청약 순서로 잠근다.
-        offeringRepository.findByIdForUpdate(offeringId)
+        // PostFDS 이벤트의 assetId는 잠금 조회한 공모에서 가져온다.
+        Offering offering = offeringRepository
+                .findByIdForUpdate(offeringId)
                 .orElseThrow(() -> new BusinessException(
                         OfferingErrorCode.OFFERING_NOT_FOUND
                 ));
@@ -252,6 +254,12 @@ public class WalletHoldResultService {
             return;
         }
 
+        /*
+         * TODO: Wallet 담당자와 WalletHoldFailed.reason 계약 확정
+         * - INSUFFICIENT_BALANCE와 INSUFFICIENT_AVAILABLE_BALANCE 중 하나로 통일
+         * - INVALID_AMOUNT, BALANCE_OVERFLOW 등 업무 실패 코드 구분
+         * - 시스템 예외는 실패 이벤트가 아닌 Kafka 재시도 대상으로 처리
+         */
         subscription.startHoldFailureCompensation(
                 envelope.payload().reason()
         );
@@ -271,6 +279,11 @@ public class WalletHoldResultService {
         }
 
         subscription.completeHoldFailureRejection();
+        subscriptionEventPublisher.publishFailed(
+                subscription,
+                offering.getAssetId(),
+                envelope.correlationId()
+        );
     }
 
     private void validateFailedEvent(
