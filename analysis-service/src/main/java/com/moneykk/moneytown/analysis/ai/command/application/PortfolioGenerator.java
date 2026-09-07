@@ -22,6 +22,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -114,13 +116,60 @@ public class PortfolioGenerator {
     }
 
     private PortfolioRecommendation normalizeAmounts(PortfolioRecommendation rec, Long investmentAmount) {
-        List<PortfolioRecommendation.Allocation> fixed = rec.allocations().stream()
-                .map(a -> new PortfolioRecommendation.Allocation(
-                        a.offeringId(), a.title(), a.percentage(),
-                        Math.round(investmentAmount * (a.percentage() / 100.0)),
-                        a.reason()
-                ))
-                .toList();
+        List<PortfolioRecommendation.Allocation> src = rec.allocations();
+        int n = src.size();
+
+        long pctSum = src.stream()
+                .mapToLong(PortfolioRecommendation.Allocation::percentage)
+                .sum();
+
+        long[] amounts = new long[n];
+        double[] frac = new double[n];
+        long allocated = 0L;
+
+        // pass 1: 비율 합을 분모로 내림 계산 + 소수부 보관
+        for(int i = 0; i < n; i++){
+            double exact = (double) investmentAmount * src.get(i).percentage() / pctSum;
+            amounts[i] = (long) Math.floor(exact);
+            frac[i] = exact - amounts[i];
+            allocated += amounts[i];
+        }
+
+        long residual = investmentAmount - allocated;
+        if(residual < 0 || residual >= n){
+            throw new IllegalArgumentException(
+                    "금액 정규화 잔차 범위 오류: residual=" + residual + ", n=" + n
+            );
+        }
+
+        // pass 2: 소수부 큰 순서로 잔차 1원씩. 동점은 Percentage 큰 순 -> 인덱스 순
+        Integer[] order = new Integer[n];
+        for(int i = 0; i < n; i++){
+            order[i] = i;
+        }
+        Arrays.sort(order, (x, y) -> {
+            int byFrac = Double.compare(frac[y], frac[x]);
+            if(byFrac != 0){
+                return byFrac;
+            }
+            int byPct = Integer.compare(src.get(y).percentage(), src.get(x).percentage());
+            if(byPct != 0){
+                return byPct;
+            }
+            return Integer.compare(x, y);
+        });
+        for(int k = 0; k < residual; k++){
+            amounts[order[k]] += 1;
+        }
+
+        // pass 3: 재구성
+        List<PortfolioRecommendation.Allocation> fixed = new ArrayList<>();
+        for(int i = 0; i < n; i++){
+            PortfolioRecommendation.Allocation a = src.get(i);
+            fixed.add(new PortfolioRecommendation.Allocation(
+                    a.offeringId(), a.title(), a.percentage(), amounts[i], a.reason()
+            ));
+        }
         return new PortfolioRecommendation(fixed, rec.summary(), rec.disclaimer());
     }
 

@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -34,7 +35,7 @@ public class PortFolioCommandService {
     public CreatePortfolioResponse createPortfolio(UUID userId, UUID idempotencyKey, CreatePortfolioRequest request) {
         UUID key = (idempotencyKey != null) ? idempotencyKey : UUID.randomUUID();
 
-        Optional<Portfolio> existing = portfolioStore.findByIdempotencyKey(key);
+        Optional<Portfolio> existing = portfolioStore.findByUserIdAndIdempotencyKey(userId, key);
         if(existing.isPresent()){
             return CreatePortfolioResponse.from(existing.get());
         }
@@ -54,11 +55,18 @@ public class PortFolioCommandService {
             );
         }catch (DataIntegrityViolationException e){
             return CreatePortfolioResponse.from(
-                    portfolioStore.findByIdempotencyKey(key).orElseThrow()
+                    portfolioStore.findByUserIdAndIdempotencyKey(userId,key).orElseThrow(
+                            () -> new BusinessException(AnalysisErrorCode.AI_PORTFOLIO_NOT_FOUND)
+                    )
             );
         }
+        try{
+            portfolioGenerator.generate(portfolio.getId());
+        }catch (RejectedExecutionException e) {
+            portfolioStore.fail(portfolio.getId(), "AI 처리량 초과로 요청이 거절되었습니다.", 0L);
+            throw new BusinessException(AnalysisErrorCode.AI_CAPACITY_EXCEEDED);
+        }
 
-        portfolioGenerator.generate(portfolio.getId());
 
         return CreatePortfolioResponse.from(portfolio);
     }

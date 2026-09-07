@@ -18,8 +18,8 @@ public class PortfolioStore {
 
     private final PortfolioRepository portfolioRepository;
 
-    public Optional<Portfolio> findByIdempotencyKey(UUID key){
-        return portfolioRepository.findByIdempotencyKey(key);
+    public Optional<Portfolio> findByUserIdAndIdempotencyKey(UUID userId, UUID key){
+        return portfolioRepository.findByUserIdAndIdempotencyKey(userId, key);
     }
 
 
