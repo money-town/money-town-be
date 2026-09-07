@@ -11,6 +11,8 @@ public enum AssetStatus {
     REJECTED,
     /** 관리자가 자산 운영을 일시 중단한 상태 */
     SUSPENDED,
+    /** 자산운용자가 운영 종료를 요청한 상태 */
+    TERMINATION_REQUESTED,
     /** 최종 정산까지 완료되어 운영이 종료된 상태 */
     TERMINATED
 }

@@ -161,6 +161,32 @@ public class AssetController {
     }
 
     /**
+     * 자산 운영 종료 요청
+     */
+    @PostMapping("/{assetId}/termination-requests")
+    public ApiResponse<Void> requestAssetTermination(
+            @PathVariable UUID assetId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ID)
+            UUID userId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role
+    ) {
+        // 자산 종료 요청 처리
+        assetCommandService.requestAssetTermination(
+                assetId,
+                userId,
+                role
+        );
+
+        return ApiResponse.success(
+                null,
+                "자산 운영 종료가 요청되었습니다."
+        );
+    }
+
+    /**
      * 자산 삭제
      */
     @DeleteMapping("/{assetId}")

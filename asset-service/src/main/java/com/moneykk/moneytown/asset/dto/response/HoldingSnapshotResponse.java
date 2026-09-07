@@ -13,6 +13,9 @@ public record HoldingSnapshotResponse(
         // 배당 기준일
         LocalDate asOf,
 
+        // 기준일 전체 보유지분 수량
+        long totalHoldingQuantity,
+
         // 기준일에 지분을 보유한 사용자 목록
         List<HoldingSnapshotItemResponse> holdings,
 

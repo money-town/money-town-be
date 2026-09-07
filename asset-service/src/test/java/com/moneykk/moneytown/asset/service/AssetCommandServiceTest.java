@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.asset.service;
 
+import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
+import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
@@ -26,6 +28,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -46,6 +51,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class AssetCommandServiceTest {
@@ -58,6 +65,12 @@ class AssetCommandServiceTest {
 
     @Mock
     private S3StorageService s3StorageService;
+
+    @Mock
+    private SettlementServiceClient settlementServiceClient;
+
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private AssetCommandService assetCommandService;
@@ -197,7 +210,8 @@ class AssetCommandServiceTest {
 
     @ParameterizedTest
     @EnumSource(value = AssetStatus.class,
-            names = {"REVIEW_REQUESTED", "APPROVED", "SUSPENDED", "TERMINATED"})
+            names = {"REVIEW_REQUESTED", "APPROVED", "SUSPENDED",
+                    "TERMINATION_REQUESTED", "TERMINATED"})
     @DisplayName("작성 중 또는 반려 상태가 아니면 관리자도 수정할 수 없다")
     void rejectsNonEditableStatus(AssetStatus status) {
         UUID assetId = UUID.randomUUID();
@@ -386,6 +400,112 @@ class AssetCommandServiceTest {
     }
 
     @Test
+    @DisplayName("자산운용자는 본인의 승인된 자산에 운영 종료를 요청한다")
+    void issuerRequestsAssetTermination() {
+        runTransactionsImmediately();
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        assetCommandService.requestAssetTermination(
+                assetId, ownerId, "ISSUER");
+
+        assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
+        ArgumentCaptor<FinalSettlementOpenRequest> requestCaptor =
+                ArgumentCaptor.forClass(FinalSettlementOpenRequest.class);
+        verify(settlementServiceClient).openFinalSettlement(
+                eq("SYSTEM"),
+                requestCaptor.capture()
+        );
+        assertEquals(assetId, requestCaptor.getValue().assetId());
+        assertEquals(asset.getUnitPrice(), requestCaptor.getValue().unitPrice());
+        assertEquals(asset.getTerminationRequestedAt(), requestCaptor.getValue().terminatedAt());
+    }
+
+    @Test
+    @DisplayName("작성 중인 자산에는 운영 종료를 요청할 수 없다")
+    void rejectsTerminationRequestForDraftAsset() {
+        runTransactionsImmediately();
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.DRAFT);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> assetCommandService.requestAssetTermination(
+                        assetId, ownerId, "ISSUER"));
+
+        assertEquals(AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION,
+                exception.getErrorCode());
+        assertEquals(AssetStatus.DRAFT, asset.getStatus());
+        verifyNoInteractions(settlementServiceClient);
+    }
+
+    @Test
+    @DisplayName("정산 호출에 실패한 종료 요청은 같은 요청으로 재시도할 수 있다")
+    void retriesFinalSettlementForTerminationRequestedAsset() {
+        runTransactionsImmediately();
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+        doThrow(new RuntimeException("settlement unavailable"))
+                .doNothing()
+                .when(settlementServiceClient)
+                .openFinalSettlement(eq("SYSTEM"), any(FinalSettlementOpenRequest.class));
+
+        assertThrows(RuntimeException.class,
+                () -> assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER"));
+        assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER");
+
+        assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
+        ArgumentCaptor<FinalSettlementOpenRequest> requestCaptor =
+                ArgumentCaptor.forClass(FinalSettlementOpenRequest.class);
+        verify(settlementServiceClient, times(2)).openFinalSettlement(
+                eq("SYSTEM"), requestCaptor.capture());
+        assertEquals(requestCaptor.getAllValues().get(0).terminatedAt(),
+                requestCaptor.getAllValues().get(1).terminatedAt());
+    }
+
+    @Test
+    @DisplayName("SYSTEM은 최종 정산 완료 후 자산을 종료한다")
+    void completesAssetTermination() {
+        UUID assetId = UUID.randomUUID();
+        Asset asset = assetForUpdate(
+                UUID.randomUUID(),
+                AssetStatus.TERMINATION_REQUESTED
+        );
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        assetCommandService.completeAssetTermination(assetId, "SYSTEM");
+
+        assertEquals(AssetStatus.TERMINATED, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("SYSTEM이 아니면 자산 종료를 확정할 수 없다")
+    void rejectsTerminationCompletionByNonSystem() {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> assetCommandService.completeAssetTermination(
+                        UUID.randomUUID(),
+                        "ADMIN"
+                )
+        );
+
+        assertEquals(
+                AssetErrorCode.ASSET_STATUS_CHANGE_ACCESS_DENIED,
+                exception.getErrorCode()
+        );
+        verifyNoInteractions(assetQueryRepository);
+    }
+
+    @Test
     @DisplayName("자산운용자는 본인이 등록한 작성 중 자산을 삭제한다")
     void issuerDeletesOwnDraftAsset() {
         UUID assetId = UUID.randomUUID();
@@ -514,6 +634,13 @@ class AssetCommandServiceTest {
         // 테스트할 상태 지정
         ReflectionTestUtils.setField(asset, "status", status);
         return asset;
+    }
+
+    private void runTransactionsImmediately() {
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(org.mockito.Mockito.mock(TransactionStatus.class));
+        });
     }
 
     private AssetCreateRequest request(AssetType type) {

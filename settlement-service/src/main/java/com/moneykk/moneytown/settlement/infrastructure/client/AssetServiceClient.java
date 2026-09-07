@@ -39,4 +39,10 @@ public interface AssetServiceClient {
 
     @GetMapping("/api/v1/internal/revenues")
     ApiResponse<ReadyRevenueListResponse> getReadyRevenues(@RequestParam(value = "cursor", required = false) UUID cursor);
+
+    @PatchMapping("/api/v1/internal/assets/{assetId}/termination-completion")
+    ApiResponse<Void> completeAssetTermination(
+            @PathVariable("assetId") UUID assetId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
+    );
 }

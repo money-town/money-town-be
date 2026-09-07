@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.asset.controller;
 
+import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.entity.Asset;
@@ -36,6 +37,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class AssetControllerTest {
@@ -145,7 +147,12 @@ class AssetControllerTest {
                 100_000_000L, BigDecimal.ZERO, Map.of("appraisalAmount", 100_000_000L), 10_000L);
         when(queryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
         AssetCommandService realService = new AssetCommandService(
-                mock(AssetRepository.class), queryRepository, mock(com.moneykk.moneytown.asset.service.S3StorageService.class));
+                mock(AssetRepository.class),
+                queryRepository,
+                mock(com.moneykk.moneytown.asset.service.S3StorageService.class),
+                mock(SettlementServiceClient.class),
+                mock(org.springframework.transaction.support.TransactionTemplate.class)
+        );
         MockMvc realMvc = MockMvcBuilders.standaloneSetup(
                         new AssetController(realService, mock(AssetQueryService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
@@ -206,6 +213,21 @@ class AssetControllerTest {
                 .andExpect(jsonPath("$.message").value("자산이 삭제되었습니다."));
 
         verify(service).deleteAsset(assetId, userId, "ISSUER");
+    }
+
+    @Test
+    @DisplayName("자산 종료 요청을 서비스에 전달한다")
+    void requestsAssetTermination() throws Exception {
+        mvc.perform(post(url + "/termination-requests")
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message")
+                        .value("자산 운영 종료가 요청되었습니다."));
+
+        verify(service).requestAssetTermination(
+                assetId, userId, "ISSUER");
     }
 
     @Test

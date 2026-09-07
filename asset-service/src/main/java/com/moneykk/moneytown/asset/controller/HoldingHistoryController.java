@@ -18,10 +18,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-/** 지분 변동 이력 조회 API */
+/**
+ * 지분 변동 이력 조회 API
+ */
 @Validated
 @RestController
-@RequestMapping("/api/v1/holdings")
+@RequestMapping("/api/v1/assets/holdings")
 @RequiredArgsConstructor
 public class HoldingHistoryController {
 

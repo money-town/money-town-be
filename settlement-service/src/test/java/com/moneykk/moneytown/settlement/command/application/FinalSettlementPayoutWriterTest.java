@@ -240,9 +240,11 @@ class FinalSettlementPayoutWriterTest {
         when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(paid));
 
-        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<UUID> completedAssetId =
+                finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        assertThat(completedAssetId).contains(ASSET_ID);
         verify(finalSettlementBatchRepository).save(batch);
     }
 

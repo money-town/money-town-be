@@ -19,6 +19,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -79,6 +80,10 @@ public class Asset extends BaseUpdatableEntity {
 
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
+
+    // 최초 운영 종료 요청 시각
+    @Column(name = "termination_requested_at")
+    private Instant terminationRequestedAt;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -247,9 +252,13 @@ public class Asset extends BaseUpdatableEntity {
             case REVIEW_REQUESTED -> nextStatus == AssetStatus.APPROVED
                     || nextStatus == AssetStatus.REJECTED;
 
-            case APPROVED -> nextStatus == AssetStatus.SUSPENDED;
+            case APPROVED -> nextStatus == AssetStatus.SUSPENDED
+                    || nextStatus == AssetStatus.TERMINATION_REQUESTED;
 
-            case SUSPENDED -> nextStatus == AssetStatus.APPROVED;
+            case SUSPENDED -> nextStatus == AssetStatus.APPROVED
+                    || nextStatus == AssetStatus.TERMINATION_REQUESTED;
+
+            case TERMINATION_REQUESTED -> nextStatus == AssetStatus.TERMINATED;
 
             case TERMINATED -> false;
         };
@@ -274,6 +283,17 @@ public class Asset extends BaseUpdatableEntity {
         this.rejectionReason = nextStatus == AssetStatus.REJECTED
                 ? rejectionReason.trim()
                 : null;
+    }
+
+    /** 최초 종료 요청 시각을 유지하며 종료 요청 상태로 전환한다. */
+    public Instant requestTermination() {
+        if (status != AssetStatus.TERMINATION_REQUESTED) {
+            changeStatus(AssetStatus.TERMINATION_REQUESTED, null);
+        }
+        if (terminationRequestedAt == null) {
+            terminationRequestedAt = Instant.now();
+        }
+        return terminationRequestedAt;
     }
 
     /**

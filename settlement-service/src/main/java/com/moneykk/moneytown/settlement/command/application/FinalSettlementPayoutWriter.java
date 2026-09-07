@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -88,7 +89,7 @@ class FinalSettlementPayoutWriter {
     }
 
     @Transactional
-    public void updateBatchStatus(UUID finalSettlementBatchId) {
+    public Optional<UUID> updateBatchStatus(UUID finalSettlementBatchId) {
         FinalSettlementBatch batch = loadBatch(finalSettlementBatchId);
         List<FinalSettlementPayout> allPayouts =
                 finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(finalSettlementBatchId);
@@ -96,7 +97,7 @@ class FinalSettlementPayoutWriter {
         boolean anyInProgress = allPayouts.stream()
                 .anyMatch(payout -> IN_PROGRESS_STATUSES.contains(payout.getStatus()));
         if (anyInProgress) {
-            return;
+            return Optional.empty();
         }
 
         boolean anyDeadLetter = allPayouts.stream().anyMatch(payout -> payout.getStatus() == PayoutStatus.DEAD_LETTER);
@@ -110,6 +111,10 @@ class FinalSettlementPayoutWriter {
             batch.markFailed();
         }
         finalSettlementBatchRepository.save(batch);
+
+        return batch.getStatus() == SettlementStatus.COMPLETED
+                ? Optional.of(batch.getAssetId())
+                : Optional.empty();
     }
 
     private FinalSettlementBatch loadBatch(UUID finalSettlementBatchId) {

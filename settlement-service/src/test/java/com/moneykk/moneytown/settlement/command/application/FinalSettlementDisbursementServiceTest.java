@@ -2,6 +2,7 @@ package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositResponse;
@@ -17,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +38,8 @@ class FinalSettlementDisbursementServiceTest {
     private FinalSettlementPayoutWriter payoutWriter;
     @Mock
     private WalletServiceClient walletServiceClient;
+    @Mock
+    private AssetServiceClient assetServiceClient;
 
     @InjectMocks
     private FinalSettlementDisbursementService finalSettlementDisbursementService;
@@ -44,18 +48,27 @@ class FinalSettlementDisbursementServiceTest {
     @DisplayName("markDisbursing → 지갑 호출 → markPaid → updateBatchStatus 순서로 처리하고, 각 단계는 건별로 커밋된다")
     void disbursesInOrderPerPayout() {
         UUID batchId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
         FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
         when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.updateBatchStatus(batchId))
+                .thenReturn(Optional.of(assetId));
         SettlementDepositResponse response = new SettlementDepositResponse(9013L, 55L, "SETTLEMENT", payout.getAmount(), batchId, Instant.now());
         when(walletServiceClient.depositSettlement(any())).thenReturn(ApiResponse.success(response, null));
 
         finalSettlementDisbursementService.disburse(batchId);
 
-        InOrder order = inOrder(payoutWriter, walletServiceClient);
+        InOrder order = inOrder(
+                payoutWriter,
+                walletServiceClient,
+                assetServiceClient
+        );
         order.verify(payoutWriter).markDisbursing(batchId);
         order.verify(walletServiceClient).depositSettlement(any());
         order.verify(payoutWriter).markPaid(payout.getId());
         order.verify(payoutWriter).updateBatchStatus(batchId);
+        order.verify(assetServiceClient)
+                .completeAssetTermination(assetId, "SYSTEM");
         verify(payoutWriter, never()).markFailedAttempt(any());
 
         ArgumentCaptor<SettlementDepositRequest> requestCaptor = ArgumentCaptor.forClass(SettlementDepositRequest.class);
