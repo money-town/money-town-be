@@ -8,6 +8,8 @@ import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusRespons
 import com.moneykk.moneytown.asset.service.HoldingCommandService;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -18,11 +20,13 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/internal/holdings")
 @RequiredArgsConstructor
+@Tag(name = "Internal Holding", description = "서비스 간 지분 내부 API")
 public class InternalHoldingController {
 
     private final HoldingQueryService holdingQueryService;
     private final HoldingCommandService holdingCommandService;
 
+    @Operation(summary = "청약별 지분 처리 상태 조회")
     @GetMapping("/subscriptions/{subscriptionId}")
     public ApiResponse<HoldingSubscriptionStatusResponse> getSubscriptionStatus(
             @PathVariable UUID subscriptionId
@@ -35,6 +39,7 @@ public class InternalHoldingController {
     }
 
     /** 지분 배정 */
+    @Operation(summary = "지분 배정")
     @PostMapping("/allocations")
     public ApiResponse<HoldingAllocationResponse> allocate(
             @Valid @RequestBody HoldingAllocationRequest request
@@ -49,6 +54,7 @@ public class InternalHoldingController {
     }
 
     /** 지분 회수 */
+    @Operation(summary = "지분 회수")
     @PostMapping("/{holdingId}/revocations")
     public ApiResponse<HoldingRevocationResponse> revoke(
             @PathVariable UUID holdingId,

@@ -8,6 +8,8 @@ import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
+@Tag(name = "Holding", description = "보유지분 조회 API")
 public class HoldingController {
 
     private final HoldingQueryService holdingQueryService;
@@ -33,6 +36,7 @@ public class HoldingController {
     /**
      * 배당 기준일의 보유지분 조회
      */
+    @Operation(summary = "기준일별 자산 지분 스냅샷 조회")
     @GetMapping("/assets/{assetId}/holdings")
     public ApiResponse<HoldingSnapshotResponse> getSnapshot(
             @PathVariable UUID assetId,
@@ -74,6 +78,7 @@ public class HoldingController {
     /**
      * 특정 자산의 내 보유지분 조회
      */
+    @Operation(summary = "특정 자산의 내 보유지분 조회")
     @GetMapping("/assets/{assetId}/holdings/me")
     public ApiResponse<MyAssetHoldingResponse> getMyHolding(
             @PathVariable UUID assetId,
@@ -101,6 +106,7 @@ public class HoldingController {
     /**
      * 내 전체 보유지분 목록 조회
      */
+    @Operation(summary = "내 보유지분 목록 조회")
     @GetMapping("/assets/holdings/me")
     public ApiResponse<MyHoldingListResponse> getMyHoldings(
             @RequestHeader(AuthHeaderConstants.USER_ID)

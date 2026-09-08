@@ -10,6 +10,8 @@ import com.moneykk.moneytown.asset.service.AssetCommandService;
 import com.moneykk.moneytown.asset.service.AssetQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -28,6 +30,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/assets")
 @RequiredArgsConstructor
+@Tag(name = "Asset", description = "자산 등록·조회·수정·삭제 API")
 public class AssetController {
 
     private final AssetCommandService assetCommandService;
@@ -36,6 +39,7 @@ public class AssetController {
     /**
      * 자산 등록
      */
+    @Operation(summary = "자산 등록")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<AssetCreateResponse> createAsset(
@@ -56,6 +60,7 @@ public class AssetController {
     /**
      * 자산 목록 조회
      */
+    @Operation(summary = "자산 목록 조회")
     @GetMapping
     public ApiResponse<AssetListResponse> getAssets(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
@@ -91,6 +96,7 @@ public class AssetController {
     /**
      * 자산 상세 조회
      */
+    @Operation(summary = "자산 상세 조회")
     @GetMapping("/{assetId}")
     public ApiResponse<AssetDetailResponse> getAsset(
             @PathVariable UUID assetId,
@@ -113,6 +119,7 @@ public class AssetController {
     /**
      * 자산 정보 수정
      */
+    @Operation(summary = "자산 정보 수정")
     @PatchMapping("/{assetId}")
     public ApiResponse<Void> updateAsset(
             @PathVariable UUID assetId,
@@ -138,6 +145,7 @@ public class AssetController {
     /**
      * 자산 상태 변경
      */
+    @Operation(summary = "자산 상태 변경")
     @PatchMapping("/{assetId}/status")
     public ApiResponse<Void> changeAssetStatus(
             @PathVariable UUID assetId,
@@ -163,6 +171,7 @@ public class AssetController {
     /**
      * 자산 운영 종료 요청
      */
+    @Operation(summary = "자산 운영 종료 요청")
     @PostMapping("/{assetId}/termination-requests")
     public ApiResponse<Void> requestAssetTermination(
             @PathVariable UUID assetId,
@@ -189,6 +198,7 @@ public class AssetController {
     /**
      * 자산 삭제
      */
+    @Operation(summary = "자산 삭제")
     @DeleteMapping("/{assetId}")
     public ApiResponse<Void> deleteAsset(
             @PathVariable UUID assetId,
@@ -211,6 +221,7 @@ public class AssetController {
     /**
      * 자산 대표 이미지 등록·변경
      */
+    @Operation(summary = "자산 대표 이미지 등록·변경")
     @PutMapping(
             value = "/{assetId}/representative-image",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE

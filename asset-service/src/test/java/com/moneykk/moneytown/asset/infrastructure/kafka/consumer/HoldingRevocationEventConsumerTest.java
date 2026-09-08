@@ -4,14 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moneykk.moneytown.asset.dto.request.HoldingRevocationRequest;
 import com.moneykk.moneytown.asset.dto.response.HoldingRevocationResponse;
 import com.moneykk.moneytown.asset.dto.response.HoldingRevocationResult;
-import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.infrastructure.kafka.event.HoldingRevocationFailedPayload;
 import com.moneykk.moneytown.asset.infrastructure.kafka.event.HoldingRevocationSucceededPayload;
 import com.moneykk.moneytown.asset.infrastructure.kafka.event.SubscriptionCompensationRequestedPayload;
 import com.moneykk.moneytown.asset.infrastructure.kafka.producer.HoldingEventPublisher;
 import com.moneykk.moneytown.asset.service.HoldingCommandService;
-import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,7 +20,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,9 +31,6 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class HoldingRevocationEventConsumerTest {
-
-    @Mock
-    private HoldingQueryService holdingQueryService;
 
     @Mock
     private HoldingCommandService holdingCommandService;
@@ -52,7 +46,6 @@ class HoldingRevocationEventConsumerTest {
         objectMapper = new ObjectMapper().findAndRegisterModules();
         consumer = new HoldingRevocationEventConsumer(
                 objectMapper,
-                holdingQueryService,
                 holdingCommandService,
                 holdingEventPublisher
         );
@@ -66,23 +59,24 @@ class HoldingRevocationEventConsumerTest {
         UUID userId = UUID.randomUUID();
         UUID holdingId = UUID.randomUUID();
 
-        when(holdingQueryService.getSubscriptionStatus(subscriptionId))
-                .thenReturn(status(subscriptionId, holdingId, assetId, userId, true, false));
-        when(holdingCommandService.revoke(eq(holdingId), any()))
+        when(holdingCommandService.revokeBySubscription(
+                eq(assetId), eq(userId), any()))
                 .thenReturn(new HoldingRevocationResponse(
                         subscriptionId,
                         holdingId,
                         assetId,
                         userId,
                         100L,
-                        HoldingRevocationResult.REVOKED
+                        HoldingRevocationResult.REVOKED,
+                        null
                 ));
 
         consumer.consume(message(subscriptionId, assetId, userId));
 
         ArgumentCaptor<HoldingRevocationRequest> requestCaptor =
                 ArgumentCaptor.forClass(HoldingRevocationRequest.class);
-        verify(holdingCommandService).revoke(eq(holdingId), requestCaptor.capture());
+        verify(holdingCommandService).revokeBySubscription(
+                eq(assetId), eq(userId), requestCaptor.capture());
         assertThat(requestCaptor.getValue().subscriptionId()).isEqualTo(subscriptionId);
         assertThat(requestCaptor.getValue().reason()).isEqualTo("OFFERING_UNDER_SUBSCRIBED");
 
@@ -107,16 +101,16 @@ class HoldingRevocationEventConsumerTest {
         UUID userId = UUID.randomUUID();
         UUID holdingId = UUID.randomUUID();
 
-        when(holdingQueryService.getSubscriptionStatus(subscriptionId))
-                .thenReturn(status(subscriptionId, holdingId, assetId, userId, true, true));
-        when(holdingCommandService.revoke(eq(holdingId), any()))
+        when(holdingCommandService.revokeBySubscription(
+                eq(assetId), eq(userId), any()))
                 .thenReturn(new HoldingRevocationResponse(
                         subscriptionId,
                         holdingId,
                         assetId,
                         userId,
-                        100L,
-                        HoldingRevocationResult.NO_ACTION
+                        0L,
+                        HoldingRevocationResult.NO_ACTION,
+                        "ALREADY_REVOKED"
                 ));
 
         consumer.consume(message(subscriptionId, assetId, userId));
@@ -138,16 +132,16 @@ class HoldingRevocationEventConsumerTest {
         UUID assetId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
-        when(holdingQueryService.getSubscriptionStatus(subscriptionId))
-                .thenReturn(status(subscriptionId, null, null, null, false, false));
-        when(holdingCommandService.revoke(eq(null), any()))
+        when(holdingCommandService.revokeBySubscription(
+                eq(assetId), eq(userId), any()))
                 .thenReturn(new HoldingRevocationResponse(
                         subscriptionId,
                         null,
                         null,
                         null,
                         0L,
-                        HoldingRevocationResult.NO_ACTION
+                        HoldingRevocationResult.NO_ACTION,
+                        "NOT_ALLOCATED"
                 ));
 
         consumer.consume(message(subscriptionId, assetId, userId));
@@ -171,9 +165,8 @@ class HoldingRevocationEventConsumerTest {
         UUID userId = UUID.randomUUID();
         UUID holdingId = UUID.randomUUID();
 
-        when(holdingQueryService.getSubscriptionStatus(subscriptionId))
-                .thenReturn(status(subscriptionId, holdingId, assetId, userId, true, false));
-        when(holdingCommandService.revoke(eq(holdingId), any()))
+        when(holdingCommandService.revokeBySubscription(
+                eq(assetId), eq(userId), any()))
                 .thenThrow(new BusinessException(AssetErrorCode.HOLDING_DATA_CONFLICT));
 
         consumer.consume(message(subscriptionId, assetId, userId));
@@ -184,7 +177,8 @@ class HoldingRevocationEventConsumerTest {
                 eq(subscriptionId), eq(userId), eq("correlation-1"), payloadCaptor.capture());
 
         assertThat(payloadCaptor.getValue().assetId()).isEqualTo(assetId);
-        assertThat(payloadCaptor.getValue().errorCode()).isEqualTo("ASSET_409_02");
+        assertThat(payloadCaptor.getValue().errorCode())
+                .isEqualTo("HOLDING_DATA_CONFLICT");
         assertThat(payloadCaptor.getValue().retryable()).isFalse();
         verify(holdingEventPublisher, never())
                 .publishRevocationSucceeded(any(), any(), any(), any());
@@ -205,25 +199,4 @@ class HoldingRevocationEventConsumerTest {
         return objectMapper.writeValueAsString(event);
     }
 
-    private HoldingSubscriptionStatusResponse status(
-            UUID subscriptionId,
-            UUID holdingId,
-            UUID assetId,
-            UUID userId,
-            boolean allocationProcessed,
-            boolean revocationProcessed
-    ) {
-        return new HoldingSubscriptionStatusResponse(
-                subscriptionId,
-                holdingId,
-                assetId,
-                userId,
-                allocationProcessed ? 100L : 0L,
-                revocationProcessed ? 100L : 0L,
-                allocationProcessed,
-                revocationProcessed,
-                revocationProcessed,
-                Instant.now()
-        );
-    }
 }

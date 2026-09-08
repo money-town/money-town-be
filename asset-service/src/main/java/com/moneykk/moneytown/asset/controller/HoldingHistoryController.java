@@ -4,6 +4,8 @@ import com.moneykk.moneytown.asset.dto.response.HoldingHistoryListResponse;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/assets/holdings")
 @RequiredArgsConstructor
+@Tag(name = "Holding History", description = "지분 변동 이력 조회 API")
 public class HoldingHistoryController {
 
     private final HoldingQueryService holdingQueryService;
@@ -32,6 +35,7 @@ public class HoldingHistoryController {
     /**
      * 특정 보유지분의 변동 이력 조회
      */
+    @Operation(summary = "보유지분 변동 이력 조회")
     @GetMapping("/{holdingId}/histories")
     public ApiResponse<HoldingHistoryListResponse> getHoldingHistories(
             @PathVariable UUID holdingId,

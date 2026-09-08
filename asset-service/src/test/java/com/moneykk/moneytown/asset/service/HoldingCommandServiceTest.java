@@ -243,6 +243,7 @@ class HoldingCommandServiceTest {
 
         assertEquals(HoldingRevocationResult.REVOKED, response.result());
         assertEquals(10, response.quantity());
+        assertEquals(null, response.noActionReason());
         assertEquals(5, holding.getQuantity());
         assertEquals(0, asset.getAllocatedQuantity());
 
@@ -283,6 +284,8 @@ class HoldingCommandServiceTest {
                 holdingCommandService.revoke(holdingId, request);
 
         assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
+        assertEquals(0, response.quantity());
+        assertEquals("ALREADY_REVOKED", response.noActionReason());
         assertEquals(5, holding.getQuantity());
         verifyNoInteractions(assetQueryRepository, holdingQueryRepository);
         verify(holdingRepository, never()).save(any(Holding.class));
@@ -310,11 +313,118 @@ class HoldingCommandServiceTest {
         assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
         assertEquals(0, response.quantity());
         assertEquals(holdingId, response.holdingId());
+        assertEquals("NOT_ALLOCATED", response.noActionReason());
         assertEquals("청약 취소",
                 subscriptionStates.get(subscriptionId).getBlockReason());
         assertTrue(subscriptionStates.get(subscriptionId).isBlocked());
         verifyNoInteractions(assetQueryRepository, holdingQueryRepository, holdingRepository);
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+    }
+
+    @Test
+    @DisplayName("Kafka 회수는 최신 배정 이력의 holdingId를 사용한다")
+    void revokesBySubscriptionUsingLatestAllocationHistory() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        HoldingRevocationRequest request =
+                new HoldingRevocationRequest(subscriptionId, "모집 미달 보상");
+
+        Asset asset = approvedAsset(assetId);
+        asset.allocateShares(10);
+        Holding holding = new Holding(assetId, userId, 10);
+        ReflectionTestUtils.setField(holding, "id", holdingId);
+        HoldingHistory allocationHistory = new HoldingHistory(
+                holdingId, subscriptionId, HoldingHistoryType.ALLOCATE,
+                10, 0, 10, "ALLOCATE:" + subscriptionId, null
+        );
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.of(allocationHistory));
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.REVOKE
+        )).thenReturn(Optional.empty());
+        when(holdingRepository.findById(holdingId))
+                .thenReturn(Optional.of(holding));
+        when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
+                .thenReturn(Optional.of(assetId));
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+        when(holdingRepository.save(holding)).thenReturn(holding);
+
+        HoldingRevocationResponse response =
+                holdingCommandService.revokeBySubscription(
+                        assetId, userId, request
+                );
+
+        assertEquals(holdingId, response.holdingId());
+        assertEquals(HoldingRevocationResult.REVOKED, response.result());
+        assertEquals(10, response.quantity());
+        assertEquals(null, response.noActionReason());
+        assertEquals(0, holding.getQuantity());
+        assertEquals(0, asset.getAllocatedQuantity());
+    }
+
+    @Test
+    @DisplayName("Kafka 이벤트의 자산 또는 사용자가 배정 정보와 다르면 차단한다")
+    void rejectsMismatchedKafkaRevocation() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID holdingId = UUID.randomUUID();
+        HoldingRevocationRequest request =
+                new HoldingRevocationRequest(subscriptionId, "모집 미달 보상");
+        Holding holding = new Holding(assetId, userId, 10);
+        ReflectionTestUtils.setField(holding, "id", holdingId);
+        HoldingHistory allocationHistory = new HoldingHistory(
+                holdingId, subscriptionId, HoldingHistoryType.ALLOCATE,
+                10, 0, 10, "ALLOCATE:" + subscriptionId, null
+        );
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.of(allocationHistory));
+        when(holdingRepository.findById(holdingId))
+                .thenReturn(Optional.of(holding));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingCommandService.revokeBySubscription(
+                        UUID.randomUUID(), userId, request
+                )
+        );
+
+        assertEquals(AssetErrorCode.HOLDING_DATA_CONFLICT,
+                exception.getErrorCode());
+        verifyNoInteractions(assetQueryRepository, holdingQueryRepository);
+        verify(holdingRepository, never()).save(any(Holding.class));
+    }
+
+    @Test
+    @DisplayName("배정 전 Kafka 회수는 청약을 차단하고 NOT_ALLOCATED를 반환한다")
+    void blocksSubscriptionWhenKafkaRevocationArrivesBeforeAllocation() {
+        UUID subscriptionId = UUID.randomUUID();
+        HoldingRevocationRequest request =
+                new HoldingRevocationRequest(subscriptionId, "모집 미달 보상");
+
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.ALLOCATE
+        )).thenReturn(Optional.empty());
+        when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                subscriptionId, HoldingHistoryType.REVOKE
+        )).thenReturn(Optional.empty());
+
+        HoldingRevocationResponse response =
+                holdingCommandService.revokeBySubscription(
+                        UUID.randomUUID(), UUID.randomUUID(), request
+                );
+
+        assertEquals(HoldingRevocationResult.NO_ACTION, response.result());
+        assertEquals("NOT_ALLOCATED", response.noActionReason());
+        assertEquals(null, response.holdingId());
+        assertTrue(subscriptionStates.get(subscriptionId).isBlocked());
     }
 
     @Test

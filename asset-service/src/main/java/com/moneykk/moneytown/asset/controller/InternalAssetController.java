@@ -6,6 +6,8 @@ import com.moneykk.moneytown.asset.service.AssetCommandService;
 import com.moneykk.moneytown.asset.service.AssetQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
@@ -21,6 +23,7 @@ import java.util.UUID;
 @RequestMapping("/api/v1/internal/assets")
 @RequiredArgsConstructor
 @Validated
+@Tag(name = "Internal Asset", description = "서비스 간 자산 내부 API")
 public class InternalAssetController {
 
     private final AssetQueryService assetQueryService;
@@ -29,6 +32,7 @@ public class InternalAssetController {
     /**
      * 공모 등록 전 자산 조회
      */
+    @Operation(summary = "내부 자산 단건 조회")
     @GetMapping("/{assetId}")
     public ApiResponse<InternalAssetResponse> getAsset(
             @PathVariable UUID assetId
@@ -47,6 +51,7 @@ public class InternalAssetController {
     /**
      * AI 추천용 내부 자산 벌크 조회
      */
+    @Operation(summary = "내부 자산 목록 조회")
     @GetMapping
     public ApiResponse<List<InternalAssetSummaryResponse>> getAssets(
             @RequestParam
@@ -70,6 +75,7 @@ public class InternalAssetController {
     /**
      * 최종 정산 완료 후 자산 종료 확정
      */
+    @Operation(summary = "자산 운영 종료 완료 처리")
     @PatchMapping("/{assetId}/termination-completion")
     public ApiResponse<Void> completeTermination(
             @PathVariable UUID assetId,

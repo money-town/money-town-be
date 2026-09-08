@@ -7,11 +7,13 @@ import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
+import com.moneykk.moneytown.asset.global.config.AssetRedisCacheConfig;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.AssetRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -77,6 +79,10 @@ public class AssetCommandService {
     /**
      * 자산 정보 수정
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#assetId"
+    )
     @Transactional
     public void updateAsset(
             UUID assetId,
@@ -126,6 +132,10 @@ public class AssetCommandService {
     /**
      * 자산 상태 변경
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#assetId"
+    )
     @Transactional
     public void changeAssetStatus(
             UUID assetId,
@@ -174,6 +184,11 @@ public class AssetCommandService {
     /**
      * 자산 운영 종료 요청
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#assetId",
+            beforeInvocation = true
+    )
     public void requestAssetTermination(
             UUID assetId,
             UUID userId,
@@ -228,6 +243,10 @@ public class AssetCommandService {
     /**
      * 최종 정산 완료 후 자산 종료 확정
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#assetId"
+    )
     @Transactional
     public void completeAssetTermination(
             UUID assetId,
@@ -256,6 +275,10 @@ public class AssetCommandService {
     /**
      * 자산 삭제
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#assetId"
+    )
     @Transactional
     public void deleteAsset(
             UUID assetId,
@@ -291,6 +314,10 @@ public class AssetCommandService {
     /**
      * 자산 대표 이미지 등록·변경
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#assetId"
+    )
     @Transactional
     public void setRepresentativeImage(
             UUID assetId,

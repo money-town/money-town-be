@@ -137,7 +137,8 @@ class HoldingAllocationEventConsumerTest {
         );
 
         assertThat(payloadCaptor.getValue().assetId()).isEqualTo(assetId);
-        assertThat(payloadCaptor.getValue().errorCode()).isEqualTo("ASSET_409_03");
+        assertThat(payloadCaptor.getValue().errorCode())
+                .isEqualTo("ASSET_NOT_AVAILABLE");
         assertThat(payloadCaptor.getValue().retryable()).isFalse();
         verify(holdingEventPublisher, never())
                 .publishAllocationSucceeded(any(), any(), any(), any());

@@ -3,6 +3,8 @@ package com.moneykk.moneytown.asset.controller;
 import com.moneykk.moneytown.asset.dto.response.InternalRevenueListResponse;
 import com.moneykk.moneytown.asset.service.RevenueQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -20,11 +22,13 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/internal/revenues")
 @RequiredArgsConstructor
+@Tag(name = "Internal Revenue", description = "서비스 간 수익 내부 API")
 public class InternalRevenueController {
 
     private final RevenueQueryService revenueQueryService;
 
     /** 정산 서비스로 전달할 READY 상태 수익 목록 조회 */
+    @Operation(summary = "정산 전달 대기 수익 목록 조회")
     @GetMapping
     public ApiResponse<InternalRevenueListResponse> getReadyRevenues(
             @RequestParam(required = false) UUID cursor,

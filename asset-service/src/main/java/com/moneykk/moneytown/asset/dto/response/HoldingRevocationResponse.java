@@ -9,6 +9,7 @@ public record HoldingRevocationResponse(
         UUID assetId,
         UUID userId,
         long quantity,
-        HoldingRevocationResult result
+        HoldingRevocationResult result,
+        String noActionReason
 ) {
 }
