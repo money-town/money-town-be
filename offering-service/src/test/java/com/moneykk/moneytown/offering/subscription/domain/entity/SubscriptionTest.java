@@ -225,6 +225,127 @@ class SubscriptionTest {
                 );
     }
 
+    @Test
+    @DisplayName("예약 시간이 만료된 PROCESSING 청약은 만료 보상을 시작한다")
+    void startsExpirationCompensationAfterReservationExpires() {
+        // given
+        Subscription subscription = createSubscription();
+
+        Instant expiredAt =
+                subscription.getReservationExpiresAt().plusSeconds(1);
+
+        // when
+        subscription.startExpirationCompensation(expiredAt);
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getCancellationType()).isNull();
+        assertThat(subscription.isQuantityReserved()).isTrue();
+        assertThat(
+                subscription.isReservationExpirationCompensation()
+        ).isTrue();
+    }
+
+    @Test
+    @DisplayName("예약 시간이 지나지 않은 청약은 만료 보상을 시작할 수 없다")
+    void cannotStartExpirationCompensationBeforeReservationExpires() {
+        // given
+        Subscription subscription = createSubscription();
+
+        Instant beforeExpiration =
+                subscription.getReservationExpiresAt().minusSeconds(1);
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscription.startExpirationCompensation(
+                        beforeExpiration
+                )
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.PROCESSING);
+        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("예약 만료 보상이 완료되면 수량 확보를 해제하고 REJECTED로 전환한다")
+    void completesExpirationCompensationAsRejected() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startExpirationCompensation(
+                subscription.getReservationExpiresAt()
+        );
+
+        assertThat(
+                subscription.isReservationExpirationCompensation()
+        ).isTrue();
+
+        // when
+        subscription.completeExpirationRejection();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.REJECTED);
+        assertThat(subscription.isQuantityReserved()).isFalse();
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getCancellationType()).isNull();
+        assertThat(subscription.getCancelledAt()).isNull();
+
+        assertThat(
+                subscription.isReservationExpirationCompensation()
+        ).isFalse();
+    }
+
+    @Test
+    @DisplayName("공모 취소 보상 중인 청약은 예약 만료 거절로 완료할 수 없다")
+    void cannotCompleteOfferingCancellationAsExpirationRejection() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startCompensation(
+                CancellationType.OFFERING_UNDER_SUBSCRIBED
+        );
+
+        // when & then
+        assertThatThrownBy(
+                subscription::completeExpirationRejection
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+        assertThat(subscription.isQuantityReserved()).isTrue();
+        assertThat(subscription.getCancellationType())
+                .isEqualTo(
+                        CancellationType.OFFERING_UNDER_SUBSCRIBED
+                );
+    }
+
     private Subscription createSubscription() {
         return Subscription.create(
                 UUID.randomUUID(),

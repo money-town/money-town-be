@@ -31,7 +31,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SubscriptionCompensationCompletionServiceTest {
@@ -177,20 +181,96 @@ class SubscriptionCompensationCompletionServiceTest {
     }
 
     @Test
-    @DisplayName("공모 취소 사유가 없는 타임아웃 청약은 완료 대상에서 제외한다")
-    void excludesTimeout() {
-        subscription = Subscription.create(
-                offeringId, UUID.randomUUID(), 10L, 1_000L,
-                Instant.now().plusSeconds(600)
-        );
-        subscription.startExpirationCompensation(subscription.getReservationExpiresAt());
-        stubSubscription();
+    @DisplayName("예약 만료 Wallet 보상이 성공하면 수량을 복원하고 청약을 거절한다")
+    void completesReservationExpirationCompensation() {
+        // given
+        prepareReservationExpirationCompensation();
+        compensation.markWalletSucceeded();
 
-        assertThat(service.completeIfReady(subscription.getSubscriptionId())).isFalse();
-        assertThat(subscription.getFailureCode()).isEqualTo("RESERVATION_EXPIRED");
-        assertThat(subscription.isQuantityReserved()).isTrue();
+        stubSubscription();
+        stubCompensation();
+
+        when(offeringRepository.restoreQuantity(
+                offeringId,
+                subscription.getQuantity(),
+                JpaAuditingConfig.SYSTEM_USER_ID
+        )).thenReturn(1);
+
+        // when
+        boolean firstResult =
+                service.completeIfReady(
+                        subscription.getSubscriptionId()
+                );
+
+        boolean secondResult =
+                service.completeIfReady(
+                        subscription.getSubscriptionId()
+                );
+
+        // then
+        assertThat(firstResult).isTrue();
+        assertThat(secondResult).isFalse();
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.REJECTED);
+        assertThat(subscription.isQuantityReserved()).isFalse();
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getCancellationType()).isNull();
+        assertThat(subscription.getCancelledAt()).isNull();
+
+        verify(offeringRepository, times(1))
+                .restoreQuantity(
+                        offeringId,
+                        subscription.getQuantity(),
+                        JpaAuditingConfig.SYSTEM_USER_ID
+                );
+
+        verify(entityManager).refresh(offering);
+
         verifyNoInteractions(
-                subscriptionCompensationRepository, entityManager,
+                offeringCompensationCompletionService
+        );
+    }
+
+    @Test
+    @DisplayName("예약 만료 Wallet 보상이 대기 중이면 수량 복원과 거절을 진행하지 않는다")
+    void waitsForReservationExpirationWalletCompensation() {
+        // given
+        prepareReservationExpirationCompensation();
+
+        stubSubscription();
+        stubCompensation();
+
+        // when
+        boolean result =
+                service.completeIfReady(
+                        subscription.getSubscriptionId()
+                );
+
+        // then
+        assertThat(result).isFalse();
+
+        assertThat(compensation.getWalletStatus())
+                .isEqualTo(CompensationStatus.PENDING);
+        assertThat(compensation.getHoldingStatus())
+                .isEqualTo(CompensationStatus.SUCCEEDED);
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+        assertThat(subscription.isQuantityReserved()).isTrue();
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+
+        verify(offeringRepository, never())
+                .restoreQuantity(
+                        offeringId,
+                        subscription.getQuantity(),
+                        JpaAuditingConfig.SYSTEM_USER_ID
+                );
+
+        verifyNoInteractions(
+                entityManager,
                 offeringCompensationCompletionService
         );
     }
@@ -259,6 +339,36 @@ class SubscriptionCompensationCompletionServiceTest {
         assertThatThrownBy(() -> service.completeIfReady(subscription.getSubscriptionId()))
                 .isSameAs(failure);
         // 실제 DB 롤백은 Mockito 단위 테스트가 아닌 트랜잭션 통합 테스트 대상이다.
+    }
+
+    private void prepareReservationExpirationCompensation() {
+        subscription = Subscription.create(
+                offeringId,
+                UUID.randomUUID(),
+                10L,
+                1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        subscription.startExpirationCompensation(
+                subscription.getReservationExpiresAt()
+        );
+
+        compensation =
+                SubscriptionCompensation
+                        .createForReservationExpiration(
+                                subscription.getSubscriptionId()
+                        );
+
+        /*
+         * 예약 만료는 공모 취소와 무관하므로
+         * CANCELLING이 아닌 공모에서도 완료돼야 한다.
+         */
+        ReflectionTestUtils.setField(
+                offering,
+                "offeringStatus",
+                OfferingStatus.OPEN
+        );
     }
 
     private void stubSubscription() {
