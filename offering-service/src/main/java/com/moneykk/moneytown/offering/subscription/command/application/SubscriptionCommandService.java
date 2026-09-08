@@ -111,6 +111,7 @@ public class SubscriptionCommandService {
             /*
              * 최신 사용자 상태를 조회하여 청약 자격을 검증한다.
              *
+             * userRole == INVESTOR
              * accountStatus == ACTIVE
              * kycStatus == VERIFIED
              * 현재 시각 < kycExpiresAt
@@ -460,8 +461,9 @@ public class SubscriptionCommandService {
      * User Service에서 최신 사용자 상태를 조회하고
      * 청약 가능 여부를 검증한다.
      *
-     * accountStatus가 ACTIVE이고,
-     * kycStatus가 VERIFIED이며,
+     * userRole이 INVESTOR이고,
+     * accountStatus가 ACTIVE이며,
+     * kycStatus가 VERIFIED이고,
      * 현재 시각이 kycExpiresAt 이전인 경우에만 청약을 진행한다.
      *
      * User Service를 정상적으로 조회할 수 없는 경우에는
@@ -516,6 +518,12 @@ public class SubscriptionCommandService {
         }
     }
 
+    /**
+     * User Service 응답의 필수값과 요청 사용자 일치 여부를 검증한다.
+     *
+     * 실제 청약 자격은 UserInvestmentEligibilityResponse의
+     * isEligibleForSubscription()에서 판단한다.
+     */
     private void validateUserEligibilityResponse(
             UUID requestedUserId,
             UserInvestmentEligibilityResponse user
@@ -523,6 +531,7 @@ public class SubscriptionCommandService {
         if (user == null
                 || user.userId() == null
                 || !requestedUserId.equals(user.userId())
+                || user.userRole() == null
                 || user.accountStatus() == null
                 || user.kycStatus() == null
                 || user.kycExpiresAt() == null) {

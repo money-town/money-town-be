@@ -54,13 +54,14 @@ public class OfferingTransactionService {
     ) {
         Offering offering = findOfferingForUpdate(offeringId);
 
-        boolean owner =
-                offering.getIssuerId().equals(userId);
+        boolean ownerIssuer =
+                "ISSUER".equalsIgnoreCase(role)
+                        && offering.getIssuerId().equals(userId);
 
         boolean admin =
                 "ADMIN".equalsIgnoreCase(role);
 
-        if (!owner && !admin) {
+        if (!ownerIssuer && !admin) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
