@@ -137,7 +137,6 @@ springdoc:
     urls:
       - name: User Service
         url: /api-docs/user-service
-        # 임시 제거
       - name: Wallet Service
         url: /api-docs/wallet-service
       - name: Asset Service
