@@ -25,6 +25,7 @@ x-app-common: &app-common
 services:
   postgres:
     image: pgvector/pgvector:pg18
+    restart: unless-stopped
     mem_limit: 768m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moneytown}
@@ -44,6 +45,7 @@ services:
 
   redis:
     image: redis:7.4.7
+    restart: unless-stopped
     mem_limit: 256m
     command:
       - redis-server
