@@ -32,4 +32,34 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, UUID> {
     int failStaleProcessing(@Param("message") String message,
                             @Param("now") Instant now,
                             @Param("threshold") Instant threshold);
+
+    @Modifying(clearAutomatically = true)
+    @Query("""
+        update Portfolio p
+         set p.status = com.moneykk.moneytown.analysis.ai.domain.AiStatus.COMPLETED,
+             p.response = :json,
+             p.processingTime = :ms,
+             p.completedAt = :now,
+             p.updatedAt = :now
+       where p.id = :id
+         and p.status = com.moneykk.moneytown.analysis.ai.domain.AiStatus.PROCESSING
+         and p.isDeleted = false
+    """)
+    int completeIfProcessing(@Param("id") UUID id, @Param("json") String json,
+                             @Param("ms") long ms, @Param("now") Instant now);
+
+    @Modifying(clearAutomatically = true)
+    @Query("""
+    update Portfolio p
+       set p.status = com.moneykk.moneytown.analysis.ai.domain.AiStatus.FAILED,
+           p.errorMessage = :msg,
+           p.processingTime = :ms,
+           p.completedAt = :now,
+           p.updatedAt = :now
+     where p.id = :id
+       and p.status = com.moneykk.moneytown.analysis.ai.domain.AiStatus.PROCESSING
+       and p.isDeleted = false
+    """)
+    int failIfProcessing(@Param("id") UUID id, @Param("msg") String msg,
+                         @Param("ms") long ms, @Param("now") Instant now);
 }

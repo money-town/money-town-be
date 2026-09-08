@@ -23,7 +23,7 @@ public class StalePortfolioReaper {
     @Value("${spring.ai.portfolio.stale-timeout:PT10M}")
     private Duration staleTimeout;
 
-    @Scheduled(fixedDelayString = "${spring.ai.portfolio.reaper-internal-ms:60000}")
+    @Scheduled(fixedDelayString = "${spring.ai.portfolio.reaper-interval-ms:60000}")
     @Transactional
     public void failStaleProcessing(){
         Instant now = Instant.now();
