@@ -16,18 +16,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # 이 잡의 유일한 역할은 IMAGE_TAG를 한 곳에서 확정해서 아티팩트로 남기는 것.
+  resolve-tag:
     runs-on: ubuntu-latest
-    environment: ecr-push
     if: >-
       github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&
         github.event.workflow_run.head_branch == 'main'
       )
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - id: tag
+        run: echo "image_tag=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: 이미지 태그를 아티팩트로 기록 (cd.yml이 다운로드해서 씀)
+        run: echo "${{ steps.tag.outputs.image_tag }}" > image-tag.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-tag
+          path: image-tag.txt
+          retention-days: 1
+
+  publish:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    environment: ecr-push
 
     env:
-      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
 
     strategy:
       fail-fast: false
