@@ -5,10 +5,12 @@ import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingDeleteResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class OfferingTransactionService {
 
     private final OfferingRepository offeringRepository;
+    private final SubscriptionRepository subscriptionRepository;
 
     @Transactional
     public OfferingCreateResponse createOffering(
@@ -77,6 +80,38 @@ public class OfferingTransactionService {
         );
 
         return OfferingUpdateResponse.from(offering);
+    }
+
+    @Transactional
+    public OfferingDeleteResponse deleteOffering(
+            UUID offeringId,
+            UUID userId,
+            String role
+    ) {
+        Offering offering = findOfferingForUpdate(offeringId);
+
+        boolean ownerIssuer =
+                "ISSUER".equalsIgnoreCase(role)
+                        && offering.getIssuerId().equals(userId);
+
+        boolean admin =
+                "ADMIN".equalsIgnoreCase(role);
+
+        if (!ownerIssuer && !admin) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_ACCESS_DENIED
+            );
+        }
+
+        if (subscriptionRepository.existsByOfferingId(offeringId)) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_HAS_SUBSCRIPTIONS
+            );
+        }
+
+        offering.delete(userId);
+
+        return OfferingDeleteResponse.from(offering);
     }
 
     @Transactional

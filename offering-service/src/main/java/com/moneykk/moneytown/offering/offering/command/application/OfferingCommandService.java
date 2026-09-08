@@ -16,7 +16,6 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOfferingInfoResponse;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import feign.FeignException;
@@ -32,7 +31,6 @@ import java.util.UUID;
 public class OfferingCommandService {
 
     private final OfferingRepository offeringRepository;
-    private final SubscriptionRepository subscriptionRepository;
     private final AssetServiceClient assetServiceClient;
     private final UserServiceClient userServiceClient;
 
@@ -154,13 +152,12 @@ public class OfferingCommandService {
         );
     }
 
-    @Transactional
     public OfferingDeleteResponse deleteOffering(
             UUID offeringId,
             UUID userId,
             String role
     ) {
-        Offering offering = findOfferingForUpdate(offeringId);
+        Offering offering = findOffering(offeringId);
 
         validateOwnerOrAdmin(
                 offering,
@@ -168,24 +165,20 @@ public class OfferingCommandService {
                 role
         );
 
-        // 청약 이력이 존재하면 공모 삭제를 허용하지 않는다.
-        boolean hasSubscriptions =
-                subscriptionRepository.existsByOfferingId(offeringId);
-
-        if (hasSubscriptions) {
-            throw new BusinessException(
-                    OfferingErrorCode.OFFERING_HAS_SUBSCRIPTIONS
-            );
+        if ("ISSUER".equalsIgnoreCase(role)) {
+            validateIssuerEligibility(userId);
         }
 
-        offering.delete(userId);
-
-        return OfferingDeleteResponse.from(offering);
+        return offeringTransactionService.deleteOffering(
+                offeringId,
+                userId,
+                role
+        );
     }
 
     /**
      * User Service에서 최신 사용자 상태를 조회하여
-     * 공모 생성 및 수정, 심사 요청 자격을 검증한다.
+     * 공모 생성·수정·삭제 및 심사 요청 자격을 검증한다.
      *
      * ISSUER 역할이고 계정과 KYC가 유효한 경우에만 허용한다.
      */

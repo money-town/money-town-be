@@ -7,11 +7,11 @@ import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreat
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingDeleteResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOfferingInfoResponse;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -37,9 +37,6 @@ class OfferingCommandServiceTest {
 
     @Mock
     private OfferingRepository offeringRepository;
-
-    @Mock
-    private SubscriptionRepository subscriptionRepository;
 
     @Mock
     private AssetServiceClient assetServiceClient;
@@ -397,6 +394,157 @@ class OfferingCommandServiceTest {
                 null,
                 null
         );
+    }
+
+    @Test
+    @DisplayName("유효한 ISSUER는 최신 사용자 자격 검증 후 공모 삭제를 요청한다")
+    void deletesOfferingForEligibleIssuer() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+
+        when(offering.getIssuerId())
+                .thenReturn(issuerId);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId),
+                        "사용자 조회 성공"
+                ));
+
+        OfferingDeleteResponse expectedResponse =
+                mock(OfferingDeleteResponse.class);
+
+        when(offeringTransactionService.deleteOffering(
+                offeringId,
+                issuerId,
+                "ISSUER"
+        )).thenReturn(expectedResponse);
+
+        // when
+        OfferingDeleteResponse response =
+                offeringCommandService.deleteOffering(
+                        offeringId,
+                        issuerId,
+                        "ISSUER"
+                );
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+
+        verify(userServiceClient)
+                .getInvestmentEligibility(issuerId);
+
+        verify(offeringTransactionService)
+                .deleteOffering(
+                        offeringId,
+                        issuerId,
+                        "ISSUER"
+                );
+
+        verifyNoInteractions(assetServiceClient);
+    }
+
+    @Test
+    @DisplayName("자격이 유효하지 않은 ISSUER는 공모를 삭제할 수 없다")
+    void rejectsOfferingDeletionByIneligibleIssuer() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+
+        when(offering.getIssuerId())
+                .thenReturn(issuerId);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        UserInvestmentEligibilityResponse expiredIssuer =
+                new UserInvestmentEligibilityResponse(
+                        issuerId,
+                        "ISSUER",
+                        "ACTIVE",
+                        "VERIFIED",
+                        Instant.now().minusSeconds(1)
+                );
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        expiredIssuer,
+                        "사용자 조회 성공"
+                ));
+
+        // when
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.deleteOffering(
+                        offeringId,
+                        issuerId,
+                        "ISSUER"
+                )
+        );
+
+        // then
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        OfferingErrorCode
+                                .OFFERING_ISSUER_ELIGIBILITY_NOT_MET
+                );
+
+        verifyNoInteractions(offeringTransactionService);
+        verifyNoInteractions(assetServiceClient);
+    }
+
+    @Test
+    @DisplayName("ADMIN은 ISSUER 사용자 자격을 조회하지 않고 공모 삭제를 요청한다")
+    void deletesOfferingByAdminWithoutIssuerEligibilityCheck() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        OfferingDeleteResponse expectedResponse =
+                mock(OfferingDeleteResponse.class);
+
+        when(offeringTransactionService.deleteOffering(
+                offeringId,
+                adminId,
+                "ADMIN"
+        )).thenReturn(expectedResponse);
+
+        // when
+        OfferingDeleteResponse response =
+                offeringCommandService.deleteOffering(
+                        offeringId,
+                        adminId,
+                        "ADMIN"
+                );
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+
+        verifyNoInteractions(userServiceClient);
+        verifyNoInteractions(assetServiceClient);
+
+        verify(offeringTransactionService)
+                .deleteOffering(
+                        offeringId,
+                        adminId,
+                        "ADMIN"
+                );
     }
 
     private UserInvestmentEligibilityResponse eligibleIssuer(
