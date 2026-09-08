@@ -3,6 +3,7 @@ package com.moneykk.moneytown.user.service;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
+import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.entity.User;
@@ -20,7 +21,16 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository userRepository;
 
-    //CRUD
+   //
+    @Transactional(readOnly = true)
+    public UserInvestmentEligibilityResponse getInvestmentEligibility(
+            UUID userId
+    ){
+        User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        return UserInvestmentEligibilityResponse.from(user);
+    }
 
 
     // 사용자 목록 및 이름 검색

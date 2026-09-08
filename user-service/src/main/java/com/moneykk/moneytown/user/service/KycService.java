@@ -185,15 +185,6 @@ public class KycService {
         return true;
     }
 
-    // 청약용 사용자 상태 조회
-    @Transactional(readOnly = true)
-    public UserInvestmentEligibilityResponse getInvestmentEligibility(UUID userId) {
-        User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
-                .orElseThrow(() ->
-                        new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-        return UserInvestmentEligibilityResponse.from(user);
-    }
 
 
 
