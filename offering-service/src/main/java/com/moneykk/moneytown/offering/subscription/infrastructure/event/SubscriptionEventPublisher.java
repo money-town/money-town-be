@@ -25,6 +25,7 @@ public class SubscriptionEventPublisher {
 
     private static final String COMPENSATION_REQUESTED_EVENT_TYPE = "SubscriptionCompensationRequested";
     private static final String COMPENSATION_REQUESTED_TOPIC = "subscription-compensation-requested";
+    private static final String RESERVATION_EXPIRED_REASON = "RESERVATION_EXPIRED";
 
     private static final String LIMIT_EXCEEDED_EVENT_TYPE = "SubscriptionLimitExceeded";
     private static final String FAILED_EVENT_TYPE = "SubscriptionFailed";
@@ -128,7 +129,8 @@ public class SubscriptionEventPublisher {
     }
 
     /**
-     * 공모 중단 또는 모집 미달에 따른 보상 요청을 Outbox에 저장한다.
+     * 공모 중단, 모집 미달 또는 청약 예약 만료에 따른
+     * 보상 요청을 Outbox에 저장한다.
      *
      * 호출 서비스에서 청약을 COMPENSATING으로 전환하고,
      * 동일 트랜잭션 안에서 호출해야 한다.
@@ -156,17 +158,14 @@ public class SubscriptionEventPublisher {
             );
         }
 
-        if (subscription.getCancellationType() == null) {
-            throw new IllegalStateException(
-                    "공모 중단 또는 모집 미달에 따른 취소 사유가 필요합니다."
-            );
-        }
+        String compensationReason =
+                resolveCompensationReason(subscription);
 
         SubscriptionCompensationRequestedPayload payload =
                 new SubscriptionCompensationRequestedPayload(
                         subscription.getOfferingId(),
                         assetId,
-                        subscription.getCancellationType().name()
+                        compensationReason
                 );
 
         EventEnvelope<SubscriptionCompensationRequestedPayload> envelope =
@@ -299,6 +298,30 @@ public class SubscriptionEventPublisher {
                 AGGREGATE_TYPE,
                 POST_FDS_TOPIC,
                 envelope
+        );
+    }
+
+    /**
+     * 청약 상태에 따라 외부 서비스에 전달할 보상 사유를 결정한다.
+     *
+     * 공모 중단·모집 미달 보상은 cancellationType을 사용하고,
+     * 예약 만료 보상은 failureCode의 RESERVATION_EXPIRED를 사용한다.
+     */
+    private String resolveCompensationReason(
+            Subscription subscription
+    ) {
+        if (subscription.getCancellationType() != null) {
+            return subscription.getCancellationType().name();
+        }
+
+        if (RESERVATION_EXPIRED_REASON.equals(
+                subscription.getFailureCode()
+        )) {
+            return RESERVATION_EXPIRED_REASON;
+        }
+
+        throw new IllegalStateException(
+                "보상 요청을 발행할 수 있는 사유가 없습니다."
         );
     }
 

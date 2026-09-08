@@ -2,47 +2,46 @@ package com.moneykk.moneytown.offering.subscription.command.dto.response;
 
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.UUID;
 
 public record SubscriptionCreateResponse(
 
-        /**
-         * 생성된 청약 ID.
-         */
+        @Schema(
+                description = "생성된 청약 ID",
+                example = "550e8400-e29b-41d4-a716-446655440000"
+        )
         UUID subscriptionId,
 
-        /**
-         * 청약 대상 공모 ID.
-         */
+        @Schema(
+                description = "청약 대상 공모 ID",
+                example = "8f14e45f-ea4d-4f8b-9d5a-7b30c8d91a21"
+        )
         UUID offeringId,
 
-        /**
-         * 확보한 청약 수량.
-         */
+        @Schema(
+                description = "확보된 청약 수량",
+                example = "10"
+        )
         Long quantity,
 
-        /**
-         * 청약 시점의 조각당 단위 가격.
-         *
-         * Offering.pricePerUnit을 청약 시점에 Snapshot으로 저장한 값이다.
-         */
+        @Schema(
+                description = "청약 접수 시점의 공모 조각당 단위 가격을 스냅샷으로 저장한 값",
+                example = "100000"
+        )
         Long pricePerUnit,
 
-        /**
-         * 청약 시점의 단위 가격을 기준으로 계산한 총 청약 금액.
-         *
-         * pricePerUnit × quantity 값을 서버에서 계산하여
-         * Subscription에 Snapshot으로 저장한 값을 반환한다.
-         */
+        @Schema(
+                description = "청약 총액. 조각당 단위 가격과 청약 수량을 곱하여 계산합니다.",
+                example = "1000000"
+        )
         Long amount,
 
-        /**
-         * 현재 청약 처리 상태.
-         *
-         * 신규 청약 접수 직후에는 PROCESSING 상태이며,
-         * 이후 Wallet HOLD 처리 결과에 따라 상태가 변경될 수 있다.
-         */
+        @Schema(
+                description = "현재 청약 처리 상태. 접수 직후에는 PROCESSING이며 Wallet HOLD 처리 결과에 따라 변경됩니다.",
+                example = "PROCESSING"
+        )
         SubscriptionStatus subscriptionStatus
 
 ) {

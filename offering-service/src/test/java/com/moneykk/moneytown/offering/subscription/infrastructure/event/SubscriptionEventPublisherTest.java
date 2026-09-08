@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.infrastructure.event;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.global.outbox.OutboxEventStore;
+import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -11,11 +12,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
 import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
@@ -24,6 +26,9 @@ class SubscriptionEventPublisherTest {
 
     private static final String POST_FDS_TOPIC =
             "subscription-events";
+
+    private static final String COMPENSATION_REQUESTED_TOPIC =
+            "subscription-compensation-requested";
 
     @Mock
     private OutboxEventStore outboxEventStore;
@@ -163,5 +168,174 @@ class SubscriptionEventPublisherTest {
                 .isEqualTo(subscription.getSubscriptionId());
         assertThat(payload.failureCode())
                 .isEqualTo(failureCode);
+    }
+
+    @Test
+    @DisplayName("공모 취소 보상 요청은 cancellationType을 사유로 Outbox에 저장한다")
+    void storesOfferingCancellationCompensationRequestedEvent() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String correlationId = UUID.randomUUID().toString();
+
+        Subscription subscription = Subscription.create(
+                offeringId,
+                userId,
+                10L,
+                1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        subscription.startCompensation(
+                CancellationType.OFFERING_ADMIN_CANCELLED
+        );
+
+        // when
+        subscriptionEventPublisher.publishCompensationRequested(
+                subscription,
+                assetId,
+                correlationId
+        );
+
+        // then
+        EventEnvelope<?> envelope =
+                captureCompensationRequestedEnvelope();
+
+        assertThat(envelope.eventId()).isNotNull();
+        assertThat(envelope.eventType())
+                .isEqualTo("SubscriptionCompensationRequested");
+        assertThat(envelope.aggregateId())
+                .isEqualTo(subscription.getSubscriptionId().toString());
+        assertThat(envelope.userId()).isEqualTo(userId);
+        assertThat(envelope.occurredAt()).isNotNull();
+        assertThat(envelope.correlationId())
+                .isEqualTo(correlationId);
+
+        assertThat(envelope.payload())
+                .isInstanceOf(
+                        SubscriptionCompensationRequestedPayload.class
+                );
+
+        SubscriptionCompensationRequestedPayload payload =
+                (SubscriptionCompensationRequestedPayload)
+                        envelope.payload();
+
+        assertThat(payload.offeringId()).isEqualTo(offeringId);
+        assertThat(payload.assetId()).isEqualTo(assetId);
+        assertThat(payload.reason())
+                .isEqualTo("OFFERING_ADMIN_CANCELLED");
+    }
+
+    @Test
+    @DisplayName("예약 만료 보상 요청은 RESERVATION_EXPIRED를 사유로 Outbox에 저장한다")
+    void storesReservationExpirationCompensationRequestedEvent() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String correlationId = UUID.randomUUID().toString();
+
+        Instant reservationExpiresAt =
+                Instant.now().plusSeconds(60);
+
+        Subscription subscription = Subscription.create(
+                offeringId,
+                userId,
+                10L,
+                1_000L,
+                reservationExpiresAt
+        );
+
+        subscription.startExpirationCompensation(
+                reservationExpiresAt.plusSeconds(1)
+        );
+
+        // when
+        subscriptionEventPublisher.publishCompensationRequested(
+                subscription,
+                assetId,
+                correlationId
+        );
+
+        // then
+        EventEnvelope<?> envelope =
+                captureCompensationRequestedEnvelope();
+
+        assertThat(envelope.eventType())
+                .isEqualTo("SubscriptionCompensationRequested");
+        assertThat(envelope.aggregateId())
+                .isEqualTo(subscription.getSubscriptionId().toString());
+        assertThat(envelope.userId()).isEqualTo(userId);
+        assertThat(envelope.correlationId())
+                .isEqualTo(correlationId);
+
+        assertThat(envelope.payload())
+                .isInstanceOf(
+                        SubscriptionCompensationRequestedPayload.class
+                );
+
+        SubscriptionCompensationRequestedPayload payload =
+                (SubscriptionCompensationRequestedPayload)
+                        envelope.payload();
+
+        assertThat(payload.offeringId()).isEqualTo(offeringId);
+        assertThat(payload.assetId()).isEqualTo(assetId);
+        assertThat(payload.reason())
+                .isEqualTo("RESERVATION_EXPIRED");
+    }
+
+    @Test
+    @DisplayName("허용된 보상 사유가 없는 청약은 보상 요청을 저장하지 않는다")
+    void rejectsCompensationRequestedEventWithoutSupportedReason() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String correlationId = UUID.randomUUID().toString();
+
+        Subscription subscription = Subscription.create(
+                offeringId,
+                userId,
+                10L,
+                1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        subscription.startHoldFailureCompensation(
+                "INSUFFICIENT_AVAILABLE_BALANCE"
+        );
+
+        // when & then
+        assertThatThrownBy(
+                () -> subscriptionEventPublisher
+                        .publishCompensationRequested(
+                                subscription,
+                                assetId,
+                                correlationId
+                        )
+        )
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(
+                        "보상 요청을 발행할 수 있는 사유가 없습니다."
+                );
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private EventEnvelope<?> captureCompensationRequestedEnvelope() {
+        ArgumentCaptor<EventEnvelope<?>> envelopeCaptor =
+                ArgumentCaptor.forClass(
+                        (Class) EventEnvelope.class
+                );
+
+        verify(outboxEventStore).save(
+                eq("SUBSCRIPTION"),
+                eq(COMPENSATION_REQUESTED_TOPIC),
+                envelopeCaptor.capture()
+        );
+
+        return envelopeCaptor.getValue();
     }
 }

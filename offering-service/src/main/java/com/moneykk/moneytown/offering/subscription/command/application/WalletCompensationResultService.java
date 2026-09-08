@@ -238,21 +238,20 @@ public class WalletCompensationResultService {
     private void validateSucceededPayload(
             WalletCompensationResultPayload payload
     ) {
-        requirePositive(payload.holdId(), "holdId");
-        requirePositive(payload.walletId(), "walletId");
 
         String compensationType = payload.compensationType();
 
         if ("NONE".equals(compensationType)) {
-            if (payload.transactionId() != null || payload.amount() != null) {
-                throw new IllegalArgumentException(
-                        "NONE 결과의 transactionId와 amount는 null이어야 합니다."
-                );
-            }
+            validateNoneResult(payload);
+
         } else if ("RELEASE".equals(compensationType)
                 || "REFUND".equals(compensationType)) {
+
+            requirePositive(payload.holdId(), "holdId");
+            requirePositive(payload.walletId(), "walletId");
             requirePositive(payload.transactionId(), "transactionId");
             requirePositive(payload.amount(), "amount");
+
         } else {
             throw new IllegalArgumentException(
                     "compensationType은 RELEASE, REFUND, NONE 중 하나여야 합니다."
@@ -262,6 +261,48 @@ public class WalletCompensationResultService {
         if (payload.reason() != null) {
             throw new IllegalArgumentException(
                     "보상 성공 결과의 reason은 null이어야 합니다."
+            );
+        }
+    }
+
+    /**
+     * NONE 결과는 두 가지 경우에 사용한다.
+     *
+     * 1. HOLD 없이 타임아웃되어 tombstone만 생성된 경우
+     *    - holdId, walletId 모두 null
+     *
+     * 2. 이미 RELEASED 또는 REFUNDED 상태인 요청을 재처리한 경우
+     *    - 기존 holdId, walletId 전달 가능
+     *
+     * NONE은 새로운 금융 거래가 없으므로
+     * transactionId와 amount는 항상 null이어야 한다.
+     */
+    private void validateNoneResult(
+            WalletCompensationResultPayload payload
+    ) {
+        boolean holdInformationAbsent =
+                payload.holdId() == null
+                        && payload.walletId() == null;
+
+        boolean holdInformationPresent =
+                payload.holdId() != null
+                        && payload.walletId() != null;
+
+        if (!holdInformationAbsent && !holdInformationPresent) {
+            throw new IllegalArgumentException(
+                    "NONE 결과의 holdId와 walletId는 함께 존재하거나 모두 null이어야 합니다."
+            );
+        }
+
+        if (holdInformationPresent) {
+            requirePositive(payload.holdId(), "holdId");
+            requirePositive(payload.walletId(), "walletId");
+        }
+
+        if (payload.transactionId() != null
+                || payload.amount() != null) {
+            throw new IllegalArgumentException(
+                    "NONE 결과의 transactionId와 amount는 null이어야 합니다."
             );
         }
     }

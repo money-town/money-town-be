@@ -68,6 +68,11 @@ public enum OfferingErrorCode implements ErrorCode {
             "OFFERING_403_04",
             "해당 자산에 대한 권한이 없습니다."
     ),
+    OFFERING_ISSUER_ELIGIBILITY_NOT_MET(
+            HttpStatus.FORBIDDEN,
+            "OFFERING_403_05",
+            "공모를 관리할 수 있는 사용자 자격을 충족하지 않습니다."
+    ),
 
     // 404 NOT_FOUND
     OFFERING_NOT_FOUND(
@@ -79,6 +84,11 @@ public enum OfferingErrorCode implements ErrorCode {
             HttpStatus.NOT_FOUND,
             "OFFERING_404_02",
             "공모 대상 자산을 찾을 수 없습니다."
+    ),
+    OFFERING_USER_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "OFFERING_404_03",
+            "공모 발행 사용자를 찾을 수 없습니다."
     ),
 
     // 409 CONFLICT
@@ -155,12 +165,22 @@ public enum OfferingErrorCode implements ErrorCode {
             "OFFERING_500_02",
             "자산 지분 수량 상태가 올바르지 않습니다."
     ),
+    USER_RESPONSE_INVALID(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "OFFERING_500_03",
+            "사용자 서비스 응답이 올바르지 않습니다."
+    ),
 
     // 503
     ASSET_SERVICE_UNAVAILABLE(
             HttpStatus.SERVICE_UNAVAILABLE,
             "OFFERING_503_01",
             "현재 자산 조회 서비스를 사용할 수 없습니다."
+    ),
+    USER_SERVICE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "OFFERING_503_02",
+            "현재 사용자 상태 조회 서비스를 사용할 수 없습니다."
     )
 
     ;

@@ -215,7 +215,7 @@ public class OfferingCommandController {
             @PathVariable UUID offeringId,
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
-            @RequestBody OfferingUpdateRequest request
+            @Valid @RequestBody OfferingUpdateRequest request
     ) {
 
         boolean issuer = "ISSUER".equalsIgnoreCase(role);

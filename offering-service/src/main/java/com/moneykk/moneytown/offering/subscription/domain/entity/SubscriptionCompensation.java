@@ -80,6 +80,23 @@ public class SubscriptionCompensation extends BaseEntity {
     }
 
     /**
+     * 예약 시간이 만료된 PROCESSING 청약의 보상 진행 정보를 생성한다.
+     *
+     * PROCESSING 상태에서는 Holding 배정이 시작되지 않았으므로
+     * Holding 보상은 완료 상태로 초기화하고 Wallet 보상 결과만 기다린다.
+     */
+    public static SubscriptionCompensation createForReservationExpiration(
+            UUID subscriptionId
+    ) {
+        SubscriptionCompensation compensation =
+                new SubscriptionCompensation(subscriptionId);
+
+        compensation.holdingStatus = CompensationStatus.SUCCEEDED;
+
+        return compensation;
+    }
+
+    /**
      * 검증된 Wallet 보상 성공 결과를 반영한다.
      *
      * RELEASE / REFUND / NONE 성공 결과에 사용한다.

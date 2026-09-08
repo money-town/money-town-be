@@ -22,6 +22,9 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Subscription extends BaseUpdatableEntity {
 
+    private static final String RESERVATION_EXPIRED_FAILURE_CODE =
+            "RESERVATION_EXPIRED";
+
     /**
      * 청약 식별자.
      */
@@ -413,8 +416,6 @@ public class Subscription extends BaseUpdatableEntity {
 
     /**
      * 예약 유효시간이 만료된 PROCESSING 청약을 보상 처리 상태로 전환한다.
-     *
-     * TODO 다음 PR: 타임아웃 자동 보상 및 수량 복원 연결.
      */
     public void startExpirationCompensation(Instant now) {
         if (!isReservationExpired(now)) {
@@ -424,7 +425,35 @@ public class Subscription extends BaseUpdatableEntity {
         }
 
         this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
-        this.failureCode = "RESERVATION_EXPIRED";
+        this.failureCode = RESERVATION_EXPIRED_FAILURE_CODE;
+    }
+
+    /**
+     * 예약 만료로 Wallet 보상을 진행 중인 청약인지 확인한다.
+     */
+    public boolean isReservationExpirationCompensation() {
+        return subscriptionStatus == SubscriptionStatus.COMPENSATING
+                && cancellationType == null
+                && RESERVATION_EXPIRED_FAILURE_CODE.equals(failureCode);
+    }
+
+    /**
+     * 예약 만료 보상과 공모 수량 복원을 완료한 청약을 거절한다.
+     *
+     * 서비스에서 Wallet 보상 성공과 실제 공모 수량 복원을
+     * 확인한 뒤 동일한 트랜잭션에서 호출해야 한다.
+     */
+    public void completeExpirationRejection() {
+        if (!isReservationExpirationCompensation()
+                || !quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.quantityReserved = false;
+        this.subscriptionStatus = SubscriptionStatus.REJECTED;
     }
 
     /**
