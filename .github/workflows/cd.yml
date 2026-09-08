@@ -1,15 +1,15 @@
 name: CD
 
 # main 에 머지된 것만 배포한다.
-#   workflow_run 은 main 브랜치에서 CI 가 success 로 끝난 뒤에만 발동한다.
+# workflow_run 은 main 브랜치에서 CI 가 성공 →  이 이미지를 ECR 에 푸시하고 성공으로 끝난 뒤에만 발동
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [Publish to ECR]
     types: [completed]
     branches: [main]
   workflow_dispatch:
 
-# 배포가 겹치면 EC2에서 gradle 빌드와 docker up 이 서로를 덮어쓴다. 항상 1개만 돈다.
+# 배포가 겹치면 EC2에서 docker pull과 up이 서로를 덮어쓴다. 항상 1개만 돈다.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -27,7 +27,7 @@ jobs:
       vars.DEPLOY_ENABLED == 'true' && (
         github.event_name == 'workflow_dispatch' || (
           github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.event == 'workflow_run' &&
           github.event.workflow_run.head_branch == 'main'
         )
       )
@@ -52,6 +52,12 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: money-town-cd-${{ github.run_id }}
+
+      - name: ECR 레지스트리 주소 계산
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ECR_REGISTRY=${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> "$GITHUB_ENV"
 
       - name: 보안 그룹 22번 임시 개방 (러너 IP만)
         run: |
@@ -124,9 +130,10 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
-            "bash -s -- '${DEPLOY_SHA}'" <<'REMOTE'
+            "bash -s -- '${DEPLOY_SHA}' '${ECR_REGISTRY}'" <<'REMOTE'
           set -euo pipefail
           TARGET="${1:-}"
+          ECR_REGISTRY="${2:?ECR_REGISTRY 값이 비어 있다}"
           cd ~/money-town
 
           git fetch --prune origin
@@ -151,7 +158,9 @@ jobs:
           echo "docker compose $CV OK"
 
           # --- 병합 결과 검증 (up 전에) ---
-          COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml"
+          export ECR_REGISTRY
+          export IMAGE_TAG=$(git rev-parse HEAD)
+          COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml -f infrastructure/docker-compose.ecr.yml"
           $COMPOSE config --quiet
 
           PUB=$($COMPOSE config | grep -E '^[[:space:]]+published:' | grep -oE '[0-9]+' | sort -u)
@@ -163,23 +172,39 @@ jobs:
           fi
           REMOTE
 
-      - name: EC2에서 빌드 · 기동
+      - name: EC2에서 이미지 pull · 기동
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" 'bash -s' <<'REMOTE'
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" \
+            "bash -s -- '${ECR_REGISTRY}' '${{ vars.AWS_REGION }}'" <<'REMOTE'
           set -euo pipefail
+          ECR_REGISTRY="${1:?ECR_REGISTRY 값이 비어 있다}"
+          AWS_REGION="${2:?AWS_REGION 값이 비어 있다}"
           cd ~/money-town
 
-          ./gradlew clean bootJar --no-daemon
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-          docker compose --env-file .env \
+          export ECR_REGISTRY
+          export IMAGE_TAG=$(git rev-parse HEAD)   # 이전 스텝에서 checkout된 커밋 = ECR에 푸시된 태그와 동일
+
+          COMPOSE="docker compose --env-file .env \
             -f infrastructure/docker-compose.yml \
             -f infrastructure/docker-compose.prod.yml \
-            up -d --build --remove-orphans --wait --wait-timeout 900
+            -f infrastructure/docker-compose.ecr.yml"
 
-          docker image prune -f      # 30GiB 디스크라 이전 빌드 레이어를 남기지 않는다
+          $COMPOSE pull
+          $COMPOSE up -d --remove-orphans --wait --wait-timeout 900
+
+          # 태그 없는(dangling) 레이어는 다른 프로젝트와 무관하게 항상 안전하게 정리 가능하다.
+          docker image prune -f
+
+          docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep -F "${ECR_REGISTRY}/money-town/" \
+            | grep -vF ":${IMAGE_TAG}" \
+            | xargs -r docker rmi || true
           REMOTE
 
       - name: 기동 후 확인 (실제로 열린 포트 · 컨테이너 상태)

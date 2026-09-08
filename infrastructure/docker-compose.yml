@@ -25,6 +25,7 @@ x-app-common: &app-common
 services:
   postgres:
     image: pgvector/pgvector:pg18
+    restart: unless-stopped
     mem_limit: 768m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moneytown}
@@ -44,6 +45,7 @@ services:
 
   redis:
     image: redis:7.4.7
+    restart: unless-stopped
     mem_limit: 256m
     command:
       - redis-server
@@ -253,6 +255,7 @@ services:
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      user-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19095/actuator/health"]
       interval: 15s
@@ -270,6 +273,7 @@ services:
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      user-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19096/actuator/health"]
       interval: 15s
@@ -287,6 +291,7 @@ services:
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      asset-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19097/actuator/health"]
       interval: 15s
@@ -306,6 +311,7 @@ services:
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      asset-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19098/actuator/health"]
       interval: 15s

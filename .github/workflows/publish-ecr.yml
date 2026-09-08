@@ -1,0 +1,90 @@
+name: Publish to ECR
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-ecr-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: ecr-push
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+
+    env:
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - discovery-server
+          - config-server
+          - gateway-service
+          - user-service
+          - wallet-service
+          - asset-service
+          - offering-service
+          - settlement-service
+          - analysis-service
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.IMAGE_TAG }}
+
+      - name: JDK 설정
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: ${{ matrix.service }} jar 빌드
+        run: ./gradlew :${{ matrix.service }}:bootJar
+
+      - name: AWS 자격 (OIDC — 장기 키 없음)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: money-town-ecr-push-${{ github.run_id }}
+
+      - name: ECR 레지스트리 주소 계산 + 로그인
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          echo "ECR_REGISTRY=${ECR_REGISTRY}" >> "$GITHUB_ENV"
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+      - name: ${{ matrix.service }} 이미지 빌드 · 푸시
+        run: |
+          set -euo pipefail
+          IMAGE="${ECR_REGISTRY}/money-town/${{ matrix.service }}:${IMAGE_TAG}"
+          docker build \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -f infrastructure/Dockerfile \
+            -t "${IMAGE}" \
+            .
+          docker push "${IMAGE}"
