@@ -1,0 +1,29 @@
+# ECR 배포 오버레이 — docker-compose.yml + docker-compose.prod.yml과 함께 사용한다.
+
+services:
+  discovery-server:
+    image: ${ECR_REGISTRY}/money-town/discovery-server:${IMAGE_TAG}
+
+  config-server:
+    image: ${ECR_REGISTRY}/money-town/config-server:${IMAGE_TAG}
+
+  gateway-service:
+    image: ${ECR_REGISTRY}/money-town/gateway-service:${IMAGE_TAG}
+
+  user-service:
+    image: ${ECR_REGISTRY}/money-town/user-service:${IMAGE_TAG}
+
+  wallet-service:
+    image: ${ECR_REGISTRY}/money-town/wallet-service:${IMAGE_TAG}
+
+  asset-service:
+    image: ${ECR_REGISTRY}/money-town/asset-service:${IMAGE_TAG}
+
+  offering-service:
+    image: ${ECR_REGISTRY}/money-town/offering-service:${IMAGE_TAG}
+
+  settlement-service:
+    image: ${ECR_REGISTRY}/money-town/settlement-service:${IMAGE_TAG}
+
+  analysis-service:
+    image: ${ECR_REGISTRY}/money-town/analysis-service:${IMAGE_TAG}
