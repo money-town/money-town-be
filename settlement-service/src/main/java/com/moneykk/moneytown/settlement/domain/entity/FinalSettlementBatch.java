@@ -40,6 +40,9 @@ public class FinalSettlementBatch extends BaseUpdatableEntity {
     @Column(name = "status", nullable = false, length = 20)
     private SettlementStatus status;
 
+    @Column(name = "asset_termination_completed_at")
+    private Instant assetTerminationCompletedAt;
+
     private FinalSettlementBatch(UUID assetId, Instant terminatedAt, Long unitPrice, Long totalAmount) {
         this.id = UUID.randomUUID();
         this.assetId = assetId;
@@ -71,5 +74,9 @@ public class FinalSettlementBatch extends BaseUpdatableEntity {
 
     public void markFailed() {
         this.status = SettlementStatus.FAILED;
+    }
+
+    public void markAssetTerminationCompleted(Instant completedAt) {
+        this.assetTerminationCompletedAt = completedAt;
     }
 }

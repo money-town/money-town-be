@@ -2,6 +2,8 @@ package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
+import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositResponse;
@@ -19,8 +21,11 @@ import java.util.UUID;
 @Slf4j
 public class DividendDisbursementService {
 
+    private static final List<SettlementStatus> FAILURE_STATUSES = List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED);
+
     private final DividendPayoutWriter payoutWriter;
     private final WalletServiceClient walletServiceClient;
+    private final SettlementFailureNotifier settlementFailureNotifier;
 
     @Async("disbursementTaskExecutor")
     public void disburseAsync(UUID settlementBatchId) {
@@ -33,7 +38,9 @@ public class DividendDisbursementService {
         List<DividendPayout> claimedPayouts = payoutWriter.claimPendingPayouts(settlementBatchId);
         claimedPayouts.forEach(payout -> attempt(settlementBatchId, payout));
 
-        payoutWriter.updateBatchStatus(settlementBatchId);
+        payoutWriter.updateBatchStatus(settlementBatchId)
+                .filter(batch -> FAILURE_STATUSES.contains(batch.getStatus()))
+                .ifPresent(settlementFailureNotifier::notifyDividendBatchFailed);
     }
 
     public int reclaimStalledProcessing(Instant staleBefore) {

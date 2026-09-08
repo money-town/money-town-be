@@ -19,6 +19,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -80,6 +81,10 @@ public class Asset extends BaseUpdatableEntity {
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
 
+    // 최초 운영 종료 요청 시각
+    @Column(name = "termination_requested_at")
+    private Instant terminationRequestedAt;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;
@@ -116,7 +121,9 @@ public class Asset extends BaseUpdatableEntity {
         this.status = AssetStatus.DRAFT;
     }
 
-    /** 지분 배정 */
+    /**
+     * 지분 배정
+     */
     public void allocateShares(long quantity) {
         if (quantity <= 0) {
             throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
@@ -135,7 +142,9 @@ public class Asset extends BaseUpdatableEntity {
         allocatedQuantity += quantity;
     }
 
-    /** 지분 회수 */
+    /**
+     * 지분 회수
+     */
     public void revokeShares(long quantity) {
         if (quantity <= 0) {
             throw new BusinessException(
@@ -152,7 +161,9 @@ public class Asset extends BaseUpdatableEntity {
         allocatedQuantity -= quantity;
     }
 
-    /** 자산 정보 부분 수정 */
+    /**
+     * 자산 정보 부분 수정
+     */
     public void updateInfo(
             String name,
             String description,
@@ -225,5 +236,96 @@ public class Asset extends BaseUpdatableEntity {
         // 절사로 발생한 차액 저장
         this.roundingDifferenceAmount =
                 nextValuation - (this.unitPrice * nextQuantity);
+    }
+
+    /**
+     * 자산 상태 변경
+     */
+    public void changeStatus(
+            AssetStatus nextStatus,
+            String rejectionReason
+    ) {
+        // 허용된 상태 변경인지 확인
+        boolean allowed = switch (this.status) {
+            case DRAFT, REJECTED -> nextStatus == AssetStatus.REVIEW_REQUESTED;
+
+            case REVIEW_REQUESTED -> nextStatus == AssetStatus.APPROVED
+                    || nextStatus == AssetStatus.REJECTED;
+
+            case APPROVED -> nextStatus == AssetStatus.SUSPENDED
+                    || nextStatus == AssetStatus.TERMINATION_REQUESTED;
+
+            case SUSPENDED -> nextStatus == AssetStatus.APPROVED
+                    || nextStatus == AssetStatus.TERMINATION_REQUESTED;
+
+            case TERMINATION_REQUESTED -> nextStatus == AssetStatus.TERMINATED;
+
+            case TERMINATED -> false;
+        };
+
+        if (!allowed) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION
+            );
+        }
+
+        // 반려 상태는 반려 사유 필수
+        if (nextStatus == AssetStatus.REJECTED
+                && (rejectionReason == null || rejectionReason.isBlank())) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_REJECTION_REASON_REQUIRED
+            );
+        }
+
+        this.status = nextStatus;
+
+        // 반려 상태가 아니면 이전 반려 사유 제거
+        this.rejectionReason = nextStatus == AssetStatus.REJECTED
+                ? rejectionReason.trim()
+                : null;
+    }
+
+    /** 최초 종료 요청 시각을 유지하며 종료 요청 상태로 전환한다. */
+    public Instant requestTermination() {
+        if (status != AssetStatus.TERMINATION_REQUESTED) {
+            changeStatus(AssetStatus.TERMINATION_REQUESTED, null);
+        }
+        if (terminationRequestedAt == null) {
+            terminationRequestedAt = Instant.now();
+        }
+        return terminationRequestedAt;
+    }
+
+    /**
+     * 자산 소프트 삭제
+     */
+    public void delete(UUID deletedBy) {
+        // 작성 중이거나 반려된 자산만 삭제 가능
+        if (status != AssetStatus.DRAFT
+                && status != AssetStatus.REJECTED) {
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_DELETE_NOT_ALLOWED
+            );
+        }
+
+        // 삭제 시간과 삭제 사용자 기록
+        softDelete(deletedBy);
+    }
+
+    /**
+     * 대표 이미지 등록 및 변경
+     */
+    public void updateRepresentativeImage(
+            String representativeImageKey
+    ) {
+        if (representativeImageKey == null
+                || representativeImageKey.isBlank()) {
+            throw new BusinessException(
+                    AssetErrorCode.INVALID_ASSET_IMAGE
+            );
+        }
+
+        this.representativeImageKey =
+                representativeImageKey;
     }
 }

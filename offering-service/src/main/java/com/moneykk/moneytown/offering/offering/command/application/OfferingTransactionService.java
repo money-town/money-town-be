@@ -52,7 +52,7 @@ public class OfferingTransactionService {
             String role,
             OfferingUpdateRequest request
     ) {
-        Offering offering = findOffering(offeringId);
+        Offering offering = findOfferingForUpdate(offeringId);
 
         boolean owner =
                 offering.getIssuerId().equals(userId);
@@ -83,7 +83,7 @@ public class OfferingTransactionService {
             UUID offeringId,
             UUID issuerId
     ) {
-        Offering offering = findOffering(offeringId);
+        Offering offering = findOfferingForUpdate(offeringId);
 
         if (!offering.getIssuerId().equals(issuerId)) {
             throw new BusinessException(
@@ -96,13 +96,11 @@ public class OfferingTransactionService {
         return OfferingReviewRequestResponse.from(offering);
     }
 
-    private Offering findOffering(UUID offeringId) {
+    private Offering findOfferingForUpdate(UUID offeringId) {
         return offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId)
-                .orElseThrow(() ->
-                        new BusinessException(
-                                OfferingErrorCode.OFFERING_NOT_FOUND
-                        )
-                );
+                .findByIdForUpdate(offeringId)
+                .orElseThrow(() -> new BusinessException(
+                        OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
     }
 }

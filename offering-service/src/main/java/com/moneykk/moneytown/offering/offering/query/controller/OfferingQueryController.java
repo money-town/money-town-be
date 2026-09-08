@@ -10,6 +10,8 @@ import com.moneykk.moneytown.offering.offering.query.application.OfferingQuerySe
 import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchCondition;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingDetailResponse;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingListItemResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +24,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+@Tag(
+        name = "공모 조회",
+        description = "공모 목록 및 상세 조회 API"
+)
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/offerings")
@@ -29,11 +35,10 @@ public class OfferingQueryController {
 
     private final OfferingQueryService offeringQueryService;
 
-    /**
-     * 공개 공모 목록 조회
-     *
-     * 인증 없이 접근할 수 있다.
-     */
+    @Operation(
+            summary = "공개 공모 목록 조회",
+            description = "인증 없이 공개된 공모 목록을 상태와 검색어 조건으로 조회합니다."
+    )
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchPublicOfferings(
             @RequestParam(required = false) OfferingStatus offeringStatus,
@@ -64,11 +69,10 @@ public class OfferingQueryController {
         );
     }
 
-    /**
-     * 내 공모 목록 조회
-     *
-     * ISSUER만 접근할 수 있다.
-     */
+    @Operation(
+            summary = "내 공모 목록 조회",
+            description = "ISSUER가 자신이 등록한 공모 목록을 상태와 검색어 조건으로 조회합니다."
+    )
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchMyOfferings(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
@@ -109,11 +113,10 @@ public class OfferingQueryController {
         );
     }
 
-    /**
-     * 관리자 공모 목록 조회
-     *
-     * ADMIN만 접근할 수 있다.
-     */
+    @Operation(
+            summary = "관리자 공모 목록 조회",
+            description = "ADMIN이 전체 공모 목록을 상태와 검색어 조건으로 조회합니다."
+    )
     @GetMapping("/manage")
     public ResponseEntity<ApiResponse<PageResponse<OfferingListItemResponse>>> searchOfferingsForManagement(
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
@@ -151,12 +154,13 @@ public class OfferingQueryController {
         );
     }
 
-    /**
-     * 공모 상품 상세 조회
-     *
-     * 공개 상태의 공모는 인증 없이 조회할 수 있다.
-     * 비공개 상태의 공모는 발행자 본인 또는 ADMIN만 조회할 수 있다.
-     */
+    @Operation(
+            summary = "공모 상품 상세 조회",
+            description = """
+                공개 상태의 공모는 인증 없이 조회할 수 있습니다.
+                비공개 상태의 공모는 공모 소유자 또는 ADMIN만 조회할 수 있습니다.
+                """
+    )
     @GetMapping("/{offeringId}")
     public ResponseEntity<ApiResponse<OfferingDetailResponse>> getOffering(
             @PathVariable UUID offeringId,

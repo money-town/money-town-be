@@ -7,8 +7,7 @@ import java.util.UUID;
 public record HoldingsSnapshotResponse(
         UUID assetId,
         LocalDate asOf,
-        Long totalHoldingQuantity,
-        List<HoldingItem> items,
+        List<HoldingItem> holdings,
         String nextCursor,
         boolean hasNext
 ) {

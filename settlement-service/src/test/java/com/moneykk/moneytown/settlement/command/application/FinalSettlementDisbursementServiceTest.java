@@ -1,7 +1,11 @@
 package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
+import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositRequest;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.SettlementDepositResponse;
@@ -14,18 +18,22 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +44,10 @@ class FinalSettlementDisbursementServiceTest {
     private FinalSettlementPayoutWriter payoutWriter;
     @Mock
     private WalletServiceClient walletServiceClient;
+    @Mock
+    private AssetServiceClient assetServiceClient;
+    @Mock
+    private SettlementFailureNotifier settlementFailureNotifier;
 
     @InjectMocks
     private FinalSettlementDisbursementService finalSettlementDisbursementService;
@@ -44,18 +56,28 @@ class FinalSettlementDisbursementServiceTest {
     @DisplayName("markDisbursing → 지갑 호출 → markPaid → updateBatchStatus 순서로 처리하고, 각 단계는 건별로 커밋된다")
     void disbursesInOrderPerPayout() {
         UUID batchId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
         FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
         when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
+        when(payoutWriter.updateBatchStatus(batchId))
+                .thenReturn(Optional.of(completedBatch(batchId, assetId)));
         SettlementDepositResponse response = new SettlementDepositResponse(9013L, 55L, "SETTLEMENT", payout.getAmount(), batchId, Instant.now());
         when(walletServiceClient.depositSettlement(any())).thenReturn(ApiResponse.success(response, null));
 
         finalSettlementDisbursementService.disburse(batchId);
 
-        InOrder order = inOrder(payoutWriter, walletServiceClient);
+        InOrder order = inOrder(
+                payoutWriter,
+                walletServiceClient,
+                assetServiceClient
+        );
         order.verify(payoutWriter).markDisbursing(batchId);
         order.verify(walletServiceClient).depositSettlement(any());
         order.verify(payoutWriter).markPaid(payout.getId());
         order.verify(payoutWriter).updateBatchStatus(batchId);
+        order.verify(assetServiceClient)
+                .completeAssetTermination(assetId, "SYSTEM");
+        order.verify(payoutWriter).markAssetTerminationCompleted(eq(batchId), any(Instant.class));
         verify(payoutWriter, never()).markFailedAttempt(any());
 
         ArgumentCaptor<SettlementDepositRequest> requestCaptor = ArgumentCaptor.forClass(SettlementDepositRequest.class);
@@ -64,6 +86,53 @@ class FinalSettlementDisbursementServiceTest {
         assertThat(requestCaptor.getValue().investorId()).isEqualTo(payout.getInvestorId());
         assertThat(requestCaptor.getValue().finalSettlementBatchId()).isEqualTo(batchId);
         assertThat(requestCaptor.getValue().amount()).isEqualTo(payout.getAmount());
+    }
+
+    @Test
+    @DisplayName("자산 서비스 종료 완료 통보가 실패해도 예외를 전파하지 않고, 완료 시각도 저장하지 않는다")
+    void doesNotSaveCompletedAtWhenAssetServiceNotificationFails() {
+        UUID batchId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(completedBatch(batchId, assetId)));
+        doThrow(mock(FeignException.class)).when(assetServiceClient).completeAssetTermination(assetId, "SYSTEM");
+
+        finalSettlementDisbursementService.disburse(batchId);
+
+        verify(payoutWriter, never()).markAssetTerminationCompleted(any(), any());
+    }
+
+    @Test
+    @DisplayName("retryPendingAssetTerminationNotifications: 통보 대기 중인 COMPLETED 회차를 재호출해 성공하면 완료 시각을 저장한다")
+    void retriesPendingAssetTerminationNotifications() {
+        UUID batchId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        FinalSettlementBatch batch = FinalSettlementBatch.open(assetId, Instant.now(), 1_000_000L, 900_000_000L);
+        ReflectionTestUtils.setField(batch, "id", batchId);
+        when(payoutWriter.findCompletedBatchesPendingTerminationNotification()).thenReturn(List.of(batch));
+
+        finalSettlementDisbursementService.retryPendingAssetTerminationNotifications();
+
+        verify(assetServiceClient).completeAssetTermination(assetId, "SYSTEM");
+        verify(payoutWriter).markAssetTerminationCompleted(eq(batchId), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("retryPendingAssetTerminationNotifications: 한 회차가 실패해도 나머지 회차는 계속 재호출한다")
+    void continuesRetryingRemainingBatchesAfterOneFailure() {
+        UUID failingAssetId = UUID.randomUUID();
+        UUID succeedingAssetId = UUID.randomUUID();
+        FinalSettlementBatch failingBatch = FinalSettlementBatch.open(failingAssetId, Instant.now(), 1_000_000L, 900_000_000L);
+        FinalSettlementBatch succeedingBatch = FinalSettlementBatch.open(succeedingAssetId, Instant.now(), 1_000_000L, 900_000_000L);
+        when(payoutWriter.findCompletedBatchesPendingTerminationNotification())
+                .thenReturn(List.of(failingBatch, succeedingBatch));
+        doThrow(mock(FeignException.class)).when(assetServiceClient).completeAssetTermination(failingAssetId, "SYSTEM");
+
+        finalSettlementDisbursementService.retryPendingAssetTerminationNotifications();
+
+        verify(assetServiceClient).completeAssetTermination(succeedingAssetId, "SYSTEM");
+        verify(payoutWriter, times(1)).markAssetTerminationCompleted(eq(succeedingBatch.getId()), any(Instant.class));
+        verify(payoutWriter, never()).markAssetTerminationCompleted(eq(failingBatch.getId()), any());
     }
 
     @Test
@@ -187,5 +256,57 @@ class FinalSettlementDisbursementServiceTest {
 
         assertThat(reclaimed).isEqualTo(2);
         verify(payoutWriter).reclaimStalledProcessing(staleBefore);
+    }
+
+    @Test
+    @DisplayName("최종 정산 회차가 FAILED로 확정되면 정산 실패 알림을 보내고 자산 종료 통보는 하지 않는다")
+    void notifiesFailureWhenBatchEndsFailed() {
+        UUID batchId = UUID.randomUUID();
+        FinalSettlementBatch failedBatch = batchWithStatus(batchId, UUID.randomUUID(), SettlementStatus.FAILED);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(failedBatch));
+
+        finalSettlementDisbursementService.disburse(batchId);
+
+        verify(settlementFailureNotifier).notifyFinalSettlementBatchFailed(failedBatch);
+        verify(assetServiceClient, never()).completeAssetTermination(any(), any());
+    }
+
+    @Test
+    @DisplayName("최종 정산 회차가 PARTIAL_FAILED로 확정되면 정산 실패 알림을 보내고 자산 종료 통보는 하지 않는다")
+    void notifiesFailureWhenBatchEndsPartialFailed() {
+        UUID batchId = UUID.randomUUID();
+        FinalSettlementBatch partialFailedBatch = batchWithStatus(batchId, UUID.randomUUID(), SettlementStatus.PARTIAL_FAILED);
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(partialFailedBatch));
+
+        finalSettlementDisbursementService.disburse(batchId);
+
+        verify(settlementFailureNotifier).notifyFinalSettlementBatchFailed(partialFailedBatch);
+        verify(assetServiceClient, never()).completeAssetTermination(any(), any());
+    }
+
+    @Test
+    @DisplayName("최종 정산 회차가 COMPLETED로 확정되면 실패 알림은 보내지 않는다")
+    void doesNotNotifyFailureWhenBatchCompleted() {
+        UUID batchId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
+        when(payoutWriter.updateBatchStatus(batchId)).thenReturn(Optional.of(completedBatch(batchId, assetId)));
+
+        finalSettlementDisbursementService.disburse(batchId);
+
+        verify(settlementFailureNotifier, never()).notifyFinalSettlementBatchFailed(any());
+    }
+
+    private FinalSettlementBatch completedBatch(UUID batchId, UUID assetId) {
+        return batchWithStatus(batchId, assetId, SettlementStatus.COMPLETED);
+    }
+
+    private FinalSettlementBatch batchWithStatus(UUID batchId, UUID assetId, SettlementStatus status) {
+        FinalSettlementBatch batch = FinalSettlementBatch.open(assetId, Instant.now(), 1_000_000L, 900_000_000L);
+        ReflectionTestUtils.setField(batch, "id", batchId);
+        ReflectionTestUtils.setField(batch, "status", status);
+        return batch;
     }
 }

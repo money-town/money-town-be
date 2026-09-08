@@ -10,6 +10,7 @@ import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutR
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementBatchDetailResponse;
 import com.moneykk.moneytown.settlement.query.dto.FinalSettlementPayoutListItemResponse;
+import com.moneykk.moneytown.settlement.query.dto.FinalSettlementReconciliationResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,11 +30,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class FinalSettlementQueryServiceTest {
 
+    private static final String ADMIN_ROLE = "ADMIN";
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final Instant TERMINATED_AT = Instant.parse("2027-03-01T00:00:00Z");
 
@@ -44,6 +47,111 @@ class FinalSettlementQueryServiceTest {
 
     @InjectMocks
     private FinalSettlementQueryService finalSettlementQueryService;
+
+    @Nested
+    @DisplayName("ADMIN 권한 검증")
+    class AdminAccessControl {
+
+        @Test
+        @DisplayName("ADMIN이 아니면 최종 정산 회차 조회 시 예외")
+        void rejectsGetFinalSettlementBatchWhenNotAdmin() {
+            assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch("INVESTOR", UUID.randomUUID()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementBatchRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 회차별 반환 내역 조회 시 예외")
+        void rejectsGetPayoutsWhenNotAdmin() {
+            Pageable pageable = PageRequest.of(0, 20);
+
+            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts("INVESTOR", UUID.randomUUID(), null, pageable))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementBatchRepository, finalSettlementPayoutRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정합성 검증 조회 시 예외")
+        void rejectsGetReconciliationWhenNotAdmin() {
+            assertThatThrownBy(() -> finalSettlementQueryService.getReconciliation("INVESTOR", UUID.randomUUID()))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementBatchRepository, finalSettlementPayoutRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("정합성 검증")
+    class GetReconciliation {
+
+        @Test
+        @DisplayName("반환 내역 합계가 원금반환 총액과 일치하면 reconciled=true를 반환한다")
+        void returnsReconciledTrueWhenAmountsMatch() {
+            FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, 1_000_000L, 900_000_000L);
+            batch.markCalculated();
+            when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(Optional.of(batch));
+
+            FinalSettlementPayout paid = FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 500L, 500_000_000L);
+            paid.markProcessing();
+            paid.markPaid();
+            FinalSettlementPayout deadLetter = FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 400L, 400_000_000L);
+            deadLetter.markProcessing();
+            deadLetter.markDeadLetter();
+            when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(List.of(paid, deadLetter));
+
+            FinalSettlementReconciliationResponse response =
+                    finalSettlementQueryService.getReconciliation(ADMIN_ROLE, batch.getId());
+
+            assertThat(response.finalSettlementBatchId()).isEqualTo(batch.getId());
+            assertThat(response.expectedAmount()).isEqualTo(900_000_000L);
+            assertThat(response.totalPayoutAmount()).isEqualTo(900_000_000L);
+            assertThat(response.paidAmount()).isEqualTo(500_000_000L);
+            assertThat(response.reconciled()).isTrue();
+        }
+
+        @Test
+        @DisplayName("반환 내역 합계가 원금반환 총액과 다르면 reconciled=false를 반환한다")
+        void returnsReconciledFalseWhenAmountsMismatch() {
+            FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, 1_000_000L, 900_000_000L);
+            batch.markCalculated();
+            when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(Optional.of(batch));
+
+            FinalSettlementPayout payout = FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 800L, 800_000_000L);
+            when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(List.of(payout));
+
+            FinalSettlementReconciliationResponse response =
+                    finalSettlementQueryService.getReconciliation(ADMIN_ROLE, batch.getId());
+
+            assertThat(response.expectedAmount()).isEqualTo(900_000_000L);
+            assertThat(response.totalPayoutAmount()).isEqualTo(800_000_000L);
+            assertThat(response.reconciled()).isFalse();
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
+        void throwsWhenBatchNotFound() {
+            UUID finalSettlementBatchId = UUID.randomUUID();
+            when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> finalSettlementQueryService.getReconciliation(ADMIN_ROLE, finalSettlementBatchId))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);
+        }
+    }
 
     @Nested
     @DisplayName("최종 정산 회차 상태 조회")
@@ -66,7 +174,7 @@ class FinalSettlementQueryServiceTest {
                     ));
 
             FinalSettlementBatchDetailResponse response =
-                    finalSettlementQueryService.getFinalSettlementBatch(batch.getId());
+                    finalSettlementQueryService.getFinalSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.finalSettlementBatchId()).isEqualTo(batch.getId());
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
@@ -91,7 +199,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(List.of());
 
             FinalSettlementBatchDetailResponse response =
-                    finalSettlementQueryService.getFinalSettlementBatch(batch.getId());
+                    finalSettlementQueryService.getFinalSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.progress().totalCount()).isZero();
         }
@@ -103,7 +211,7 @@ class FinalSettlementQueryServiceTest {
             when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch(finalSettlementBatchId))
+            assertThatThrownBy(() -> finalSettlementQueryService.getFinalSettlementBatch(ADMIN_ROLE, finalSettlementBatchId))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);
@@ -127,7 +235,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<FinalSettlementPayoutListItemResponse> response =
-                    finalSettlementQueryService.getPayouts(batchId, null, requestedPageable);
+                    finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             FinalSettlementPayoutListItemResponse item = response.content().get(0);
@@ -155,7 +263,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<FinalSettlementPayoutListItemResponse> response =
-                    finalSettlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+                    finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.PAID, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
@@ -175,7 +283,7 @@ class FinalSettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<FinalSettlementPayoutListItemResponse> response =
-                    finalSettlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+                    finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
@@ -188,7 +296,7 @@ class FinalSettlementQueryServiceTest {
             Pageable pageable = PageRequest.of(0, 20);
             when(finalSettlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
 
-            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts(batchId, null, pageable))
+            assertThatThrownBy(() -> finalSettlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND);

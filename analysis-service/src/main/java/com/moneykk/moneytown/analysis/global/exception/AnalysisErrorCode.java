@@ -22,7 +22,14 @@ public enum AnalysisErrorCode implements ErrorCode {
     NOTIFICATION_TITLE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_03", "알림 제목(title)은 필수입니다."),
     NOTIFICATION_MESSAGE_REQUIRED(HttpStatus.BAD_REQUEST, "NOTI_400_04", "알림 내용(message)은 필수입니다."),
     NOTIFICATION_DUPLICATE_REQUEST(HttpStatus.CONFLICT, "NOTI_409_02", "동일한 알림 요청이 이미 처리되었습니다."),
-    NOTIFICATION_SLACK_SEND_FAILED(HttpStatus.BAD_GATEWAY, "NOTI_502_01", "Slack Webhook 호출에 실패했습니다.");
+    NOTIFICATION_SLACK_SEND_FAILED(HttpStatus.BAD_GATEWAY, "NOTI_502_01", "Slack Webhook 호출에 실패했습니다."),
+
+    // ========= AI ===========
+    AI_PORTFOLIO_NOT_FOUND(HttpStatus.NOT_FOUND, "AI_404_01", "해당하는 포트폴리오가 존재하지 않습니다."),
+    AI_FORBIDDEN(HttpStatus.FORBIDDEN, "AI_403_01", "AI 포트폴리오 접근 권한이 없습니다."),
+    AI_PROCESSING(HttpStatus.CONFLICT,"AI_409_01" , "AI 생성중에는 삭제를 할 수 없습니다."),
+    AI_CAPACITY_EXCEEDED(HttpStatus.SERVICE_UNAVAILABLE, "AI_503_01", "AI 포트폴리오 생성 요청이 많아 잠시 후 다시 시도해주세요."),
+    AI_SERVICE_ERROR(HttpStatus.INTERNAL_SERVER_ERROR,"AI_500_01" , "AI 포트폴리오 삭제 중 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String code;

@@ -9,3 +9,7 @@ spring:
     consumer:
       group-id: ${spring.application.name}
       auto-offset-reset: earliest
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false

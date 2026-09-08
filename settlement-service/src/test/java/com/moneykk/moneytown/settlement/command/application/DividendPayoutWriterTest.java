@@ -161,9 +161,10 @@ class DividendPayoutWriterTest {
         when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(inProgress));
 
-        dividendPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PENDING);
+        assertThat(result).isEmpty();
         verify(settlementBatchRepository, never()).save(batch);
     }
 
@@ -177,14 +178,15 @@ class DividendPayoutWriterTest {
         when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(processing));
 
-        dividendPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PENDING);
+        assertThat(result).isEmpty();
         verify(settlementBatchRepository, never()).save(batch);
     }
 
     @Test
-    @DisplayName("updateBatchStatus: 전부 성공하면 COMPLETED로 전환한다")
+    @DisplayName("updateBatchStatus: 전부 성공하면 COMPLETED로 전환하고 배치를 반환한다")
     void updateBatchStatus_marksCompletedWhenAllPaid() {
         SettlementBatch batch = openBatch();
         DividendPayout paid = queuedPayout();
@@ -193,14 +195,15 @@ class DividendPayoutWriterTest {
         when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(paid));
 
-        dividendPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        assertThat(result).contains(batch);
         verify(settlementBatchRepository).save(batch);
     }
 
     @Test
-    @DisplayName("updateBatchStatus: 일부만 DEAD_LETTER면 PARTIAL_FAILED로 전환한다")
+    @DisplayName("updateBatchStatus: 일부만 DEAD_LETTER면 PARTIAL_FAILED로 전환하고 배치를 반환한다")
     void updateBatchStatus_marksPartialFailedWhenSomeDeadLetter() {
         SettlementBatch batch = openBatch();
         DividendPayout paid = queuedPayout();
@@ -211,13 +214,14 @@ class DividendPayoutWriterTest {
         when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(paid, deadLetter));
 
-        dividendPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        assertThat(result).contains(batch);
     }
 
     @Test
-    @DisplayName("updateBatchStatus: 전부 DEAD_LETTER면 FAILED로 전환한다")
+    @DisplayName("updateBatchStatus: 전부 DEAD_LETTER면 FAILED로 전환하고 배치를 반환한다")
     void updateBatchStatus_marksFailedWhenAllDeadLetter() {
         SettlementBatch batch = openBatch();
         DividendPayout deadLetter = queuedPayout();
@@ -226,9 +230,10 @@ class DividendPayoutWriterTest {
         when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
                 .thenReturn(List.of(deadLetter));
 
-        dividendPayoutWriter.updateBatchStatus(batch.getId());
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
+        assertThat(result).contains(batch);
     }
 
     private SettlementBatch openBatch() {

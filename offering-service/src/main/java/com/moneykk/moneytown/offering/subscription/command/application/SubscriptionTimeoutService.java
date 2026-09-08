@@ -23,7 +23,15 @@ public class SubscriptionTimeoutService {
      * 예약 유효시간이 만료된 PROCESSING 청약을 조회하여
      * 후속 보상을 위한 COMPENSATING 상태로 전환한다.
      *
-     * TODO: 대량 timeout 발생 시 배치 크기 및 반복 처리 방식 성능 검증
+     * TODO: Wallet 타임아웃 보상 계약 확정 후 후속 처리 연결
+     * - HOLD 미존재 시 NONE 성공 처리
+     * - 늦은 SubscriptionReserved에 의한 HOLD 생성 차단
+     * - RELEASE / REFUND 결과 수신
+     * - 공모 수량 복원
+     * - COMPENSATING -> REJECTED 완료
+     *
+     * TODO: 대량 타임아웃 발생 시
+     * 배치 크기 및 반복 처리 방식의 성능을 검증한다.
      *
      * @return timeout 처리된 청약 수
      */

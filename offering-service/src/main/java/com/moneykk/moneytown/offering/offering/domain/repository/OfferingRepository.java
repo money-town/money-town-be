@@ -8,6 +8,11 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +61,22 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
             @Param("offeringId") UUID offeringId,
             @Param("quantity") Long quantity,
             @Param("userId") UUID userId
+    );
+
+    /**
+     * 공모 상태 변경을 위해 해당 행을 잠금 조회한다.
+     * 호출한 트랜잭션이 끝날 때까지 잠금을 유지한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT o
+          FROM Offering o
+         WHERE o.offeringId = :offeringId
+           AND o.isDeleted = false
+        """)
+    Optional<Offering> findByIdForUpdate(
+            @Param("offeringId") UUID offeringId
     );
 
     /**
@@ -127,6 +148,70 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     List<Offering> findAllByOfferingStatusAndEndAtLessThanEqualAndIsDeletedFalse(
             OfferingStatus offeringStatus,
             Instant endAt,
+            Pageable pageable
+    );
+
+    /**
+     * 동결 실패한 청약의 확보 수량을 복원한다.
+     *
+     * 모집 기간 중 SOLD_OUT이면 OPEN으로 되돌린다.
+     * 모집 종료 후에는 상태를 유지하고,
+     * 모집 미달 스케줄러가 후속 상태 전이를 처리한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Modifying(flushAutomatically = true)
+    @Query("""
+        UPDATE Offering o
+           SET o.remainingQuantity = o.remainingQuantity + :quantity,
+               o.offeringStatus =
+                   CASE
+                       WHEN o.offeringStatus =
+                            com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT
+                        AND o.startAt <= CURRENT_TIMESTAMP
+                        AND o.endAt > CURRENT_TIMESTAMP
+                       THEN com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN
+                       ELSE o.offeringStatus
+                   END,
+               o.updatedAt = CURRENT_TIMESTAMP,
+               o.updatedBy = :systemUserId
+         WHERE o.offeringId = :offeringId
+           AND o.isDeleted = false
+           AND :quantity > 0
+           AND :quantity <= o.totalQuantity - o.remainingQuantity
+           AND o.offeringStatus IN (
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CANCELLING
+           )
+        """)
+    int restoreQuantity(
+            @Param("offeringId") UUID offeringId,
+            @Param("quantity") Long quantity,
+            @Param("systemUserId") UUID systemUserId
+    );
+
+    /**
+     * 모집 종료 후 잔여 수량이 있는 공모를 잠금 조회한다.
+     * CLOSED 이후 동결 실패로 수량이 복원된 경우도 포함한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT o
+          FROM Offering o
+         WHERE o.isDeleted = false
+           AND o.offeringStatus IN (
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED
+           )
+           AND o.endAt <= :now
+           AND o.remainingQuantity > 0
+         ORDER BY o.endAt ASC, o.offeringId ASC
+        """)
+    List<Offering> findUnderSubscribedOfferingsForUpdate(
+            @Param("now") Instant now,
             Pageable pageable
     );
 }

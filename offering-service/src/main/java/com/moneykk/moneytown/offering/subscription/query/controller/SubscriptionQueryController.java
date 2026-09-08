@@ -10,6 +10,8 @@ import com.moneykk.moneytown.offering.subscription.query.application.Subscriptio
 import com.moneykk.moneytown.offering.subscription.query.dto.request.SubscriptionSearchCondition;
 import com.moneykk.moneytown.offering.subscription.query.dto.response.SubscriptionDetailResponse;
 import com.moneykk.moneytown.offering.subscription.query.dto.response.SubscriptionListItemResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +20,10 @@ import org.springframework.web.bind.annotation.*;
 import java.time.Instant;
 import java.util.UUID;
 
+@Tag(
+        name = "청약 조회",
+        description = "청약 목록 및 상세 조회 API"
+)
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/subscriptions")
@@ -25,11 +31,10 @@ public class SubscriptionQueryController {
 
     private final SubscriptionQueryService subscriptionQueryService;
 
-    /**
-     * 내 청약 목록 조회
-     *
-     * INVESTOR만 접근할 수 있다.
-     */
+    @Operation(
+            summary = "내 청약 목록 조회",
+            description = "INVESTOR가 자신의 청약 목록을 공모, 상태 및 기간 조건으로 조회합니다."
+    )
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<PageResponse<SubscriptionListItemResponse>>> searchMySubscriptions(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
@@ -73,12 +78,10 @@ public class SubscriptionQueryController {
         );
     }
 
-    /**
-     * 청약 상세 조회
-     *
-     * INVESTOR 또는 ADMIN만 접근할 수 있다.
-     * INVESTOR는 본인의 청약만 조회할 수 있다.
-     */
+    @Operation(
+            summary = "청약 상세 조회",
+            description = "INVESTOR는 자신의 청약을 조회할 수 있으며, ADMIN은 전체 청약을 조회할 수 있습니다."
+    )
     @GetMapping("/{subscriptionId}")
     public ResponseEntity<ApiResponse<SubscriptionDetailResponse>> getSubscriptionDetail(
             @PathVariable UUID subscriptionId,

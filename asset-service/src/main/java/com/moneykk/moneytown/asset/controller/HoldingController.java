@@ -1,10 +1,13 @@
 package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
+import com.moneykk.moneytown.asset.dto.response.MyAssetHoldingResponse;
+import com.moneykk.moneytown.asset.dto.response.MyHoldingListResponse;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.service.HoldingQueryService;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +24,7 @@ import java.util.UUID;
  */
 @Validated
 @RestController
-@RequestMapping("/api/v1/assets/{assetId}/holdings")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class HoldingController {
 
@@ -30,11 +33,12 @@ public class HoldingController {
     /**
      * 배당 기준일의 보유지분 조회
      */
-    @GetMapping
+    @GetMapping("/assets/{assetId}/holdings")
     public ApiResponse<HoldingSnapshotResponse> getSnapshot(
             @PathVariable UUID assetId,
 
-            @RequestHeader("X-User-Role") String role,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role,
 
             @RequestParam
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
@@ -64,6 +68,72 @@ public class HoldingController {
         return ApiResponse.success(
                 response,
                 "기준일 보유지분 조회가 완료되었습니다."
+        );
+    }
+
+    /**
+     * 특정 자산의 내 보유지분 조회
+     */
+    @GetMapping("/assets/{assetId}/holdings/me")
+    public ApiResponse<MyAssetHoldingResponse> getMyHolding(
+            @PathVariable UUID assetId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ID)
+            UUID userId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role
+    ) {
+        // 로그인한 투자자의 보유지분 조회
+        MyAssetHoldingResponse response =
+                holdingQueryService.getMyHolding(
+                        assetId,
+                        userId,
+                        role
+                );
+
+        return ApiResponse.success(
+                response,
+                "내 보유지분 조회가 완료되었습니다."
+        );
+    }
+
+    /**
+     * 내 전체 보유지분 목록 조회
+     */
+    @GetMapping("/assets/holdings/me")
+    public ApiResponse<MyHoldingListResponse> getMyHoldings(
+            @RequestHeader(AuthHeaderConstants.USER_ID)
+            UUID userId,
+
+            @RequestHeader(AuthHeaderConstants.USER_ROLE)
+            String role,
+
+            // 첫 페이지에서는 생략
+            @RequestParam(required = false)
+            UUID cursor,
+
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.")
+            int size,
+
+            // 기본 등록일 내림차순
+            @RequestParam(defaultValue = "DESC")
+            Sort.Direction direction
+    ) {
+        MyHoldingListResponse response =
+                holdingQueryService.getMyHoldings(
+                        userId,
+                        role,
+                        cursor,
+                        size,
+                        direction
+                );
+
+        return ApiResponse.success(
+                response,
+                "내 전체 보유지분 조회가 완료되었습니다."
         );
     }
 }

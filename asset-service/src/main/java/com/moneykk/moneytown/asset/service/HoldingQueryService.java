@@ -1,16 +1,16 @@
 package com.moneykk.moneytown.asset.service;
 
-import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotItemResponse;
-import com.moneykk.moneytown.asset.dto.response.HoldingSnapshotResponse;
-import com.moneykk.moneytown.asset.dto.response.HoldingSubscriptionStatusResponse;
+import com.moneykk.moneytown.asset.dto.response.*;
 import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
+import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
+import com.moneykk.moneytown.asset.repository.HoldingSubscriptionStateRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -23,7 +23,9 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
-/** 청약별 지분 배정·회수 이력 조회 서비스 */
+/**
+ * 청약별 지분 배정·회수 이력 조회 서비스
+ */
 @Service
 @RequiredArgsConstructor
 public class HoldingQueryService {
@@ -34,9 +36,14 @@ public class HoldingQueryService {
     private final HoldingRepository holdingRepository;
     private final HoldingQueryRepository holdingQueryRepository;
     private final AssetQueryRepository assetQueryRepository;
+    private final HoldingSubscriptionStateRepository holdingSubscriptionStateRepository;
 
     @Transactional(readOnly = true)
     public HoldingSubscriptionStatusResponse getSubscriptionStatus(UUID subscriptionId) {
+        HoldingSubscriptionState subscriptionState =
+                holdingSubscriptionStateRepository.findById(subscriptionId)
+                        .orElse(null);
+
         // 청약 ID로 지분 이력 조회
         List<HoldingHistory> histories =
                 holdingHistoryRepository.findAllBySubscriptionIdOrderByCreatedAtAsc(subscriptionId);
@@ -45,7 +52,12 @@ public class HoldingQueryService {
         if (histories.isEmpty()) {
             return new HoldingSubscriptionStatusResponse(
                     subscriptionId, null, null, null,
-                    0, 0, false, false, null
+                    0, 0, false, false,
+                    subscriptionState != null
+                            && subscriptionState.blocksAllocation(),
+                    subscriptionState == null
+                            ? null
+                            : subscriptionState.getUpdatedAt()
             );
         }
 
@@ -76,6 +88,9 @@ public class HoldingQueryService {
                 revokedQuantity,
                 allocatedQuantity > 0,
                 revokedQuantity > 0,
+                revokedQuantity > 0
+                        || (subscriptionState != null
+                        && subscriptionState.blocksAllocation()),
                 lastProcessedAt
         );
     }
@@ -115,9 +130,16 @@ public class HoldingQueryService {
                 ? holdings.get(holdings.size() - 1).holdingId()
                 : null;
 
+        long totalHoldingQuantity =
+                holdingQueryRepository.findTotalSnapshotQuantity(
+                        assetId,
+                        cutoffExclusive
+                );
+
         return new HoldingSnapshotResponse(
                 assetId,
                 asOf,
+                totalHoldingQuantity,
                 holdings,
                 nextCursor,
                 hasNext
@@ -130,5 +152,145 @@ public class HoldingQueryService {
                 .filter(history -> history.getHistoryType() == type)
                 .mapToLong(HoldingHistory::getQuantity)
                 .sum();
+    }
+
+    /**
+     * 특정 자산의 내 보유지분 조회
+     */
+    @Transactional(readOnly = true)
+    public MyAssetHoldingResponse getMyHolding(
+            UUID assetId,
+            UUID userId,
+            String role
+    ) {
+        // 투자자만 자신의 보유지분 조회 가능
+        if (userId == null || !"INVESTOR".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 삭제되지 않은 자산인지 확인
+        assetQueryRepository.findActiveById(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
+                ));
+
+        // 보유지분이 없으면 수량 0으로 응답
+        return holdingQueryRepository
+                .findMyHolding(assetId, userId)
+                .orElseGet(() -> new MyAssetHoldingResponse(
+                        null,
+                        assetId,
+                        0L,
+                        null
+                ));
+    }
+
+    /**
+     * 지분 변동 이력 조회
+     */
+    @Transactional(readOnly = true)
+    public HoldingHistoryListResponse getHoldingHistories(
+            UUID holdingId,
+            UUID userId,
+            String role,
+            UUID cursor,
+            int size,
+            Sort.Direction direction
+    ) {
+        // 투자자와 관리자만 조회 가능
+        if (userId == null
+                || (!"INVESTOR".equals(role)
+                && !"ADMIN".equals(role))) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 보유지분 존재 여부와 소유자 확인
+        UUID ownerId = holdingQueryRepository
+                .findUserIdByHoldingId(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_NOT_FOUND
+                ));
+
+        // 투자자는 자신의 지분 이력만 조회 가능
+        if ("INVESTOR".equals(role)
+                && !userId.equals(ownerId)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 다음 페이지 확인을 위해 한 건 더 조회
+        List<HoldingHistoryItemResponse> rows =
+                holdingQueryRepository.findHoldingHistories(
+                        holdingId,
+                        cursor,
+                        size + 1,
+                        direction
+                );
+
+        boolean hasNext = rows.size() > size;
+
+        List<HoldingHistoryItemResponse> histories = rows.stream()
+                .limit(size)
+                .toList();
+
+        UUID nextCursor = hasNext
+                ? histories.get(histories.size() - 1).historyId()
+                : null;
+
+        return new HoldingHistoryListResponse(
+                holdingId,
+                histories,
+                nextCursor,
+                hasNext
+        );
+    }
+
+    /**
+     * 내 전체 보유지분 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public MyHoldingListResponse getMyHoldings(
+            UUID userId,
+            String role,
+            UUID cursor,
+            int size,
+            Sort.Direction direction
+    ) {
+        // 투자자만 자신의 전체 보유지분 조회 가능
+        if (userId == null || !"INVESTOR".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_READ_ACCESS_DENIED
+            );
+        }
+
+        // 다음 페이지 확인을 위해 한 건 더 조회
+        List<MyHoldingItemResponse> rows =
+                holdingQueryRepository.findMyHoldings(
+                        userId,
+                        cursor,
+                        size + 1,
+                        direction
+                );
+
+        boolean hasNext = rows.size() > size;
+
+        List<MyHoldingItemResponse> items = rows.stream()
+                .limit(size)
+                .toList();
+
+        UUID nextCursor = hasNext
+                ? items.get(items.size() - 1).holdingId()
+                : null;
+
+        return new MyHoldingListResponse(
+                items,
+                nextCursor,
+                hasNext
+        );
     }
 }

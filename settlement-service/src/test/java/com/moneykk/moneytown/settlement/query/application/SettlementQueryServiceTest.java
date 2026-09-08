@@ -11,6 +11,7 @@ import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.query.dto.DividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.MyDividendPayoutListItemResponse;
 import com.moneykk.moneytown.settlement.query.dto.SettlementBatchDetailResponse;
+import com.moneykk.moneytown.settlement.query.dto.SettlementReconciliationResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -32,11 +33,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SettlementQueryServiceTest {
 
+    private static final String ADMIN_ROLE = "ADMIN";
     private static final UUID SETTLEMENT_BATCH_ID = UUID.randomUUID();
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final UUID REVENUE_ID = UUID.randomUUID();
@@ -49,6 +52,110 @@ class SettlementQueryServiceTest {
 
     @InjectMocks
     private SettlementQueryService settlementQueryService;
+
+    @Nested
+    @DisplayName("ADMIN 권한 검증")
+    class AdminAccessControl {
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정산 회차 조회 시 예외")
+        void rejectsGetSettlementBatchWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementQueryService.getSettlementBatch("INVESTOR", SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 회차별 지급 내역 조회 시 예외")
+        void rejectsGetPayoutsWhenNotAdmin() {
+            Pageable pageable = PageRequest.of(0, 20);
+
+            assertThatThrownBy(() -> settlementQueryService.getPayouts("INVESTOR", SETTLEMENT_BATCH_ID, null, pageable))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository, dividendPayoutRepository);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 정합성 검증 조회 시 예외")
+        void rejectsGetReconciliationWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementQueryService.getReconciliation("INVESTOR", SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(settlementBatchRepository, dividendPayoutRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("정합성 검증")
+    class GetReconciliation {
+
+        @Test
+        @DisplayName("지급 내역 합계가 배당 총액과 일치하면 reconciled=true를 반환한다")
+        void returnsReconciledTrueWhenAmountsMatch() {
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            batch.markSnapshotTaken();
+            batch.markCalculated(40L);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(Optional.of(batch));
+
+            DividendPayout paid = DividendPayout.queue(batch.getId(), UUID.randomUUID(), BigDecimal.valueOf(0.6), 5_980L);
+            paid.markProcessing();
+            paid.markPaid();
+            DividendPayout deadLetter = DividendPayout.queue(batch.getId(), UUID.randomUUID(), BigDecimal.valueOf(0.4), 3_980L);
+            deadLetter.markProcessing();
+            deadLetter.markDeadLetter();
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(List.of(paid, deadLetter));
+
+            SettlementReconciliationResponse response = settlementQueryService.getReconciliation(ADMIN_ROLE, batch.getId());
+
+            assertThat(response.settlementBatchId()).isEqualTo(batch.getId());
+            assertThat(response.expectedAmount()).isEqualTo(9_960L);
+            assertThat(response.totalPayoutAmount()).isEqualTo(9_960L);
+            assertThat(response.paidAmount()).isEqualTo(5_980L);
+            assertThat(response.reconciled()).isTrue();
+        }
+
+        @Test
+        @DisplayName("지급 내역 합계가 배당 총액과 다르면 reconciled=false를 반환한다")
+        void returnsReconciledFalseWhenAmountsMismatch() {
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            batch.markSnapshotTaken();
+            batch.markCalculated(0L);
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(Optional.of(batch));
+
+            DividendPayout payout = DividendPayout.queue(batch.getId(), UUID.randomUUID(), BigDecimal.ONE, 9_000L);
+            when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                    .thenReturn(List.of(payout));
+
+            SettlementReconciliationResponse response = settlementQueryService.getReconciliation(ADMIN_ROLE, batch.getId());
+
+            assertThat(response.expectedAmount()).isEqualTo(10_000L);
+            assertThat(response.totalPayoutAmount()).isEqualTo(9_000L);
+            assertThat(response.reconciled()).isFalse();
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 회차를 조회하면 예외가 발생한다")
+        void throwsWhenBatchNotFound() {
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(SETTLEMENT_BATCH_ID))
+                    .thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> settlementQueryService.getReconciliation(ADMIN_ROLE, SETTLEMENT_BATCH_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
+        }
+    }
 
     @Nested
     @DisplayName("정산 회차 상태 조회")
@@ -71,7 +178,7 @@ class SettlementQueryServiceTest {
                             statusCount(PayoutStatus.RETRYING, 1L)
                     ));
 
-            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(batch.getId());
+            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.settlementBatchId()).isEqualTo(batch.getId());
             assertThat(response.assetId()).isEqualTo(ASSET_ID);
@@ -93,7 +200,7 @@ class SettlementQueryServiceTest {
             when(dividendPayoutRepository.countByStatusGrouped(batch.getId()))
                     .thenReturn(List.of());
 
-            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(batch.getId());
+            SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(ADMIN_ROLE, batch.getId());
 
             assertThat(response.payoutSummary().totalCount()).isZero();
         }
@@ -104,7 +211,7 @@ class SettlementQueryServiceTest {
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(SETTLEMENT_BATCH_ID))
                     .thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> settlementQueryService.getSettlementBatch(SETTLEMENT_BATCH_ID))
+            assertThatThrownBy(() -> settlementQueryService.getSettlementBatch(ADMIN_ROLE, SETTLEMENT_BATCH_ID))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);
@@ -128,7 +235,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<DividendPayoutListItemResponse> response =
-                    settlementQueryService.getPayouts(batchId, null, requestedPageable);
+                    settlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             DividendPayoutListItemResponse item = response.content().get(0);
@@ -156,7 +263,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<DividendPayoutListItemResponse> response =
-                    settlementQueryService.getPayouts(batchId, PayoutStatus.PAID, requestedPageable);
+                    settlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.PAID, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.PAID);
@@ -176,7 +283,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(payout), expectedPageable, 1));
 
             PageResponse<DividendPayoutListItemResponse> response =
-                    settlementQueryService.getPayouts(batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
+                    settlementQueryService.getPayouts(ADMIN_ROLE, batchId, PayoutStatus.DEAD_LETTER, requestedPageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.DEAD_LETTER);
@@ -189,7 +296,7 @@ class SettlementQueryServiceTest {
             Pageable pageable = PageRequest.of(0, 20);
             when(settlementBatchRepository.existsByIdAndIsDeletedFalse(batchId)).thenReturn(false);
 
-            assertThatThrownBy(() -> settlementQueryService.getPayouts(batchId, null, pageable))
+            assertThatThrownBy(() -> settlementQueryService.getPayouts(ADMIN_ROLE, batchId, null, pageable))
                     .isInstanceOf(BusinessException.class)
                     .extracting(exception -> ((BusinessException) exception).getErrorCode())
                     .isEqualTo(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND);

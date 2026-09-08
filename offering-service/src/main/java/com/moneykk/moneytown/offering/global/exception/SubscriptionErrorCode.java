@@ -31,6 +31,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_400_05",
             "청약 금액이 허용 범위를 초과했습니다."
     ),
+    SUBSCRIPTION_LIMIT_EXCEEDED(
+            HttpStatus.BAD_REQUEST,
+            "SUBSCRIPTION_400_06",
+            "1인당 최대 청약 수량을 초과했습니다."
+    ),
 
     // 403 FORBIDDEN
     SUBSCRIPTION_ACCESS_DENIED(
@@ -96,6 +101,16 @@ public enum SubscriptionErrorCode implements ErrorCode {
             HttpStatus.CONFLICT,
             "SUBSCRIPTION_409_07",
             "현재 상태에서는 청약 보상 처리를 시작할 수 없습니다."
+    ),
+    SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "SUBSCRIPTION_409_08",
+            "현재 상태에서는 청약을 확정할 수 없습니다."
+    ),
+    SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "SUBSCRIPTION_409_09",
+            "현재 상태에서는 지갑 동결 실패를 처리할 수 없습니다."
     ),
 
     // 503 SERVICE_UNAVAILABLE

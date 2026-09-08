@@ -85,7 +85,7 @@ public class OfferingCommandService {
             UUID offeringId,
             UUID reviewerId
     ) {
-        Offering offering = findOffering(offeringId);
+        Offering offering = findOfferingForUpdate(offeringId);
 
         offering.approve(reviewerId);
 
@@ -98,7 +98,7 @@ public class OfferingCommandService {
             UUID reviewerId,
             OfferingRejectionRequest request
     ) {
-        Offering offering = findOffering(offeringId);
+        Offering offering = findOfferingForUpdate(offeringId);
 
         offering.reject(
                 reviewerId,
@@ -150,7 +150,7 @@ public class OfferingCommandService {
             UUID userId,
             String role
     ) {
-        Offering offering = findOffering(offeringId);
+        Offering offering = findOfferingForUpdate(offeringId);
 
         validateOwnerOrAdmin(
                 offering,
@@ -324,6 +324,14 @@ public class OfferingCommandService {
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
+    }
+
+    private Offering findOfferingForUpdate(UUID offeringId) {
+        return offeringRepository
+                .findByIdForUpdate(offeringId)
+                .orElseThrow(() -> new BusinessException(
+                        OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
     }
 
     private Offering findOffering(UUID offeringId) {

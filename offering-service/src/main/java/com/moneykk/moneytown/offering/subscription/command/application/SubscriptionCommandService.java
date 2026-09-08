@@ -40,6 +40,7 @@ public class SubscriptionCommandService {
 
     private final SubscriptionIdempotencyService subscriptionIdempotencyService;
     private final SubscriptionTransactionService subscriptionTransactionService;
+    private final SubscriptionLimitExceededEventService subscriptionLimitExceededEventService;
 
     private final IdempotencyRequestRepository idempotencyRequestRepository;
     private final SubscriptionRequestHasher subscriptionRequestHasher;
@@ -52,11 +53,12 @@ public class SubscriptionCommandService {
             UUID offeringId,
             UUID userId,
             String idempotencyKey,
-            SubscriptionCreateRequest request
+            SubscriptionCreateRequest request,
+            String correlationId
     ) {
-        // TODO: SubscriptionReserved Outbox 저장 추가
 
         validateIdempotencyKey(idempotencyKey);
+        validateCorrelationId(correlationId);
 
         String requestHash = subscriptionRequestHasher.hash(
                 offeringId,
@@ -74,8 +76,11 @@ public class SubscriptionCommandService {
          * ON CONFLICT DO NOTHING을 이용하여
          * 동시에 동일 요청이 들어오더라도 중복 실행을 방지한다.
          */
+
+        UUID idempotencyRequestId = UUID.randomUUID();
+
         int inserted = subscriptionIdempotencyService.tryBegin(
-                UUID.randomUUID(),
+                idempotencyRequestId,
                 userId,
                 operation.name(),
                 idempotencyKey,
@@ -129,15 +134,37 @@ public class SubscriptionCommandService {
             validateOfferingAvailable(offering);
 
             /*
-             * 공모의 최소·최대 청약 수량을 검증한다.
+             * 요청 수량이 존재하고 최소 청약 수량 이상인지 검증한다.
              *
-             * DB 값을 변경하지 않는 검증이므로
-             * Transaction Service 진입 전에 수행한다.
+             * 최대 청약 수량 초과는 PostFDS 이벤트를 발행해야 하므로
+             * 아래 분기에서 별도로 처리한다.
              */
             validateSubscriptionQuantity(
                     offering,
                     request.quantity()
             );
+
+            if (request.quantity()
+                    > offering.getMaxSubscriptionQuantity()) {
+
+                subscriptionLimitExceededEventService.recordLimitExceeded(
+                        idempotencyRequestId,
+                        userId,
+                        idempotencyKey,
+                        offering.getAssetId(),
+                        request.quantity(),
+                        offering.getMaxSubscriptionQuantity(),
+                        correlationId
+                );
+
+                /*
+                 * recordLimitExceeded()의 REQUIRES_NEW 트랜잭션이 완료된 후
+                 * API 요청을 한도 초과 오류로 종료한다.
+                 */
+                throw new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_LIMIT_EXCEEDED
+                );
+            }
 
             /*
              * 신규 청약 요청에 대해서만 Pre-FDS 검사를 수행한다.
@@ -158,24 +185,33 @@ public class SubscriptionCommandService {
              * - remainingQuantity 조건부 UPDATE
              * - Subscription PROCESSING 생성
              * - Idempotency COMPLETED 처리
-             * - 추후 SubscriptionReserved Outbox 저장
+             * - SubscriptionReserved Outbox 저장
              */
             return subscriptionTransactionService.createSubscription(
                     offering.getOfferingId(),
                     userId,
                     idempotencyKey,
                     request.quantity(),
-                    offering.getPricePerUnit()
+                    offering.getPricePerUnit(),
+                    correlationId
             );
 
         } catch (BusinessException e) {
 
-            subscriptionIdempotencyService.fail(
-                    userId,
-                    operation.name(),
-                    idempotencyKey,
-                    e.getErrorCode().getStatus().value()
-            );
+            /*
+             * 한도 초과는 멱등 실패 기록과 Outbox 저장을
+             * SubscriptionLimitExceededEventService에서 이미 완료했다.
+             */
+            if (e.getErrorCode()
+                    != SubscriptionErrorCode.SUBSCRIPTION_LIMIT_EXCEEDED) {
+
+                subscriptionIdempotencyService.fail(
+                        userId,
+                        operation.name(),
+                        idempotencyKey,
+                        e.getErrorCode().getStatus().value()
+                );
+            }
 
             throw e;
 
@@ -311,6 +347,18 @@ public class SubscriptionCommandService {
         if (idempotencyKey.length() > 100) {
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_IDEMPOTENCY_KEY
+            );
+        }
+    }
+
+    /**
+     * 멱등 요청을 선점하기 전에 Correlation-ID를 검증한다.
+     */
+    private void validateCorrelationId(
+            String correlationId) {
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
             );
         }
     }
@@ -488,15 +536,17 @@ public class SubscriptionCommandService {
     }
 
     /**
-     * 공모별 최소·최대 청약 수량 범위를 검증한다.
+     * 요청 수량이 존재하고 공모의 최소 청약 수량 이상인지 검증한다.
+     *
+     * 최대 청약 수량 초과는 PostFDS 이벤트를 저장해야 하므로
+     * create()에서 별도로 처리한다.
      */
     private void validateSubscriptionQuantity(
             Offering offering,
             Long quantity
     ) {
         if (quantity == null
-                || quantity < offering.getMinSubscriptionQuantity()
-                || quantity > offering.getMaxSubscriptionQuantity()) {
+                || quantity < offering.getMinSubscriptionQuantity()) {
 
             throw new BusinessException(
                     SubscriptionErrorCode.INVALID_SUBSCRIPTION_QUANTITY
