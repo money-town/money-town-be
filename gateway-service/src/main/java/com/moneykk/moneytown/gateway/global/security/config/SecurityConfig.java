@@ -125,6 +125,30 @@ public class SecurityConfig {
                                         "/api/v1/kyc-verifications/{kycId}/approve",
                                         "/api/v1/kyc-verifications/{kycId}/reject"
                                 ).hasRole("ADMIN")
+
+                                // 발행자 권한 신청·내 신청 조회
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/issuer-applications"
+                                ).authenticated()
+
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/issuer-applications/me/current"
+                                ).authenticated()
+
+                                // 관리자 발행자 권한 신청 목록·승인·거절
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/issuer-applications"
+                                ).hasRole("ADMIN")
+
+                                .pathMatchers(
+                                        HttpMethod.PATCH,
+                                        "/api/v1/issuer-applications/{applicationId}/approve",
+                                        "/api/v1/issuer-applications/{applicationId}/reject"
+                                ).hasRole("ADMIN")
+
                                 // Offering 조회
                                 // /me와 /manage를 상세 조회보다 먼저 선언
                                 .pathMatchers(
@@ -192,9 +216,6 @@ public class SecurityConfig {
                                 ).hasAnyRole("INVESTOR", "ADMIN")
 
                                 // 마지막에 위치
-                                .anyExchange().authenticated()
-
-                                // 나머지 API는 JWT 인증 필요
                                 .anyExchange().authenticated()
                 )
 

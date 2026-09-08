@@ -94,6 +94,11 @@ public class User extends BaseUpdatableEntity {
 
     }
 
+    // 발행자 권한 승인
+    public void promoteToIssuer() {
+        this.role = UserRole.ISSUER;
+    }
+
     // 현재 KYC 승인 상태 반영
     public void verifyKyc(Instant expiresAt) {
         this.kycStatus = KycStatus.VERIFIED;
