@@ -1,8 +1,6 @@
 name: Publish to ECR
 
 on:
-  push:
-    branches: [main]   # ← 임시: dev 미동기화로 workflow_run/workflow_dispatch가 등록 안 돼서 우회.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -21,10 +19,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: ecr-push
-    # ↓ "github.event_name == 'push'" 절도 임시 — 위 push 트리거와 함께 나중에 지운다
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' || (
+      github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&
         github.event.workflow_run.head_branch == 'main'
