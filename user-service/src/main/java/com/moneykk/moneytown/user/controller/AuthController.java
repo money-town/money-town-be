@@ -25,7 +25,6 @@ import java.util.UUID;
 public class AuthController {
     private final AuthService authService;
 
-    // TODO 토큰 재발급 API 구현
 
     // 로그인
     @PostMapping("/login")

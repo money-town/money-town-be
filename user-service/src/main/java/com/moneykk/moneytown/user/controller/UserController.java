@@ -3,14 +3,12 @@ package com.moneykk.moneytown.user.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
-import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
-import com.moneykk.moneytown.user.dto.response.SignupResponse;
+import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.service.UserService;
 import jakarta.validation.Valid;
-import jakarta.ws.rs.PATCH;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,14 +21,7 @@ import java.util.UUID;
 public class UserController {
     private final UserService userService;
 
-    //사용자 전체 조회
-    @GetMapping("/users")
-    public ApiResponse<List<UserListResponse>> userList(){
 
-        return ApiResponse.success(userService.userList(),
-                "사용자 목록 조회 성공"
-        );
-    }
 
 
     // 내 정보 조회
@@ -39,11 +30,12 @@ public class UserController {
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
 
 
-        return ApiResponse.success(userService.getUser(userId),
+        return ApiResponse.success(userService.getUserMe(userId),
                 "내 정보 조회 성공");
     }
 
 
+    // 내 정보 수정
     @PatchMapping("/users/me")
     public ApiResponse<UserResponse> updateUser(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
             ,@Valid @RequestBody UpdateMyInfoRequest request){
@@ -53,6 +45,7 @@ public class UserController {
 
     }
 
+    // 회원 탈퇴
     @DeleteMapping("/users/me")
     public ApiResponse<Void> deleteUser(@RequestHeader(AuthHeaderConstants.USER_ID)
                                             UUID userId){
@@ -64,6 +57,17 @@ public class UserController {
 
     // 관리자
 
+    // 사용자 목록 조회 및 검색
+    @GetMapping("/users")
+    public ApiResponse<List<UserListResponse>> userList(
+            @RequestParam(name = "name", required = false) String name
+    ){
+
+        return ApiResponse.success(userService.userList(name),
+                "사용자 목록 조회 성공"
+        );
+    }
+
     // 사용자 단건 조회
     @GetMapping("users/{userId}")
     public ApiResponse<UserResponse> getUser(@PathVariable UUID userId){
@@ -72,7 +76,7 @@ public class UserController {
     
     }
 
-    // TODO : 관리자가 사용자의 수정 및 탈퇴
+   
 
     // 관리자 단건 수정
     @PatchMapping("/users/{userId}")
@@ -85,6 +89,7 @@ public class UserController {
 
     }
 
+    // 관리자 사용자 탈퇴 처리
     @DeleteMapping("/users/{userId}")
     public ApiResponse<Void> deleteUserByAdmin(@RequestHeader(AuthHeaderConstants.USER_ID)
             UUID adminId,
@@ -96,6 +101,7 @@ public class UserController {
 
         return ApiResponse.success(null,"사용자 탈퇴 처리 성공");
     }
+
 
 
 

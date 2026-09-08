@@ -1,18 +1,15 @@
 package com.moneykk.moneytown.user.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
-import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
-import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
-import com.moneykk.moneytown.user.dto.response.SignupResponse;
+import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.entity.User;
 import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,24 +20,45 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
+    private final KycService kycService;
 
-    //CRUD
+   //
+    @Transactional
+    public UserInvestmentEligibilityResponse getInvestmentEligibility(
+            UUID userId
+    ){
+        kycService.expireIfNeeded(userId);
+
+        User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        return UserInvestmentEligibilityResponse.from(user);
+    }
 
 
-    // 회원 전체 조회
+    // 사용자 목록 및 이름 검색
     @Transactional(readOnly = true)
-    public List<UserListResponse> userList(){
+    public List<UserListResponse> userList(String name){
+        List<User> users;
+        if (name == null || name.isBlank()) {
+            users = userRepository.findAllByIsDeletedFalse();
+        } else {
+            users = userRepository
+                    .findAllByNameContainingAndIsDeletedFalse(name.trim());
+        }
 
-        return userRepository.findAllByIsDeletedFalse()
-                .stream()
+
+        return users.stream()
                 .map(UserListResponse::from)
                 .toList();
 
     }
 
     // 회원 단일 조회
-    @Transactional(readOnly = true)
+    @Transactional
     public UserResponse getUser(UUID userId){
+        kycService.expireIfNeeded(userId);
+
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId).
                 orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
@@ -48,8 +66,10 @@ public class UserService {
     }
 
     // 내 정보 조회
-    @Transactional(readOnly = true)
+    @Transactional
     public UserResponse getUserMe(UUID userId){
+        kycService.expireIfNeeded(userId);
+
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
