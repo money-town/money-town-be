@@ -1,8 +1,6 @@
 name: Publish to ECR
 
 on:
-  push:
-    branches: [chore/deploy-ecr]   # ← 테스트용, OIDC sub 확인 끝나면 이 블록과 아래 if의 push 케이스 삭제
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -21,10 +19,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: ecr-push
-    # ↓ "github.event_name == 'push'" 절도 테스트용 — 위 push 트리거와 함께 나중에 지운다
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' || (
+      github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&
         github.event.workflow_run.head_branch == 'main'
