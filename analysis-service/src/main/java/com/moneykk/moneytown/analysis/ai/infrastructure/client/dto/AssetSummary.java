@@ -7,7 +7,6 @@ public record AssetSummary(
         UUID assetId,
         String assetType,
         String assetName,
-        AssetStatus assetStatus,
         BigDecimal expectedReturnRate,
         long valuationAmount,
         String description){

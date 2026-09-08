@@ -14,6 +14,6 @@ public interface AssetServiceClient {
 
     @GetMapping("/api/v1/internal/assets")
     ApiResponse<List<AssetSummary>> getAssets(
-            @RequestParam List<UUID> assetIds
+            @RequestParam("assetIds") List<UUID> assetIds
             );
 }
