@@ -12,10 +12,12 @@ import com.moneykk.moneytown.asset.entity.Holding;
 import com.moneykk.moneytown.asset.entity.HoldingHistory;
 import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
+import com.moneykk.moneytown.asset.global.config.AssetRedisCacheConfig;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.*;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,10 @@ public class HoldingCommandService {
     private final HoldingQueryRepository holdingQueryRepository;
     private final HoldingSubscriptionStateRepository holdingSubscriptionStateRepository;
 
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            key = "#request.assetId"
+    )
     @Transactional
     public HoldingAllocationResponse allocate(HoldingAllocationRequest request) {
         // 같은 청약의 배정과 회수가 동시에 처리되지 않도록 잠금
@@ -152,6 +158,57 @@ public class HoldingCommandService {
         );
     }
 
+    /**
+     * Kafka 보상 요청을 청약 ID 기준으로 처리
+     */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            allEntries = true
+    )
+    @Transactional
+    public HoldingRevocationResponse revokeBySubscription(
+            UUID expectedAssetId,
+            UUID expectedUserId,
+            HoldingRevocationRequest request
+    ) {
+        // 배정과 회수가 동시에 처리되지 않도록 청약 상태 잠금
+        lockSubscriptionState(request.subscriptionId());
+
+        // 잠금을 획득한 다음 최신 배정 이력 조회
+        Optional<HoldingHistory> allocationHistory =
+                holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
+                        request.subscriptionId(),
+                        HoldingHistoryType.ALLOCATE
+                );
+
+        // 아직 배정되지 않았다면 기존 revoke가 BLOCKED 처리
+        if (allocationHistory.isEmpty()) {
+            return revoke(null, request);
+        }
+
+        // 사전 조회값 대신 실제 배정 이력에서 holdingId 결정
+        UUID holdingId = allocationHistory.get().getHoldingId();
+
+        Holding holding = holdingRepository.findById(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
+
+        // Kafka 이벤트 정보와 실제 배정 정보가 같은지 확인
+        if (!holding.getAssetId().equals(expectedAssetId)
+                || !holding.getUserId().equals(expectedUserId)) {
+            throw new BusinessException(
+                    AssetErrorCode.HOLDING_DATA_CONFLICT
+            );
+        }
+
+        return revoke(holdingId, request);
+    }
+
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            allEntries = true
+    )
     @Transactional
     public HoldingRevocationResponse revoke(
             UUID holdingId,
@@ -261,13 +318,18 @@ public class HoldingCommandService {
                 holding.getAssetId(),
                 holding.getUserId(),
                 quantity,
-                HoldingRevocationResult.REVOKED
+                HoldingRevocationResult.REVOKED,
+                null
         );
     }
 
     /**
      * 관리자 보유지분 수량 조정
      */
+    @CacheEvict(
+            cacheNames = AssetRedisCacheConfig.ASSET_DETAIL_CACHE,
+            allEntries = true
+    )
     @Transactional
     public void adjust(
             UUID holdingId,
@@ -384,8 +446,9 @@ public class HoldingCommandService {
                 holding.getId(),
                 holding.getAssetId(),
                 holding.getUserId(),
-                history.getQuantity(),
-                HoldingRevocationResult.NO_ACTION
+                0,
+                HoldingRevocationResult.NO_ACTION,
+                "ALREADY_REVOKED"
         );
     }
 
@@ -400,7 +463,8 @@ public class HoldingCommandService {
                 null,
                 null,
                 0,
-                HoldingRevocationResult.NO_ACTION
+                HoldingRevocationResult.NO_ACTION,
+                "NOT_ALLOCATED"
         );
     }
 

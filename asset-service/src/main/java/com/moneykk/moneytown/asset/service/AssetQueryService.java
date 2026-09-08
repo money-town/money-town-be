@@ -22,6 +22,7 @@ import java.util.UUID;
 public class AssetQueryService {
 
     private final AssetQueryRepository assetQueryRepository;
+    private final AssetDetailCacheService assetDetailCacheService;
 
     @Transactional(readOnly = true)
     public InternalAssetResponse getInternalAsset(UUID assetId) {
@@ -120,13 +121,13 @@ public class AssetQueryService {
         }
 
         // 삭제되지 않은 자산 조회
-        Asset asset = assetQueryRepository.findActiveById(assetId)
-                .orElseThrow(() -> new BusinessException(
-                        AssetErrorCode.ASSET_NOT_FOUND
-                ));
+        // Redis 캐시 또는 DB에서 자산 상세 조회
+        AssetDetailResponse asset =
+                assetDetailCacheService.getAsset(assetId);
+
 
         // 자산운용자는 본인 소유 자산만 조회
-        if ("ISSUER".equals(role) && !userId.equals(asset.getUserId())) {
+        if ("ISSUER".equals(role) && !userId.equals(asset.userId())) {
             throw new BusinessException(
                     AssetErrorCode.ASSET_READ_ACCESS_DENIED
             );
@@ -134,13 +135,13 @@ public class AssetQueryService {
 
         // 투자자는 승인된 자산만 조회
         if ("INVESTOR".equals(role)
-                && asset.getStatus() != AssetStatus.APPROVED) {
+                && asset.assetStatus() != AssetStatus.APPROVED) {
             throw new BusinessException(
                     AssetErrorCode.ASSET_READ_ACCESS_DENIED
             );
         }
 
         // 상세 응답으로 변환
-        return AssetDetailResponse.from(asset);
+        return asset;
     }
 }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moneykk.moneytown.asset.dto.request.HoldingAllocationRequest;
 import com.moneykk.moneytown.asset.dto.response.HoldingAllocationResponse;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.infrastructure.kafka.event.HoldingAllocationFailedPayload;
 import com.moneykk.moneytown.asset.infrastructure.kafka.event.HoldingAllocationSucceededPayload;
 import com.moneykk.moneytown.asset.infrastructure.kafka.event.SubscriptionConfirmedPayload;
@@ -18,7 +19,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
-/** 청약 확정 이벤트를 받아 지분을 배정한다. */
+/**
+ * 청약 확정 이벤트를 받아 지분을 배정한다.
+ */
 @Component
 @RequiredArgsConstructor
 public class HoldingAllocationEventConsumer {
@@ -73,13 +76,18 @@ public class HoldingAllocationEventConsumer {
                     )
             );
         } catch (BusinessException exception) {
+            String errorCode =
+                    exception.getErrorCode() instanceof AssetErrorCode assetErrorCode
+                            ? assetErrorCode.name()
+                            : exception.getErrorCode().getCode();
+
             holdingEventPublisher.publishAllocationFailed(
                     subscriptionId,
                     event.userId(),
                     event.correlationId(),
                     new HoldingAllocationFailedPayload(
                             payload.assetId(),
-                            exception.getErrorCode().getCode(),
+                            errorCode,
                             exception.getErrorCode().getMessage(),
                             false
                     )
@@ -87,7 +95,9 @@ public class HoldingAllocationEventConsumer {
         }
     }
 
-    /** JSON 문자열을 청약 확정 이벤트로 변환한다. */
+    /**
+     * JSON 문자열을 청약 확정 이벤트로 변환한다.
+     */
     private EventEnvelope<SubscriptionConfirmedPayload> readEvent(
             String message
     ) throws JsonProcessingException {
