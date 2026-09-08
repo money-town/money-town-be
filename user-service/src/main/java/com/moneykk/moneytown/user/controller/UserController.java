@@ -8,6 +8,10 @@ import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +19,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+@Tag(
+        name = "User",
+        description = "사용자 조회·수정·탈퇴 API"
+)
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -23,8 +31,11 @@ public class UserController {
 
 
 
-
-    // 내 정보 조회
+    @Operation(
+            summary = "내 정보 조회",
+            description = "JWT로 인증된 사용자의 정보를 조회",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
     @GetMapping("/users/me")
     public ApiResponse<UserResponse> getUserMe(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
@@ -57,9 +68,16 @@ public class UserController {
 
     // 관리자
 
-    // 사용자 목록 조회 및 검색
+    @Operation(
+            summary = "사용자 목록 조회",
+            description = "사용자 목록을 조회하거나 이름으로 검색. ADMIN 권한 필요",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
     @GetMapping("/users")
-    public ApiResponse<List<UserListResponse>> userList(
+    public ApiResponse<List<UserListResponse>> userList(@Parameter(
+            description = "사용자 이름 검색어",
+            example = "홍길동"
+    )
             @RequestParam(name = "name", required = false) String name
     ){
 
