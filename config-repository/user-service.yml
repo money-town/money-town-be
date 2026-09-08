@@ -4,3 +4,20 @@ server:
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/user_db}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        "[enable.idempotence]": true
+
+outbox:
+  publish:
+    batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
+    fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:1000}
+    recovery-delay-ms: ${OUTBOX_PUBLISH_RECOVERY_DELAY_MS:30000}
+    max-failed-attempts: ${OUTBOX_PUBLISH_MAX_FAILED_ATTEMPTS:3}
+    retry-delay-seconds: ${OUTBOX_PUBLISH_RETRY_DELAY_SECONDS:30}
+    processing-timeout-seconds: ${OUTBOX_PUBLISH_PROCESSING_TIMEOUT_SECONDS:300}
