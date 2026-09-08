@@ -106,7 +106,7 @@ public class SecurityConfig {
                         .pathMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/kyc-verifications/me"
-                        ).hasRole("ADMIN")
+                        ).authenticated()
 
                         // 관리자 KYC 심사 목록·단건 조회
                         .pathMatchers(

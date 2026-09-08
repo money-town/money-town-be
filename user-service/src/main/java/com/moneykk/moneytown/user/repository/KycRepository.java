@@ -65,4 +65,7 @@ public interface KycRepository extends JpaRepository<Kyc, UUID> {
 
     // 단건 조회
     Optional<Kyc> findByIdAndIsDeletedFalse(UUID kycId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Kyc> findTopByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(UUID userId);
 }

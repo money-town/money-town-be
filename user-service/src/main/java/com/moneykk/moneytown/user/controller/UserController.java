@@ -3,15 +3,12 @@ package com.moneykk.moneytown.user.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
-import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
-import com.moneykk.moneytown.user.dto.response.SignupResponse;
 import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.service.UserService;
 import jakarta.validation.Valid;
-import jakarta.ws.rs.PATCH;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,7 +30,7 @@ public class UserController {
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
 
 
-        return ApiResponse.success(userService.getUser(userId),
+        return ApiResponse.success(userService.getUserMe(userId),
                 "내 정보 조회 성공");
     }
 
@@ -105,14 +102,6 @@ public class UserController {
         return ApiResponse.success(null,"사용자 탈퇴 처리 성공");
     }
 
-
-    @GetMapping("/{userId}/investment-eligibility")
-    public ApiResponse<UserInvestmentEligibilityResponse> getInvestmentEligibility(
-            @PathVariable("userId") UUID userId
-    ){
-        return ApiResponse.success(userService.getInvestmentEligibility(userId),
-                "사용자 최신 상태 조회 성공");
-    }
 
 
 

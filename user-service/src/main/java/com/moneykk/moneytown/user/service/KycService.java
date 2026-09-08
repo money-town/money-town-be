@@ -33,9 +33,10 @@ public class KycService {
 
 
     // 내 kyc 현재 상태 조회
-    @Transactional(readOnly = true)
+    @Transactional
     public KycResponse getCurrent(UUID userId){
-        validateUserExists(userId);
+        expireIfNeeded(userId);
+
 
         Kyc kyc = kycRepository.findFirstByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId)
                 .orElseThrow(() -> new BusinessException(KycErrorCode.KYC_NOT_FOUND));
@@ -44,9 +45,9 @@ public class KycService {
     }
 
     // 내 kyc 이력 조회
-    @Transactional(readOnly = true)
+    @Transactional
     public List<KycResponse> getHistory(UUID userId){
-        validateUserExists(userId);
+        expireIfNeeded(userId);
         List<Kyc> kyc = kycRepository.findAllByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId);
 
         return kyc.stream()
@@ -61,6 +62,8 @@ public class KycService {
     // kyc 신청
     @Transactional
     public KycResponse apply(UUID userId, KycApplyRequest request) {
+        expireIfNeeded(userId);
+
         User user = userRepository.findByUserIdForUpdate(userId).
                 orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
@@ -188,7 +191,30 @@ public class KycService {
 
 
 
+
+
     // 검증 로직
+
+    @Transactional
+    public void expireIfNeeded(UUID userId){
+        Instant now = Instant.now();
+
+        User user = userRepository.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        if(user.getKycStatus() != KycStatus.VERIFIED
+                || user.getKycExpiresAt() == null
+                || user.getKycExpiresAt().isAfter(now)){
+            return;
+        }
+        Kyc kyc = kycRepository.findTopByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId)
+                .orElseThrow(() -> new BusinessException(KycErrorCode.KYC_NOT_FOUND));
+
+        kyc.expire(now);
+        user.expireKyc(now);
+
+
+    }
 
     // 신청 사용자 잠금 조회
     private User findApplicantForUpdate(UUID kycId) {
@@ -223,12 +249,6 @@ public class KycService {
             );
         }
 
-    }
-
-    private void validateUserExists(UUID userId) {
-        if(!userRepository.existsByUserIdAndIsDeletedFalse(userId)){
-            throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
-        }
     }
 
 

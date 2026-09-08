@@ -38,7 +38,7 @@ public class KycController {
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
 
 
-        return ApiResponse.success(kycService.getHistory(userId),"" +
+        return ApiResponse.success(kycService.getHistory(userId),
                 "KYC 이력 조회 성공");
     }
 

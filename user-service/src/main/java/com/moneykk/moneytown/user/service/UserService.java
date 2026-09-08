@@ -20,12 +20,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
+    private final KycService kycService;
 
    //
-    @Transactional(readOnly = true)
+    @Transactional
     public UserInvestmentEligibilityResponse getInvestmentEligibility(
             UUID userId
     ){
+        kycService.expireIfNeeded(userId);
+
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
@@ -52,8 +55,10 @@ public class UserService {
     }
 
     // 회원 단일 조회
-    @Transactional(readOnly = true)
+    @Transactional
     public UserResponse getUser(UUID userId){
+        kycService.expireIfNeeded(userId);
+
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId).
                 orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
@@ -61,8 +66,10 @@ public class UserService {
     }
 
     // 내 정보 조회
-    @Transactional(readOnly = true)
+    @Transactional
     public UserResponse getUserMe(UUID userId){
+        kycService.expireIfNeeded(userId);
+
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
