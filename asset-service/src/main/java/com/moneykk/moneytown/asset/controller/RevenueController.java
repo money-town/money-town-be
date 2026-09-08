@@ -9,6 +9,8 @@ import com.moneykk.moneytown.asset.service.RevenueCommandService;
 import com.moneykk.moneytown.asset.service.RevenueQueryService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -25,6 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/assets")
 @RequiredArgsConstructor
+@Tag(name = "Revenue", description = "자산 수익 관리 API")
 public class RevenueController {
 
     private final RevenueQueryService revenueQueryService;
@@ -33,6 +36,7 @@ public class RevenueController {
     /**
      * 정산 회차 개시 시 수익 금액 조회
      */
+    @Operation(summary = "자산 수익 단건 조회")
     @GetMapping("/{assetId}/revenues/{revenueId}")
     public ApiResponse<RevenueDetailResponse> getRevenue(
             @PathVariable UUID assetId,
@@ -50,6 +54,7 @@ public class RevenueController {
     /**
      * 정산 서비스 전달 결과 반영
      */
+    @Operation(summary = "수익 정산 전달 상태 변경")
     @PatchMapping("/revenues/{revenueId}/transfer-status")
     public ApiResponse<RevenueTransferStatusResponse> updateTransferStatus(
             @PathVariable UUID revenueId,
@@ -68,6 +73,7 @@ public class RevenueController {
     /**
      * 자산 수익 등록
      */
+    @Operation(summary = "자산 수익 등록")
     @PostMapping("/{assetId}/revenues")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<RevenueDetailResponse> createRevenue(
@@ -94,6 +100,7 @@ public class RevenueController {
     /**
      * 자산별 수익 목록 조회
      */
+    @Operation(summary = "자산 수익 목록 조회")
     @GetMapping("/{assetId}/revenues")
     public ApiResponse<RevenueListResponse> getRevenues(
             @PathVariable UUID assetId,
