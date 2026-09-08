@@ -2,7 +2,7 @@ name: Publish to ECR
 
 on:
   push:
-    branches: [main]   # ← 임시: dev 미동기화로 workflow_run/workflow_dispatch가 등록 안 돼서 우회. After 측정 끝나면 이 블록과 아래 if의 push 케이스 삭제
+    branches: [main]   # ← 임시: dev 미동기화로 workflow_run/workflow_dispatch가 등록 안 돼서 우회.
   workflow_run:
     workflows: [CI]
     types: [completed]
