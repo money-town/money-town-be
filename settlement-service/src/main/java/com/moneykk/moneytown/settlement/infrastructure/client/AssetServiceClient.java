@@ -29,7 +29,7 @@ public interface AssetServiceClient {
     ApiResponse<HoldingsSnapshotResponse> getHoldingsSnapshot(@RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
                                                                @PathVariable("assetId") UUID assetId,
                                                                @RequestParam("asOf") LocalDate asOf,
-                                                               @RequestParam(value = "cursor", required = false) String cursor);
+                                                               @RequestParam(value = "cursor", required = false) UUID cursor);
 
     @PatchMapping("/api/v1/assets/revenues/{revenueId}/transfer-status")
     ApiResponse<RevenueTransferStatusUpdateResponse> updateRevenueTransferStatus(
