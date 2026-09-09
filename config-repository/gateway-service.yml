@@ -12,7 +12,7 @@ spring:
             - id: user-service-route
               uri: lb://user-service
               predicates:
-                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**
+                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**,/api/v1/issuer-applications/**
 
             # 실제 Wallet API
             - id: wallet-service-route
@@ -137,7 +137,6 @@ springdoc:
     urls:
       - name: User Service
         url: /api-docs/user-service
-        # 임시 제거
       - name: Wallet Service
         url: /api-docs/wallet-service
       - name: Asset Service
