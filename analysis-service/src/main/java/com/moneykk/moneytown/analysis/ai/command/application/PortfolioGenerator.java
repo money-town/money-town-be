@@ -212,7 +212,7 @@ public class PortfolioGenerator {
         List<UUID> ids = offerings.stream()
                 .map(OfferingSummary::assetId).distinct().toList();
         try{
-            ApiResponse<List<AssetSummary>> resp = assetServiceClient.getAssets(ids);
+            ApiResponse<List<AssetSummary>> resp = assetServiceClient.getAssets("SYSTEM", ids);
             if (resp == null || !resp.success() || resp.data() == null) {
                 return Map.of();
             }

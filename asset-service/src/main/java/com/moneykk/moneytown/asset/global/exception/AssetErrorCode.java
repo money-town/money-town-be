@@ -33,6 +33,7 @@ public enum AssetErrorCode implements ErrorCode {
     ASSET_DOCUMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_09", "자산 문서를 관리할 권한이 없습니다."),
     HOLDING_READ_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_10", "내 보유지분을 조회할 권한이 없습니다."),
     HOLDING_ADJUSTMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_11", "보유지분을 조정할 권한이 없습니다."),
+    INTERNAL_API_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_12", "내부 API는 SYSTEM 권한으로만 호출할 수 있습니다."),
 
     ASSET_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_01", "존재하지 않는 자산입니다."),
     REVENUE_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_02", "존재하지 않는 수익입니다."),
