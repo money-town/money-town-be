@@ -97,6 +97,9 @@ public class WalletHoldService {
     {
         UUID subscriptionId = UUID.fromString(event.aggregateId());
 
+        // HOLD 커밋 전에 확정 이벤트가 먼저 도착하는 레이스 방지
+        acquireSubscriptionLock(subscriptionId);
+
         WalletHold hold = walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId).orElse(null);
         // hold가 없거나 이미 COMMITTED면 중복 수신 — 조용히 종료 (재차감 방지)
         if (hold == null || hold.getStatus() != WalletHoldStatus.HELD) {
@@ -190,9 +193,7 @@ public class WalletHoldService {
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "REFUND", transaction.getId(), hold.getAmount()));
     }
 
-    // subscriptionId 기준으로 processReservation()과 compensateHold()를 직렬화한다.
-    // 두 메서드가 각각 다른 테이블(p_wallet_holds/p_wallet_expired_reservations)에 쓰기 때문에
-    // 테이블 내 UNIQUE 제약만으로는 "둘 중 하나만 생성됨"을 보장할 수 없어서 추가함.
+    // subscriptionId 기준으로 processReservation()/confirmHold()/compensateHold()를 직렬화한다.
     // 트랜잭션 스코프 락이라 커밋/롤백 시 자동 해제됨.
     private void acquireSubscriptionLock(UUID subscriptionId) {
         entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(:key)")

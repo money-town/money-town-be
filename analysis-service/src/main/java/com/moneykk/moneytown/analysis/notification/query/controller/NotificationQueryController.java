@@ -8,6 +8,8 @@ import com.moneykk.moneytown.analysis.notification.query.dto.NotificationSearchC
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+@Tag(name = "알림", description = "알림 조회 API")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/analysis/notifications")
@@ -26,6 +29,10 @@ public class NotificationQueryController {
 
     private final NotificationQueryService queryService;
 
+    @Operation(
+            summary = "알림 목록 조회 (관리자)",
+            description = "ADMIN이 알림 발송 이력을 조건·페이지로 조회합니다."
+    )
     @GetMapping
     public ApiResponse<PageResponse<NotificationListItemResponse>> getNotifications(
             @RequestHeader(value = "X-User-Role", required = false) String role,
@@ -39,6 +46,10 @@ public class NotificationQueryController {
         return ApiResponse.success(queryService.search(condition, pageable), "알림 목록을 조회했습니다.");
     }
 
+    @Operation(
+            summary = "알림 상세 조회 (관리자)",
+            description = "ADMIN이 알림 단건을 조회합니다."
+    )
     @GetMapping("/{notificationId}")
     public ApiResponse<NotificationDetailResponse> getNotification(
             @RequestHeader(value = "X-User-Role", required = false) String role,

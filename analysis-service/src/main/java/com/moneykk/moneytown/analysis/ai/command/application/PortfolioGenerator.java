@@ -84,8 +84,13 @@ public class PortfolioGenerator {
             );
 
             // 6. 저장
-            portfolioStore.complete(portfolioId,
+            boolean won = portfolioStore.complete(portfolioId,
                     objectMapper.writeValueAsString(rec), elapsed(t0));
+
+            if(!won){
+                log.info("이미 종결된 포트폴리오 {} - 생성 결과 폐기", portfolioId);
+                return;
+            }
             log.info("AI 포트폴리오 생성 완료 portfolioId={} ({}ms)", portfolioId, elapsed(t0));
         }catch (Exception e){
             log.error("AI 포트폴리오 생성 실패 portfolioId={}", portfolioId, e);

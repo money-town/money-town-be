@@ -17,6 +17,6 @@ public interface AssetServiceClient {
     @GetMapping("/api/v1/internal/assets")
     ApiResponse<List<AssetSummary>> getAssets(
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
-            @RequestParam List<UUID> assetIds
-    );
+            @RequestParam("assetIds") List<UUID> assetIds
+            );
 }

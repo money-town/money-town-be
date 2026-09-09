@@ -32,9 +32,8 @@ public class PortFolioCommandService {
 
     private static final String PROMPT_VERSION = "v1";
 
-    public CreatePortfolioResponse createPortfolio(UUID userId, UUID idempotencyKey, CreatePortfolioRequest request) {
-        UUID key = (idempotencyKey != null) ? idempotencyKey : UUID.randomUUID();
-
+    public CreatePortfolioResponse createPortfolio(UUID userId, UUID key, CreatePortfolioRequest request) {
+        
         Optional<Portfolio> existing = portfolioStore.findByUserIdAndIdempotencyKey(userId, key);
         if(existing.isPresent()){
             return CreatePortfolioResponse.from(existing.get());

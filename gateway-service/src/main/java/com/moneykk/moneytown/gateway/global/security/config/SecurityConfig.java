@@ -25,7 +25,6 @@ public class SecurityConfig {
     private final GatewayAccessDeniedHandler accessDeniedHandler;
 
 
-
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(
             ServerHttpSecurity http,
@@ -47,83 +46,177 @@ public class SecurityConfig {
                 )
 
                 .authorizeExchange(exchange -> exchange
-                        // CORS 사전 요청
-                        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                                // CORS 사전 요청
+                                .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // 공개 Auth API
-                        .pathMatchers(
-                                HttpMethod.POST,
-                                "/api/v1/auth/signup",
-                                "/api/v1/auth/login",
-                                "/api/v1/auth/reissue"
-                        ).permitAll()
+                                // 외부에서 Gateway를 통한 내부 API 접근 차단
+                                .pathMatchers("/api/v1/internal/**").denyAll()
 
-                        // Swagger 및 상태 확인
-                        .pathMatchers(
-                                "/swagger-ui.html",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/actuator/health"
-                        ).permitAll()
+                                // 공개 Auth API
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/auth/signup",
+                                        "/api/v1/auth/login",
+                                        "/api/v1/auth/reissue"
+                                ).permitAll()
 
-                        // 내 정보 조회·수정·탈퇴
-                        .pathMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
-                        .pathMatchers(HttpMethod.PATCH, "/api/v1/users/me").authenticated()
-                        .pathMatchers(HttpMethod.DELETE, "/api/v1/users/me").authenticated()
+                                // Swagger 및 상태 확인
+                                .pathMatchers(
+                                        "/swagger-ui.html",
+                                        "/swagger-ui/**",
+                                        "/webjars/**",
+                                        "/v3/api-docs/**",
+                                        "/api-docs/**",
+                                        "/actuator/health"
+                                ).permitAll()
 
-                        // 관리자 사용자 목록·단건 조회
-                        .pathMatchers(
-                                HttpMethod.GET,
-                                "/api/v1/users",
-                                "/api/v1/users/{userId}"
-                        ).hasRole("ADMIN")
+                                // 내 정보 조회·수정·탈퇴
+                                .pathMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
+                                .pathMatchers(HttpMethod.PATCH, "/api/v1/users/me").authenticated()
+                                .pathMatchers(HttpMethod.DELETE, "/api/v1/users/me").authenticated()
 
-                        // 관리자 사용자 수정
-                        .pathMatchers(
-                                HttpMethod.PATCH,
-                                "/api/v1/users/{userId}"
-                        ).hasRole("ADMIN")
+                                // 관리자 사용자 목록·단건 조회
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/users",
+                                        "/api/v1/users/{userId}"
+                                ).hasRole("ADMIN")
 
-                        // 관리자 사용자 탈퇴
-                        .pathMatchers(
-                                HttpMethod.DELETE,
-                                "/api/v1/users/{userId}"
-                        ).hasRole("ADMIN")
+                                // 관리자 사용자 수정
+                                .pathMatchers(
+                                        HttpMethod.PATCH,
+                                        "/api/v1/users/{userId}"
+                                ).hasRole("ADMIN")
 
-                        // KYC 신청
-                        .pathMatchers(
-                                HttpMethod.POST,
-                                "/api/v1/kyc-verifications"
-                        ).authenticated()
+                                // 관리자 사용자 탈퇴
+                                .pathMatchers(
+                                        HttpMethod.DELETE,
+                                        "/api/v1/users/{userId}"
+                                ).hasRole("ADMIN")
 
-                        // 내 KYC 현재 상태 조회
-                        .pathMatchers(
-                                HttpMethod.GET,
-                                "/api/v1/kyc-verifications/me/current"
-                        ).authenticated()
+                                // KYC 신청
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/kyc-verifications"
+                                ).authenticated()
 
-                        // 내 KYC 이력 조회 — 명세 기준 ADMIN
-                        .pathMatchers(
-                                HttpMethod.GET,
-                                "/api/v1/kyc-verifications/me"
-                        ).authenticated()
+                                // 내 KYC 현재 상태 조회
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/kyc-verifications/me/current"
+                                ).authenticated()
 
-                        // 관리자 KYC 심사 목록·단건 조회
-                        .pathMatchers(
-                                HttpMethod.GET,
-                                "/api/v1/kyc-verifications",
-                                "/api/v1/kyc-verifications/{kycId}"
-                        ).hasRole("ADMIN")
+                                // 내 KYC 이력 조회 — 명세 기준 ADMIN
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/kyc-verifications/me"
+                                ).authenticated()
 
-                        // 관리자 KYC 승인·거절
-                        .pathMatchers(
-                                HttpMethod.PATCH,
-                                "/api/v1/kyc-verifications/{kycId}/approve",
-                                "/api/v1/kyc-verifications/{kycId}/reject"
-                        ).hasRole("ADMIN")
+                                // 관리자 KYC 심사 목록·단건 조회
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/kyc-verifications",
+                                        "/api/v1/kyc-verifications/{kycId}"
+                                ).hasRole("ADMIN")
 
-                        // 나머지 API는 JWT 인증 필요
-                        .anyExchange().authenticated()
+                                // 관리자 KYC 승인·거절
+                                .pathMatchers(
+                                        HttpMethod.PATCH,
+                                        "/api/v1/kyc-verifications/{kycId}/approve",
+                                        "/api/v1/kyc-verifications/{kycId}/reject"
+                                ).hasRole("ADMIN")
+
+                                // 발행자 권한 신청·내 신청 조회
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/issuer-applications"
+                                ).authenticated()
+
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/issuer-applications/me/current"
+                                ).authenticated()
+
+                                // 관리자 발행자 권한 신청 목록·승인·거절
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/issuer-applications"
+                                ).hasRole("ADMIN")
+
+                                .pathMatchers(
+                                        HttpMethod.PATCH,
+                                        "/api/v1/issuer-applications/{applicationId}/approve",
+                                        "/api/v1/issuer-applications/{applicationId}/reject"
+                                ).hasRole("ADMIN")
+
+                                // Offering 조회
+                                // /me와 /manage를 상세 조회보다 먼저 선언
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/offerings/me"
+                                ).hasRole("ISSUER")
+
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/offerings/manage"
+                                ).hasRole("ADMIN")
+
+                                // 공개 공모 목록·상세 조회
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/offerings",
+                                        "/api/v1/offerings/{offeringId}"
+                                ).permitAll()
+
+                                // 공모 등록·심사 요청
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/offerings"
+                                ).hasRole("ISSUER")
+
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/offerings/{offeringId}/review-requests"
+                                ).hasRole("ISSUER")
+
+                                // 공모 승인·반려·긴급 중단
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/offerings/{offeringId}/approval",
+                                        "/api/v1/offerings/{offeringId}/rejection",
+                                        "/api/v1/offerings/{offeringId}/cancellation"
+                                ).hasRole("ADMIN")
+
+                                // 공모 수정·삭제
+                                .pathMatchers(
+                                        HttpMethod.PATCH,
+                                        "/api/v1/offerings/{offeringId}"
+                                ).hasAnyRole("ISSUER", "ADMIN")
+
+                                .pathMatchers(
+                                        HttpMethod.DELETE,
+                                        "/api/v1/offerings/{offeringId}"
+                                ).hasAnyRole("ISSUER", "ADMIN")
+
+                                // 선착순 청약 접수
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/offerings/{offeringId}/subscriptions"
+                                ).hasRole("INVESTOR")
+
+                                // 내 청약 목록을 상세 조회보다 먼저 선언
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/subscriptions/me"
+                                ).hasRole("INVESTOR")
+
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/subscriptions/{subscriptionId}"
+                                ).hasAnyRole("INVESTOR", "ADMIN")
+
+                                // 마지막에 위치
+                                .anyExchange().authenticated()
                 )
 
                 .oauth2ResourceServer(oauth2 -> oauth2
