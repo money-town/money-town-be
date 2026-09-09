@@ -23,6 +23,7 @@ import java.util.UUID;
         name = "User",
         description = "사용자 조회·수정·탈퇴 API"
 )
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -38,6 +39,7 @@ public class UserController {
     )
     @GetMapping("/users/me")
     public ApiResponse<UserResponse> getUserMe(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
 
 
@@ -48,8 +50,10 @@ public class UserController {
 
     // 내 정보 수정
     @PatchMapping("/users/me")
-    public ApiResponse<UserResponse> updateUser(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
-            ,@Valid @RequestBody UpdateMyInfoRequest request){
+    public ApiResponse<UserResponse> updateUser(
+            @Parameter(hidden = true)
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @Valid @RequestBody UpdateMyInfoRequest request){
 
         return ApiResponse.success(userService.updateUser(userId, request),
                 "수정 완료");
@@ -59,7 +63,9 @@ public class UserController {
     // 회원 탈퇴
     @DeleteMapping("/users/me")
     public ApiResponse<Void> deleteUser(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @Parameter(hidden = true)
             @RequestHeader(
                     value = AuthHeaderConstants.CORRELATION_ID,
                     required = false
@@ -115,7 +121,9 @@ public class UserController {
     // 관리자 사용자 탈퇴 처리
     @DeleteMapping("/users/{userId}")
     public ApiResponse<Void> deleteUserByAdmin(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID adminId,
+            @Parameter(hidden = true)
             @RequestHeader(
                     value = AuthHeaderConstants.CORRELATION_ID,
                     required = false

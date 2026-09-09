@@ -9,6 +9,8 @@ import com.moneykk.moneytown.user.dto.response.IssuerApplicationResponse;
 import com.moneykk.moneytown.user.entity.type.IssuerApplicationStatus;
 import com.moneykk.moneytown.user.service.IssuerApplicationService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ import java.util.UUID;
         name = "Issuer Application",
         description = "발행자 권한 신청·심사 API"
 )
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/issuer-applications")
 @RequiredArgsConstructor
@@ -32,6 +35,7 @@ public class IssuerApplicationController {
     @Operation(summary = "발행자 권한 신청")
     @PostMapping
     public ApiResponse<IssuerApplicationResponse> apply(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @Valid @RequestBody IssuerApplyRequest request
     ) {
@@ -44,6 +48,7 @@ public class IssuerApplicationController {
     @Operation(summary = "내 최근 발행자 권한 신청 조회")
     @GetMapping("/me/current")
     public ApiResponse<IssuerApplicationResponse> getCurrent(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
     ) {
         return ApiResponse.success(
@@ -55,6 +60,7 @@ public class IssuerApplicationController {
     @Operation(summary = "발행자 권한 신청 심사 목록 조회")
     @GetMapping
     public ApiResponse<PageResponse<IssuerApplicationResponse>> getReviewList(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID adminId,
             @RequestParam(required = false) IssuerApplicationStatus status,
             @PageableDefault(size = 10, sort = "appliedAt") Pageable pageable
@@ -75,6 +81,7 @@ public class IssuerApplicationController {
     )
     @PatchMapping("/{applicationId}/approve")
     public ApiResponse<IssuerApplicationResponse> approve(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID adminId,
             @PathVariable UUID applicationId
     ) {
@@ -87,6 +94,7 @@ public class IssuerApplicationController {
     @Operation(summary = "발행자 권한 신청 거절")
     @PatchMapping("/{applicationId}/reject")
     public ApiResponse<IssuerApplicationResponse> reject(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID adminId,
             @PathVariable UUID applicationId,
             @Valid @RequestBody IssuerRejectRequest request

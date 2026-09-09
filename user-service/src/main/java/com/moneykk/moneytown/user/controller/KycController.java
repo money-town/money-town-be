@@ -11,6 +11,7 @@ import com.moneykk.moneytown.user.entity.type.KycVerificationStatus;
 import com.moneykk.moneytown.user.service.KycService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import java.util.UUID;
         name = "KYC",
         description = "KYC 신청·조회·심사 API"
 )
+@SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/kyc-verifications")
 @RequiredArgsConstructor
@@ -36,8 +38,10 @@ public class KycController {
             description = "인증된 사용자가 KYC 심사를 신청"
     )
     @PostMapping
-    public ApiResponse<KycResponse> apply(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
-                                         @Valid @RequestBody KycApplyRequest request){
+    public ApiResponse<KycResponse> apply(
+            @Parameter(hidden = true)
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @Valid @RequestBody KycApplyRequest request){
 
 
         return ApiResponse.success(kycService.apply(userId,request), "KYC 신청 완료");
@@ -46,6 +50,7 @@ public class KycController {
 
     @GetMapping("/me")
     public ApiResponse<List<KycResponse>> getHistory(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
 
 
@@ -55,6 +60,7 @@ public class KycController {
 
     @GetMapping("/me/current")
     public ApiResponse<KycResponse> getCurrent(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID)UUID userId){
 
         return ApiResponse.success(kycService.getCurrent(userId),
@@ -93,6 +99,7 @@ public class KycController {
     )
     @PatchMapping("/{kycId}/approve")
     public ApiResponse<KycResponse> approve(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID)
             UUID adminId,
 
@@ -108,6 +115,7 @@ public class KycController {
     // 관리자 KYC 거절
     @PatchMapping("/{kycId}/reject")
     public ApiResponse<KycResponse> reject(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID)
             UUID adminId,
 
