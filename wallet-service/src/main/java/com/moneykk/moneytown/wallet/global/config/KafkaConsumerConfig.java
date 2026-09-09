@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionCompensationRequestedPayload;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
-import com.moneykk.moneytown.wallet.consumer.dto.UserRegisteredEvent;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
@@ -15,8 +14,7 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 
-// UserRegistered는 User 서비스가 자체 flat 구조로 발행하지만, Offering이 발행하는 나머지 셋은
-// 공용 EventEnvelope<T>로 감싸져 오므로 payload 타입별로 JavaType을 만들어 바인딩한다.
+// 이벤트는 전부 EventEnvelope<T>로 오므로 payload 타입별 JavaType으로 바인딩한다.
 @Configuration
 public class KafkaConsumerConfig {
 
@@ -24,15 +22,15 @@ public class KafkaConsumerConfig {
     private static final String COMMON_EVENT_PACKAGE = "com.moneykk.moneytown.common.event";
 
     @Bean
-    public ConsumerFactory<String, UserRegisteredEvent> userRegisteredConsumerFactory(KafkaProperties kafkaProperties) {
-        return consumerFactory(kafkaProperties, UserRegisteredEvent.class);
+    public ConsumerFactory<String, EventEnvelope<Object>> userAccountEventConsumerFactory(KafkaProperties kafkaProperties) {
+        return envelopeConsumerFactory(kafkaProperties, Object.class);
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, UserRegisteredEvent> userRegisteredKafkaListenerContainerFactory(
-            ConsumerFactory<String, UserRegisteredEvent> userRegisteredConsumerFactory
+    public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> userAccountEventKafkaListenerContainerFactory(
+            ConsumerFactory<String, EventEnvelope<Object>> userAccountEventConsumerFactory
     ) {
-        return containerFactory(userRegisteredConsumerFactory);
+        return containerFactory(userAccountEventConsumerFactory);
     }
 
     @Bean
@@ -73,18 +71,6 @@ public class KafkaConsumerConfig {
             ConsumerFactory<String, EventEnvelope<SubscriptionCompensationRequestedPayload>> subscriptionCompensationRequestedConsumerFactory
     ) {
         return containerFactory(subscriptionCompensationRequestedConsumerFactory);
-    }
-
-    private <T> ConsumerFactory<String, T> consumerFactory(KafkaProperties kafkaProperties, Class<T> type) {
-        JsonDeserializer<T> deserializer = new JsonDeserializer<>(type);
-        deserializer.addTrustedPackages(CONSUMER_DTO_PACKAGE);
-        deserializer.setUseTypeHeaders(false);
-
-        return new DefaultKafkaConsumerFactory<>(
-                kafkaProperties.buildConsumerProperties(null),
-                new StringDeserializer(),
-                deserializer
-        );
     }
 
     private <T> ConsumerFactory<String, EventEnvelope<T>> envelopeConsumerFactory(KafkaProperties kafkaProperties, Class<T> payloadType) {
