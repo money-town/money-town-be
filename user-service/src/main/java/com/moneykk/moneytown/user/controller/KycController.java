@@ -9,6 +9,9 @@ import com.moneykk.moneytown.user.dto.request.KycRejectRequest;
 import com.moneykk.moneytown.user.dto.response.KycResponse;
 import com.moneykk.moneytown.user.entity.type.KycVerificationStatus;
 import com.moneykk.moneytown.user.service.KycService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -18,13 +21,21 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+@Tag(
+        name = "KYC",
+        description = "KYC 신청·조회·심사 API"
+)
 @RestController
 @RequestMapping("/api/v1/kyc-verifications")
 @RequiredArgsConstructor
 public class KycController {
     private final KycService kycService;
 
-    @PostMapping()
+    @Operation(
+            summary = "KYC 신청",
+            description = "인증된 사용자가 KYC 심사를 신청"
+    )
+    @PostMapping
     public ApiResponse<KycResponse> apply(@RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
                                          @Valid @RequestBody KycApplyRequest request){
 
@@ -76,20 +87,21 @@ public class KycController {
 
     }
 
-    // 관리자 KYC 승인
+    @Operation(
+            summary = "KYC 심사 승인",
+            description = "KYC 신청을 승인하고 만료 시각을 설정. ADMIN 권한 필요"
+    )
     @PatchMapping("/{kycId}/approve")
     public ApiResponse<KycResponse> approve(
             @RequestHeader(AuthHeaderConstants.USER_ID)
             UUID adminId,
 
+            @Parameter(description = "KYC 신청 ID", required = true)
             @PathVariable("kycId")
-            UUID kycId,
-
-            @Valid @RequestBody
-            KycApproveRequest request
+            UUID kycId
     ) {
         return ApiResponse.success(
-                kycService.approve(adminId, kycId, request.expiresAt()),
+                kycService.approve(adminId, kycId),
                 "KYC 승인 완료");
     }
 

@@ -9,6 +9,9 @@ import com.moneykk.moneytown.user.dto.response.LoginResponse;
 import com.moneykk.moneytown.user.dto.response.SignupResponse;
 import com.moneykk.moneytown.user.dto.response.TokenResponse;
 import com.moneykk.moneytown.user.service.AuthService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +22,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+@Tag(
+        name = "Auth",
+        description = "회원가입·로그인·토큰 관리 API"
+)
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -26,7 +33,7 @@ public class AuthController {
     private final AuthService authService;
 
 
-    // 로그인
+
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request){
 
@@ -36,7 +43,11 @@ public class AuthController {
 
     }
 
-    // 로그아웃
+    @Operation(
+            summary = "로그아웃",
+            description = "사용자의 활성 Refresh Token 폐기",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
     @PostMapping("/logout")
     public ApiResponse<Void> logout(
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
@@ -45,6 +56,10 @@ public class AuthController {
         return ApiResponse.success(null, "로그아웃 성공");
     }
 
+    @Operation(
+            summary = "회원가입",
+            description = "이메일과 사용자 정보를 이용해 회원가입"
+    )
     // 회원가입
     @PostMapping("/signup")
     public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request){

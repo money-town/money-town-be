@@ -21,6 +21,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -30,6 +31,7 @@ import java.util.UUID;
 public class KycService {
     private final KycRepository kycRepository;
     private final UserRepository userRepository;
+    private static final Duration KYC_VALIDITY_PERIOD = Duration.ofDays(365);
 
 
     // 내 kyc 현재 상태 조회
@@ -101,8 +103,7 @@ public class KycService {
     @Transactional
     public KycResponse approve(
             UUID adminId,
-            UUID kycId,
-            Instant expiresAt
+            UUID kycId
     ) {
         // 신청 사용자 잠금 조회
         User user = findApplicantForUpdate(kycId);
@@ -111,6 +112,8 @@ public class KycService {
         Kyc kyc = kycRepository.findByIdForUpdate(kycId)
                 .orElseThrow(() ->
                         new BusinessException(KycErrorCode.KYC_NOT_FOUND));
+
+        Instant expiresAt = Instant.now().plus(KYC_VALIDITY_PERIOD);
 
 
         // 활성 계정 확인

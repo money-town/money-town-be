@@ -50,6 +50,9 @@ public class SecurityConfig {
                         // CORS 사전 요청
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
+                        // 외부에서 Gateway를 통한 내부 API 접근 차단
+                        .pathMatchers("/api/v1/internal/**").denyAll()
+
                         // 공개 Auth API
                         .pathMatchers(
                                 HttpMethod.POST,
@@ -62,7 +65,9 @@ public class SecurityConfig {
                         .pathMatchers(
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
+                                "/webjars/**",
                                 "/v3/api-docs/**",
+                                "/api-docs/**",
                                 "/actuator/health"
                         ).permitAll()
 
