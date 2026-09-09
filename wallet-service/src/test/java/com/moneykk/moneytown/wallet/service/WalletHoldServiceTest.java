@@ -172,6 +172,25 @@ class WalletHoldServiceTest {
     }
 
     @Test
+    @DisplayName("HELD 상태의 확정 요청은 실제 잔액을 차감하고 COMMITTED로 전이한다")
+    void confirmHold_held_deductsAndCommits() {
+        Wallet wallet = walletWithId(1L, 1_000L);
+        wallet.hold(1_000L);
+        WalletHold hold = walletHoldWithId(1L, wallet.getId(), subscriptionId, 1_000L);
+        when(walletHoldRepository.findBySubscriptionIdForUpdate(subscriptionId)).thenReturn(Optional.of(hold));
+        when(walletRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(wallet));
+
+        walletHoldService.confirmHold(confirmedEvent());
+
+        assertEquals(0L, wallet.getBalance());
+        assertEquals(0L, wallet.getHoldBalance());
+        assertEquals(WalletHoldStatus.COMMITTED, hold.getStatus());
+        verify(walletTransactionRepository).save(any());
+        // 레이스 방지 락도 잡는지 확인
+        verify(entityManager).createNativeQuery(any(String.class));
+    }
+
+    @Test
     @DisplayName("HELD 상태의 보상 요청은 동결을 해제(UNHOLD)한다")
     void compensateHold_held_releasesHold() {
         Wallet wallet = walletWithId(1L, 1_000L);
