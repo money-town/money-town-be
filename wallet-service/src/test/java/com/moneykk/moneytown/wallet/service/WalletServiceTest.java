@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
+import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
@@ -258,6 +259,38 @@ class WalletServiceTest {
         TransactionResponse response = walletService.withdraw(investorId, "key-1", 500L);
 
         assertEquals(TransactionResponse.from(winner), response);
+    }
+
+    @Test
+    @DisplayName("ADMIN 권한이면 지갑 상세 정보를 조회한다")
+    void getWalletDetail_admin_returnsDetail() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findById(1L)).thenReturn(Optional.of(wallet));
+
+        AdminWalletDetailResponse response = walletService.getWalletDetail(1L, "ADMIN");
+
+        assertEquals(AdminWalletDetailResponse.from(wallet), response);
+    }
+
+    @Test
+    @DisplayName("ADMIN 권한이 아니면 지갑 조회 없이 거부한다")
+    void getWalletDetail_nonAdmin_throwsBusinessException() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getWalletDetail(1L, "INVESTOR"));
+
+        assertEquals(WalletErrorCode.WALLET_ADMIN_ACCESS_DENIED, exception.getErrorCode());
+        verify(walletRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("ADMIN 권한이어도 존재하지 않는 지갑이면 404를 반환한다")
+    void getWalletDetail_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findById(1L)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getWalletDetail(1L, "ADMIN"));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
     }
 
     private ApiResponse<UserInvestmentEligibilityResponse> eligibleResponse() {
