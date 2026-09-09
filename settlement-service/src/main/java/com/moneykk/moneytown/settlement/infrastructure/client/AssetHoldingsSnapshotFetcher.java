@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -35,8 +36,11 @@ public class AssetHoldingsSnapshotFetcher {
             }
 
             UUID requestCursor = cursor;
+            // LocalDate를 그대로 넘기면 Feign이 호출 스레드의 로케일에 따라 날짜 형식을 바꿔버려
+            // 자산 서비스의 ISO 형식 검증(@DateTimeFormat(iso = ISO.DATE))에서 400이 나므로, ISO 문자열로 직접 포맷한다.
+            String asOfIso = asOf.format(DateTimeFormatter.ISO_LOCAL_DATE);
             HoldingsSnapshotResponse page = FeignExceptionTranslator.call(
-                    () -> assetServiceClient.getHoldingsSnapshot(SYSTEM_ROLE, assetId, asOf, requestCursor).data(),
+                    () -> assetServiceClient.getHoldingsSnapshot(SYSTEM_ROLE, assetId, asOfIso, requestCursor).data(),
                     SettlementErrorCode.ASSET_HOLDINGS_NOT_FOUND);
 
             if (page.holdings() != null) {
