@@ -10,6 +10,7 @@ import com.moneykk.moneytown.user.dto.response.TokenResponse;
 import com.moneykk.moneytown.user.entity.RefreshToken;
 import com.moneykk.moneytown.user.entity.User;
 import com.moneykk.moneytown.user.entity.type.AccountStatus;
+import com.moneykk.moneytown.user.event.UserAccountEventWriter;
 import com.moneykk.moneytown.user.global.exception.AuthErrorCode;
 import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.global.security.jwt.IssuedToken;
@@ -39,6 +40,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final UserAccountEventWriter userAccountEventWriter;
 
 
     // 로그인
@@ -87,7 +89,10 @@ public class AuthService {
 
     // 회원가입
     @Transactional
-    public SignupResponse signup(SignupRequest request) {
+    public SignupResponse signup(
+            SignupRequest request,
+            String correlationId
+    ) {
         validateDuplicateEmail(request.email());
         validateDuplicatePhone(request.phone());
 
@@ -101,6 +106,10 @@ public class AuthService {
 
         User savedUser = userRepository.save(user);
 
+        userAccountEventWriter.recordRegistered(
+                savedUser.getUserId(),
+                correlationId
+        );
 
         return SignupResponse.from(savedUser);
     }

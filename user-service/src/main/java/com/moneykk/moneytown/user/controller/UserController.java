@@ -58,9 +58,14 @@ public class UserController {
 
     // 회원 탈퇴
     @DeleteMapping("/users/me")
-    public ApiResponse<Void> deleteUser(@RequestHeader(AuthHeaderConstants.USER_ID)
-                                            UUID userId){
-        userService.deleteUser(userId);
+    public ApiResponse<Void> deleteUser(
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
+            @RequestHeader(
+                    value = AuthHeaderConstants.CORRELATION_ID,
+                    required = false
+            ) String correlationId
+    ) {
+        userService.deleteUser(userId, correlationId);
 
         return ApiResponse.success(null,
                 "삭제 완료");
@@ -109,11 +114,15 @@ public class UserController {
 
     // 관리자 사용자 탈퇴 처리
     @DeleteMapping("/users/{userId}")
-    public ApiResponse<Void> deleteUserByAdmin(@RequestHeader(AuthHeaderConstants.USER_ID)
-            UUID adminId,
-            @PathVariable("userId")
-            UUID userId){
-        userService.deleteUserByAdmin(adminId,userId);
+    public ApiResponse<Void> deleteUserByAdmin(
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID adminId,
+            @RequestHeader(
+                    value = AuthHeaderConstants.CORRELATION_ID,
+                    required = false
+            ) String correlationId,
+            @PathVariable("userId") UUID userId
+    ) {
+        userService.deleteUserByAdmin(adminId, userId, correlationId);
 
 
 

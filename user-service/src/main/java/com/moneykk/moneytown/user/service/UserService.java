@@ -7,6 +7,7 @@ import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.entity.User;
+import com.moneykk.moneytown.user.event.UserAccountEventWriter;
 import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository userRepository;
     private final KycService kycService;
+    private final UserAccountEventWriter userAccountEventWriter;
 
    //
     @Transactional
@@ -104,12 +106,19 @@ public class UserService {
 
     // 회원 탈퇴
     @Transactional
-    public UserResponse deleteUser(UUID userId){
+    public UserResponse deleteUser(
+            UUID userId,
+            String correlationId
+    ) {
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        // TODO UserWithdrawn Outbox 이벤트 동일 트랜잭션 저장
         user.withdraw(userId);
+        userAccountEventWriter.recordWithdrawn(
+                userId,
+                userId,
+                correlationId
+        );
 
         return UserResponse.from(user);
     }
@@ -134,7 +143,11 @@ public class UserService {
 
     // 관리자 회원 탈퇴
     @Transactional
-    public void deleteUserByAdmin(UUID adminId,UUID userId){
+    public void deleteUserByAdmin(
+            UUID adminId,
+            UUID userId,
+            String correlationId
+    ) {
         if(adminId.equals(userId)){
             throw new BusinessException(UserErrorCode.ADMIN_SELF_WITHDRAWAL_NOT_ALLOWED);
         }
@@ -143,8 +156,11 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.withdraw(adminId);
-
-        // TODO UserWithdrawn Outbox 이벤트 동일 트랜잭션 저장
+        userAccountEventWriter.recordWithdrawn(
+                userId,
+                adminId,
+                correlationId
+        );
 
     }
 
