@@ -137,16 +137,16 @@ springdoc:
     urls:
       - name: User Service
         url: /api-docs/user-service
-#      - name: Wallet Service
-#        url: /api-docs/wallet-service
-#      - name: Asset Service
-#        url: /api-docs/asset-service
-#      - name: Offering Service
-#        url: /api-docs/offering-service
-#      - name: Settlement Service
-#        url: /api-docs/settlement-service
-#      - name: Analysis Service
-#        url: /api-docs/analysis-service
+      - name: Wallet Service
+        url: /api-docs/wallet-service
+      - name: Asset Service
+        url: /api-docs/asset-service
+      - name: Offering Service
+        url: /api-docs/offering-service
+      - name: Settlement Service
+        url: /api-docs/settlement-service
+      - name: Analysis Service
+        url: /api-docs/analysis-service
 
 security:
   jwt:
