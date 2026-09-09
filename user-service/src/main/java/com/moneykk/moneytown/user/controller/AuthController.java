@@ -62,10 +62,16 @@ public class AuthController {
     )
     // 회원가입
     @PostMapping("/signup")
-    public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request){
+    public ApiResponse<SignupResponse> signup(
+            @Valid @RequestBody SignupRequest request,
+            @RequestHeader(
+                    value = AuthHeaderConstants.CORRELATION_ID,
+                    required = false
+            ) String correlationId
+    ) {
 
 
-        return ApiResponse.success(authService.signup(request),
+        return ApiResponse.success(authService.signup(request, correlationId),
                 "회원가입 성공");
     }
 

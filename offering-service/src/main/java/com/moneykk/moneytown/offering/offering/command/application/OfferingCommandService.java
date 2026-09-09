@@ -354,7 +354,7 @@ public class OfferingCommandService {
             UUID assetId
     ) {
         try {
-            return assetServiceClient.getAsset(assetId);
+            return assetServiceClient.getAsset("SYSTEM",assetId);
 
         } catch (FeignException.NotFound e) {
             throw new BusinessException(

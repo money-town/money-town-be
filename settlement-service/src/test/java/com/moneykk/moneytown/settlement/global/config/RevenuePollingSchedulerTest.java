@@ -52,7 +52,7 @@ class RevenuePollingSchedulerTest {
         RevenueResponse revenue2 = revenue(UUID.randomUUID(), UUID.randomUUID());
         SettlementBatchResponse response1 = batchResponse(revenue1);
         SettlementBatchResponse response2 = batchResponse(revenue2);
-        when(assetServiceClient.getReadyRevenues(null))
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
                 .thenReturn(ApiResponse.success(page(List.of(revenue1, revenue2), null, false), null));
         when(settlementCommandService.openBatchAutomatically(revenue1.assetId(), revenue1.revenueId()))
                 .thenReturn(response1);
@@ -75,9 +75,9 @@ class RevenuePollingSchedulerTest {
         RevenueResponse revenue1 = revenue(UUID.randomUUID(), UUID.randomUUID());
         RevenueResponse revenue2 = revenue(UUID.randomUUID(), UUID.randomUUID());
         UUID cursor = revenue1.revenueId();
-        when(assetServiceClient.getReadyRevenues(null))
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
                 .thenReturn(ApiResponse.success(page(List.of(revenue1), cursor, true), null));
-        when(assetServiceClient.getReadyRevenues(cursor))
+        when(assetServiceClient.getReadyRevenues("SYSTEM", cursor))
                 .thenReturn(ApiResponse.success(page(List.of(revenue2), null, false), null));
         when(settlementCommandService.openBatchAutomatically(revenue1.assetId(), revenue1.revenueId()))
                 .thenReturn(batchResponse(revenue1));
@@ -95,7 +95,7 @@ class RevenuePollingSchedulerTest {
     void continuesToNextRevenueWhenOneFails() {
         RevenueResponse failing = revenue(UUID.randomUUID(), UUID.randomUUID());
         RevenueResponse succeeding = revenue(UUID.randomUUID(), UUID.randomUUID());
-        when(assetServiceClient.getReadyRevenues(null))
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
                 .thenReturn(ApiResponse.success(page(List.of(failing, succeeding), null, false), null));
         when(settlementCommandService.openBatchAutomatically(failing.assetId(), failing.revenueId()))
                 .thenThrow(new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET));
@@ -112,7 +112,7 @@ class RevenuePollingSchedulerTest {
     @Test
     @DisplayName("대기 중인 수익이 없으면 아무 것도 시도하지 않는다")
     void doesNothingWhenNoReadyRevenues() {
-        when(assetServiceClient.getReadyRevenues(null))
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
                 .thenReturn(ApiResponse.success(page(List.of(), null, false), null));
 
         revenuePollingScheduler.pollReadyRevenues();

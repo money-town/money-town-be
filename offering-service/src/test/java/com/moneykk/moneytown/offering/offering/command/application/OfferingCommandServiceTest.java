@@ -74,7 +74,7 @@ class OfferingCommandServiceTest {
                         "사용자 조회 성공"
                 ));
 
-        when(assetServiceClient.getAsset(assetId))
+        when(assetServiceClient.getAsset("SYSTEM",assetId))
                 .thenReturn(ApiResponse.success(
                         asset,
                         "자산 조회 성공"
@@ -100,7 +100,7 @@ class OfferingCommandServiceTest {
                 .getInvestmentEligibility(issuerId);
 
         verify(assetServiceClient)
-                .getAsset(assetId);
+                .getAsset("SYSTEM",assetId);
 
         verify(offeringTransactionService)
                 .createOffering(
@@ -326,7 +326,7 @@ class OfferingCommandServiceTest {
         AssetOfferingInfoResponse asset =
                 availableAsset(assetId, issuerId);
 
-        when(assetServiceClient.getAsset(assetId))
+        when(assetServiceClient.getAsset("SYSTEM",assetId))
                 .thenReturn(ApiResponse.success(
                         asset,
                         "자산 조회 성공"
@@ -360,7 +360,7 @@ class OfferingCommandServiceTest {
         verifyNoInteractions(userServiceClient);
 
         verify(assetServiceClient)
-                .getAsset(assetId);
+                .getAsset("SYSTEM",assetId);
 
         verify(offeringTransactionService)
                 .updateOffering(
