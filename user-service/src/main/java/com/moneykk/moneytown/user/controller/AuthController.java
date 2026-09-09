@@ -10,6 +10,7 @@ import com.moneykk.moneytown.user.dto.response.SignupResponse;
 import com.moneykk.moneytown.user.dto.response.TokenResponse;
 import com.moneykk.moneytown.user.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -50,6 +51,7 @@ public class AuthController {
     )
     @PostMapping("/logout")
     public ApiResponse<Void> logout(
+            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId
     ) {
         authService.logout(userId);
@@ -64,6 +66,7 @@ public class AuthController {
     @PostMapping("/signup")
     public ApiResponse<SignupResponse> signup(
             @Valid @RequestBody SignupRequest request,
+            @Parameter(hidden = true)
             @RequestHeader(
                     value = AuthHeaderConstants.CORRELATION_ID,
                     required = false
