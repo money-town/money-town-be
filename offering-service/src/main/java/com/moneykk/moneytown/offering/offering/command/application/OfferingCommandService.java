@@ -16,12 +16,14 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOfferingInfoResponse;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
+import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -29,8 +31,8 @@ import java.util.UUID;
 public class OfferingCommandService {
 
     private final OfferingRepository offeringRepository;
-    private final SubscriptionRepository subscriptionRepository;
     private final AssetServiceClient assetServiceClient;
+    private final UserServiceClient userServiceClient;
 
     private final OfferingTransactionService offeringTransactionService;
 
@@ -38,7 +40,7 @@ public class OfferingCommandService {
             UUID issuerId,
             OfferingCreateRequest request
     ) {
-        // TODO: User Service 연동 정책 확정 후 ACTIVE 사용자 검증 여부 결정
+        validateIssuerEligibility(issuerId);
 
         // availableShareQuantity 기준 검증
         AssetOfferingInfoResponse asset =
@@ -67,6 +69,8 @@ public class OfferingCommandService {
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
         }
+
+        validateIssuerEligibility(issuerId);
 
         // 심사 요청 시 자산의 현재 상태와 소유권을 다시 검증한다.
         validateAssetForReview(
@@ -122,6 +126,10 @@ public class OfferingCommandService {
                 role
         );
 
+        if ("ISSUER".equalsIgnoreCase(role)) {
+            validateIssuerEligibility(userId);
+        }
+
         Long targetTotalQuantity =
                 request.totalQuantity() != null
                         ? request.totalQuantity()
@@ -144,13 +152,12 @@ public class OfferingCommandService {
         );
     }
 
-    @Transactional
     public OfferingDeleteResponse deleteOffering(
             UUID offeringId,
             UUID userId,
             String role
     ) {
-        Offering offering = findOfferingForUpdate(offeringId);
+        Offering offering = findOffering(offeringId);
 
         validateOwnerOrAdmin(
                 offering,
@@ -158,20 +165,73 @@ public class OfferingCommandService {
                 role
         );
 
-        // 청약 이력이 존재하면 공모 삭제를 허용하지 않는다.
-        boolean hasSubscriptions =
-                subscriptionRepository.existsByOfferingId(offeringId);
-
-        if (hasSubscriptions) {
-            throw new BusinessException(
-                    OfferingErrorCode.OFFERING_HAS_SUBSCRIPTIONS
-            );
+        if ("ISSUER".equalsIgnoreCase(role)) {
+            validateIssuerEligibility(userId);
         }
 
-        offering.delete(userId);
-
-        return OfferingDeleteResponse.from(offering);
+        return offeringTransactionService.deleteOffering(
+                offeringId,
+                userId,
+                role
+        );
     }
+
+    /**
+     * User Service에서 최신 사용자 상태를 조회하여
+     * 공모 생성·수정·삭제 및 심사 요청 자격을 검증한다.
+     *
+     * ISSUER 역할이고 계정과 KYC가 유효한 경우에만 허용한다.
+     */
+    private void validateIssuerEligibility(UUID issuerId) {
+        try {
+            ApiResponse<UserInvestmentEligibilityResponse> response =
+                    userServiceClient.getInvestmentEligibility(issuerId);
+
+            UserInvestmentEligibilityResponse user =
+                    response != null
+                            ? response.data()
+                            : null;
+
+            validateUserResponse(
+                    issuerId,
+                    user
+            );
+
+            if (!user.isEligibleForOfferingManagement(Instant.now())) {
+                throw new BusinessException(
+                        OfferingErrorCode.OFFERING_ISSUER_ELIGIBILITY_NOT_MET
+                );
+            }
+
+        } catch (FeignException.NotFound e) {
+            throw new BusinessException(
+                    OfferingErrorCode.OFFERING_USER_NOT_FOUND
+            );
+
+        } catch (FeignException e) {
+            throw new BusinessException(
+                    OfferingErrorCode.USER_SERVICE_UNAVAILABLE
+            );
+        }
+    }
+
+    private void validateUserResponse(
+            UUID requestedUserId,
+            UserInvestmentEligibilityResponse user
+    ) {
+        if (user == null
+                || user.userId() == null
+                || !requestedUserId.equals(user.userId())
+                || user.userRole() == null
+                || user.accountStatus() == null
+                || user.kycStatus() == null
+                || user.kycExpiresAt() == null) {
+            throw new BusinessException(
+                    OfferingErrorCode.USER_RESPONSE_INVALID
+            );
+        }
+    }
+
 
     private void validateAssetForReview(
             UUID assetId,
@@ -294,7 +354,7 @@ public class OfferingCommandService {
             UUID assetId
     ) {
         try {
-            return assetServiceClient.getAsset(assetId);
+            return assetServiceClient.getAsset("SYSTEM",assetId);
 
         } catch (FeignException.NotFound e) {
             throw new BusinessException(
@@ -313,13 +373,14 @@ public class OfferingCommandService {
             UUID userId,
             String role
     ) {
-        boolean owner =
-                offering.getIssuerId().equals(userId);
+        boolean ownerIssuer =
+                "ISSUER".equalsIgnoreCase(role)
+                        && offering.getIssuerId().equals(userId);
 
         boolean admin =
                 "ADMIN".equalsIgnoreCase(role);
 
-        if (!owner && !admin) {
+        if (!ownerIssuer && !admin) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
             );

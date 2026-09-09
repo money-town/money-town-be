@@ -23,13 +23,13 @@ public interface AssetServiceClient {
 
     @GetMapping("/api/v1/assets/{assetId}/revenues/{revenueId}")
     ApiResponse<RevenueResponse> getRevenue(@PathVariable("assetId") UUID assetId,
-                                             @PathVariable("revenueId") UUID revenueId);
+                                            @PathVariable("revenueId") UUID revenueId);
 
     @GetMapping("/api/v1/assets/{assetId}/holdings")
     ApiResponse<HoldingsSnapshotResponse> getHoldingsSnapshot(@RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
-                                                               @PathVariable("assetId") UUID assetId,
-                                                               @RequestParam("asOf") LocalDate asOf,
-                                                               @RequestParam(value = "cursor", required = false) String cursor);
+                                                              @PathVariable("assetId") UUID assetId,
+                                                              @RequestParam("asOf") LocalDate asOf,
+                                                              @RequestParam(value = "cursor", required = false) UUID cursor);
 
     @PatchMapping("/api/v1/assets/revenues/{revenueId}/transfer-status")
     ApiResponse<RevenueTransferStatusUpdateResponse> updateRevenueTransferStatus(
@@ -38,7 +38,10 @@ public interface AssetServiceClient {
             @RequestBody RevenueTransferStatusUpdateRequest request);
 
     @GetMapping("/api/v1/internal/revenues")
-    ApiResponse<ReadyRevenueListResponse> getReadyRevenues(@RequestParam(value = "cursor", required = false) UUID cursor);
+    ApiResponse<ReadyRevenueListResponse> getReadyRevenues(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @RequestParam(value = "cursor", required = false) UUID cursor
+    );
 
     @PatchMapping("/api/v1/internal/assets/{assetId}/termination-completion")
     ApiResponse<Void> completeAssetTermination(

@@ -47,6 +47,9 @@ class AssetQueryServiceTest {
     @Mock
     private AssetQueryRepository assetQueryRepository;
 
+    @Mock
+    private AssetDetailCacheService assetDetailCacheService;
+
     @InjectMocks
     private AssetQueryService assetQueryService;
 
@@ -198,7 +201,8 @@ class AssetQueryServiceTest {
         ReflectionTestUtils.setField(asset, "createdAt", createdAt);
         ReflectionTestUtils.setField(asset, "updatedAt", updatedAt);
         asset.getDetailData().put("address", "서울");
-        when(assetQueryRepository.findActiveById(asset.getId())).thenReturn(Optional.of(asset));
+        when(assetDetailCacheService.getAsset(asset.getId()))
+                .thenReturn(AssetDetailResponse.from(asset));
 
         AssetDetailResponse response = assetQueryService.getAsset(asset.getId(), userId, role);
 
@@ -225,7 +229,8 @@ class AssetQueryServiceTest {
     @DisplayName("자산운용자는 다른 소유자의 자산 상세를 조회할 수 없다")
     void rejectsOtherOwnersAssetDetail() {
         Asset asset = asset(UUID.randomUUID());
-        when(assetQueryRepository.findActiveById(asset.getId())).thenReturn(Optional.of(asset));
+        when(assetDetailCacheService.getAsset(asset.getId()))
+                .thenReturn(AssetDetailResponse.from(asset));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> assetQueryService.getAsset(asset.getId(), UUID.randomUUID(), "ISSUER"));
@@ -239,7 +244,8 @@ class AssetQueryServiceTest {
     void rejectsUnapprovedAssetDetail(AssetStatus status) {
         Asset asset = asset(UUID.randomUUID());
         ReflectionTestUtils.setField(asset, "status", status);
-        when(assetQueryRepository.findActiveById(asset.getId())).thenReturn(Optional.of(asset));
+        when(assetDetailCacheService.getAsset(asset.getId()))
+                .thenReturn(AssetDetailResponse.from(asset));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> assetQueryService.getAsset(asset.getId(), UUID.randomUUID(), "INVESTOR"));
@@ -257,6 +263,7 @@ class AssetQueryServiceTest {
 
         assertEquals(AssetErrorCode.ASSET_READ_ACCESS_DENIED, exception.getErrorCode());
         verifyNoInteractions(assetQueryRepository);
+        verifyNoInteractions(assetDetailCacheService);
     }
 
     @ParameterizedTest
@@ -268,13 +275,15 @@ class AssetQueryServiceTest {
 
         assertEquals(AssetErrorCode.ASSET_READ_ACCESS_DENIED, exception.getErrorCode());
         verifyNoInteractions(assetQueryRepository);
+        verifyNoInteractions(assetDetailCacheService);
     }
 
     @Test
     @DisplayName("조회 가능한 자산이 없으면 상세 조회에서 ASSET_NOT_FOUND를 반환한다")
     void rejectsMissingAssetDetail() {
         UUID assetId = UUID.randomUUID();
-        when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.empty());
+        when(assetDetailCacheService.getAsset(assetId))
+                .thenThrow(new BusinessException(AssetErrorCode.ASSET_NOT_FOUND));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> assetQueryService.getAsset(assetId, UUID.randomUUID(), "ADMIN"));

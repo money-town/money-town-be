@@ -115,7 +115,7 @@ public class OfferingQueryService {
         // 1. 공개 상태
         if (isPublicStatus(status)) {
             boolean includePrivateFields =
-                    isOwner(offering, userId) || isAdmin(role);
+                    isOwnerIssuer(offering, userId, role) || isAdmin(role);
 
             return OfferingDetailResponse.from(
                     offering,
@@ -133,7 +133,7 @@ public class OfferingQueryService {
         }
 
         // 3. 일반 비공개 상태 - DRAFT / REVIEW_REQUESTED / REJECTED / CANCELLING
-        if (!isOwner(offering, userId) && !isAdmin(role)) {
+        if (!isOwnerIssuer(offering, userId, role) && !isAdmin(role)) {
             throw new BusinessException(
                     OfferingErrorCode.OFFERING_ACCESS_DENIED
             );
@@ -159,7 +159,7 @@ public class OfferingQueryService {
             UUID userId,
             String role
     ) {
-        if (isOwner(offering, userId) || isAdmin(role)) {
+        if (isOwnerIssuer(offering, userId, role) || isAdmin(role)) {
             return OfferingDetailResponse.from(
                     offering,
                     true
@@ -235,8 +235,9 @@ public class OfferingQueryService {
     /**
      * 현재 사용자가 해당 공모의 소유자인지 확인한다.
      */
-    private boolean isOwner(Offering offering, UUID userId) {
+    private boolean isOwnerIssuer(Offering offering, UUID userId, String role) {
         return userId != null
+                && "ISSUER".equalsIgnoreCase(role)
                 && offering.getIssuerId().equals(userId);
     }
 

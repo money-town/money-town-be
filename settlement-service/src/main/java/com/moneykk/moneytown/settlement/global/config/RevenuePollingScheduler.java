@@ -25,6 +25,7 @@ public class RevenuePollingScheduler {
 
     private static final long POLL_INTERVAL_MS = 3 * 60 * 1000L;
     private static final int MAX_PAGES = 1000;
+    private static final String SYSTEM_ROLE = "SYSTEM";
 
     // 폴링 중 자연스럽게 발생할 수 있는, 재시도가 필요 없는 상태 — 경고 없이 건너뛴다.
     private static final Set<SettlementErrorCode> EXPECTED_SKIP_REASONS = Set.of(
@@ -50,7 +51,7 @@ public class RevenuePollingScheduler {
             }
 
             UUID requestCursor = cursor;
-            ReadyRevenueListResponse page = assetServiceClient.getReadyRevenues(requestCursor).data();
+            ReadyRevenueListResponse page = assetServiceClient.getReadyRevenues(SYSTEM_ROLE, requestCursor).data();
 
             page.revenues().forEach(this::tryOpenBatch);
 

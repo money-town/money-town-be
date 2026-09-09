@@ -7,6 +7,8 @@ import com.moneykk.moneytown.asset.entity.DocumentType;
 import com.moneykk.moneytown.asset.service.AssetDocumentService;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/assets/{assetId}/documents")
 @RequiredArgsConstructor
+@Tag(name = "Asset Document", description = "자산 문서 관리 API")
 public class AssetDocumentController {
 
     private final AssetDocumentService assetDocumentService;
@@ -33,6 +36,7 @@ public class AssetDocumentController {
     /**
      * 자산 문서 등록
      */
+    @Operation(summary = "자산 문서 등록")
     @PostMapping(
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
@@ -63,6 +67,7 @@ public class AssetDocumentController {
     /**
      * 자산 문서 목록 조회
      */
+    @Operation(summary = "자산 문서 목록 조회")
     @GetMapping
     public ApiResponse<AssetDocumentListResponse> getDocuments(
             @PathVariable UUID assetId,
@@ -101,6 +106,7 @@ public class AssetDocumentController {
     /**
      * 자산 문서 다운로드 URL 발급
      */
+    @Operation(summary = "자산 문서 다운로드 URL 발급")
     @GetMapping("/{documentId}/download-url")
     public ApiResponse<AssetDocumentDownloadResponse> createDownloadUrl(
             @PathVariable UUID assetId,
@@ -125,6 +131,7 @@ public class AssetDocumentController {
     /**
      * 자산 문서 삭제
      */
+    @Operation(summary = "자산 문서 삭제")
     @DeleteMapping("/{documentId}")
     public ApiResponse<Void> deleteDocument(
             @PathVariable UUID assetId,

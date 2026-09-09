@@ -8,40 +8,89 @@ spring:
         webflux:
           # 각 도메인 서비스 뼈대 생성 시 여기에 라우트를 추가
           routes:
+            # 실제 User API
             - id: user-service-route
               uri: lb://user-service
               predicates:
-                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**
+                - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/kyc-verifications/**,/api/v1/issuer-applications/**
 
-
+            # 실제 Wallet API
             - id: wallet-service-route
               uri: lb://wallet-service
               predicates:
                 - Path=/api/v1/wallets/**
 
-
+            # 실제 Asset API
             - id: asset-service-route
               uri: lb://asset-service
               predicates:
                 - Path=/api/v1/assets/**,/api/v1/holdings/**
 
-
+            # 실제 Offering API
             - id: offering-service-route
               uri: lb://offering-service
               predicates:
                 - Path=/api/v1/offerings/**,/api/v1/subscriptions/**
 
-
+            # 실제 Settlement API
             - id: settlement-service-route
               uri: lb://settlement-service
               predicates:
                 - Path=/api/v1/settlements/**,/api/v1/final-settlements/**,/api/v1/dividends/**
 
-
+            # 실제 Analysis API
             - id: analysis-service-route
               uri: lb://analysis-service
               predicates:
                 - Path=/api/v1/analysis/**
+
+            # User API 문서
+            - id: user-service-api-docs
+              uri: lb://user-service
+              predicates:
+                - Path=/api-docs/user-service
+              filters:
+                - SetPath=/v3/api-docs
+
+            # Wallet API 문서
+            - id: wallet-service-api-docs
+              uri: lb://wallet-service
+              predicates:
+                - Path=/api-docs/wallet-service
+              filters:
+                - SetPath=/v3/api-docs
+
+            # Asset API 문서
+            - id: asset-service-api-docs
+              uri: lb://asset-service
+              predicates:
+                - Path=/api-docs/asset-service
+              filters:
+                - SetPath=/v3/api-docs
+
+            # Offering API 문서
+            - id: offering-service-api-docs
+              uri: lb://offering-service
+              predicates:
+                - Path=/api-docs/offering-service
+              filters:
+                - SetPath=/v3/api-docs
+
+            # Settlement API 문서
+            - id: settlement-service-api-docs
+              uri: lb://settlement-service
+              predicates:
+                - Path=/api-docs/settlement-service
+              filters:
+                - SetPath=/v3/api-docs
+
+            # Analysis API 문서
+            - id: analysis-service-api-docs
+              uri: lb://analysis-service
+              predicates:
+                - Path=/api-docs/analysis-service
+              filters:
+                - SetPath=/v3/api-docs
 
           httpclient:
             connect-timeout: 3000
@@ -81,10 +130,23 @@ management:
 springdoc:
   api-docs:
     enabled: ${SWAGGER_ENABLED:true}
+
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:true}
-
     path: /swagger-ui.html
+    urls:
+      - name: User Service
+        url: /api-docs/user-service
+      - name: Wallet Service
+        url: /api-docs/wallet-service
+      - name: Asset Service
+        url: /api-docs/asset-service
+      - name: Offering Service
+        url: /api-docs/offering-service
+      - name: Settlement Service
+        url: /api-docs/settlement-service
+      - name: Analysis Service
+        url: /api-docs/analysis-service
 
 security:
   jwt:

@@ -10,6 +10,8 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Idempotency
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class SubscriptionTransactionService {
+
+    private static final String DUPLICATE_SUBSCRIPTION_CONSTRAINT = "uq_subscriptions_offering_user";
 
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
@@ -83,7 +87,7 @@ public class SubscriptionTransactionService {
         );
 
         Subscription savedSubscription =
-                subscriptionRepository.save(subscription);
+                saveSubscription(subscription);
 
         subscriptionEventPublisher.publishReserved(
                 savedSubscription,
@@ -105,6 +109,42 @@ public class SubscriptionTransactionService {
         }
 
         return SubscriptionCreateResponse.from(savedSubscription);
+    }
+
+    /**
+     * 청약을 즉시 INSERT하여 동시 중복 청약의 UNIQUE 제약 위반을 확인한다.
+     *
+     * 동일 공모·사용자 중복만 DUPLICATE_SUBSCRIPTION으로 변환하고,
+     * 다른 DB 제약 위반은 원래 예외를 그대로 전달한다.
+     */
+    private Subscription saveSubscription(
+            Subscription subscription
+    ) {
+        try {
+            return subscriptionRepository.saveAndFlush(subscription);
+
+        } catch (DataIntegrityViolationException e) {
+            String constraintName = extractConstraintName(e);
+
+            if (DUPLICATE_SUBSCRIPTION_CONSTRAINT.equals(
+                    constraintName
+            )) {
+                throw new BusinessException(
+                        SubscriptionErrorCode.DUPLICATE_SUBSCRIPTION
+                );
+            }
+
+            throw e;
+        }
+    }
+
+    private String extractConstraintName(
+            DataIntegrityViolationException exception
+    ) {
+        return exception.getCause()
+                instanceof ConstraintViolationException constraintViolation
+                ? constraintViolation.getConstraintName()
+                : null;
     }
 
     /**

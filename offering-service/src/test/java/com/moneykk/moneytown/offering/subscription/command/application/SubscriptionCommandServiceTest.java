@@ -132,6 +132,7 @@ class SubscriptionCommandServiceTest {
         UserInvestmentEligibilityResponse user =
                 new UserInvestmentEligibilityResponse(
                         userId,
+                        "INVESTOR",
                         "ACTIVE",
                         "VERIFIED",
                         Instant.now().plusSeconds(3_600)
@@ -234,5 +235,161 @@ class SubscriptionCommandServiceTest {
         // 한도 초과 요청은 PreFDS와 실제 청약 생성까지 진행하지 않는다.
         verifyNoInteractions(analysisServiceClient);
         verifyNoInteractions(subscriptionTransactionService);
+    }
+
+    @Test
+    @DisplayName("User 응답에 userRole이 없으면 외부 응답 오류로 처리한다")
+    void rejectsUserResponseWithoutRole() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        String idempotencyKey = "missing-user-role-key";
+        String correlationId = UUID.randomUUID().toString();
+        String requestHash = "request-hash";
+
+        SubscriptionCreateRequest request =
+                new SubscriptionCreateRequest(10L);
+
+        UserInvestmentEligibilityResponse user =
+                new UserInvestmentEligibilityResponse(
+                        userId,
+                        null,
+                        "ACTIVE",
+                        "VERIFIED",
+                        Instant.now().plusSeconds(3_600)
+                );
+
+        when(subscriptionRequestHasher.hash(
+                offeringId,
+                request.quantity()
+        )).thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class),
+                eq(userId),
+                eq(IdempotencyOperation.CREATE_SUBSCRIPTION.name()),
+                eq(idempotencyKey),
+                eq(requestHash),
+                eq("SUBSCRIPTION")
+        )).thenReturn(1);
+
+        when(userServiceClient.getInvestmentEligibility(userId))
+                .thenReturn(
+                        ApiResponse.success(
+                                user,
+                                "사용자 조회 성공"
+                        )
+                );
+
+        // when
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> subscriptionCommandService.create(
+                        offeringId,
+                        userId,
+                        idempotencyKey,
+                        request,
+                        correlationId
+                )
+        );
+
+        // then
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
+                );
+
+        verify(subscriptionIdempotencyService).fail(
+                userId,
+                IdempotencyOperation.CREATE_SUBSCRIPTION.name(),
+                idempotencyKey,
+                SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID
+                        .getStatus()
+                        .value()
+        );
+
+        verifyNoInteractions(offeringRepository);
+        verifyNoInteractions(analysisServiceClient);
+        verifyNoInteractions(subscriptionTransactionService);
+        verifyNoInteractions(subscriptionLimitExceededEventService);
+    }
+
+    @Test
+    @DisplayName("INVESTOR가 아닌 사용자는 청약 자격 미충족으로 처리한다")
+    void rejectsNonInvestorUser() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        String idempotencyKey = "non-investor-key";
+        String correlationId = UUID.randomUUID().toString();
+        String requestHash = "request-hash";
+
+        SubscriptionCreateRequest request =
+                new SubscriptionCreateRequest(10L);
+
+        UserInvestmentEligibilityResponse user =
+                new UserInvestmentEligibilityResponse(
+                        userId,
+                        "ISSUER",
+                        "ACTIVE",
+                        "VERIFIED",
+                        Instant.now().plusSeconds(3_600)
+                );
+
+        when(subscriptionRequestHasher.hash(
+                offeringId,
+                request.quantity()
+        )).thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class),
+                eq(userId),
+                eq(IdempotencyOperation.CREATE_SUBSCRIPTION.name()),
+                eq(idempotencyKey),
+                eq(requestHash),
+                eq("SUBSCRIPTION")
+        )).thenReturn(1);
+
+        when(userServiceClient.getInvestmentEligibility(userId))
+                .thenReturn(
+                        ApiResponse.success(
+                                user,
+                                "사용자 조회 성공"
+                        )
+                );
+
+        // when
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> subscriptionCommandService.create(
+                        offeringId,
+                        userId,
+                        idempotencyKey,
+                        request,
+                        correlationId
+                )
+        );
+
+        // then
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        SubscriptionErrorCode.SUBSCRIPTION_ELIGIBILITY_NOT_MET
+                );
+
+        verify(subscriptionIdempotencyService).fail(
+                userId,
+                IdempotencyOperation.CREATE_SUBSCRIPTION.name(),
+                idempotencyKey,
+                SubscriptionErrorCode.SUBSCRIPTION_ELIGIBILITY_NOT_MET
+                        .getStatus()
+                        .value()
+        );
+
+        verifyNoInteractions(offeringRepository);
+        verifyNoInteractions(analysisServiceClient);
+        verifyNoInteractions(subscriptionTransactionService);
+        verifyNoInteractions(subscriptionLimitExceededEventService);
     }
 }

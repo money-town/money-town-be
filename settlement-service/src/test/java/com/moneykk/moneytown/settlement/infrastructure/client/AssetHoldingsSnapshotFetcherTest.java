@@ -18,9 +18,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +40,7 @@ class AssetHoldingsSnapshotFetcherTest {
     void fetchesSinglePage() {
         HoldingItem item = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L);
         when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(page(List.of(item), null, false), null));
+                .thenReturn(ApiResponse.success(page(List.of(item), 100L, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
 
@@ -53,10 +53,11 @@ class AssetHoldingsSnapshotFetcherTest {
     void aggregatesAcrossPaginatedPages() {
         HoldingItem item1 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L);
         HoldingItem item2 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 2L);
+        UUID cursor1 = UUID.randomUUID();
         when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(page(List.of(item1), "cursor-1", true), null));
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, "cursor-1"))
-                .thenReturn(ApiResponse.success(page(List.of(item2), null, false), null));
+                .thenReturn(ApiResponse.success(page(List.of(item1), 3L, cursor1, true), null));
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, cursor1))
+                .thenReturn(ApiResponse.success(page(List.of(item2), 3L, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
 
@@ -68,7 +69,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("hasNext=true인데 nextCursor가 null이면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorIsNullButHasNextTrue() {
         when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), isNull()))
-                .thenReturn(ApiResponse.success(page(List.of(), null, true), null));
+                .thenReturn(ApiResponse.success(page(List.of(), 0L, null, true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
                 .isInstanceOf(BusinessException.class)
@@ -79,10 +80,11 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("hasNext=true인데 nextCursor가 직전 요청 cursor와 동일하면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorRepeatsPreviousCursor() {
+        UUID cursor1 = UUID.randomUUID();
         when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(page(List.of(), "cursor-1", true), null));
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, "cursor-1"))
-                .thenReturn(ApiResponse.success(page(List.of(), "cursor-1", true), null));
+                .thenReturn(ApiResponse.success(page(List.of(), 0L, cursor1, true), null));
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, cursor1))
+                .thenReturn(ApiResponse.success(page(List.of(), 0L, cursor1, true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
                 .isInstanceOf(BusinessException.class)
@@ -93,14 +95,8 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("cursor는 계속 바뀌지만 페이지 수가 상한을 넘으면 예외를 던진다")
     void throwsWhenPageCountExceedsCap() {
-        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), anyString()))
-                .thenAnswer(invocation -> {
-                    String requestedCursor = invocation.getArgument(3);
-                    String nextCursor = requestedCursor + "-next";
-                    return ApiResponse.success(page(List.of(), nextCursor, true), null);
-                });
-        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), isNull()))
-                .thenReturn(ApiResponse.success(page(List.of(), "cursor-0", true), null));
+        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), nullable(UUID.class)))
+                .thenAnswer(invocation -> ApiResponse.success(page(List.of(), 0L, UUID.randomUUID(), true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
                 .isInstanceOf(BusinessException.class)
@@ -112,7 +108,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("holdings가 null인 페이지는 건너뛰고 계속 진행한다")
     void skipsNullHoldingsPage() {
         when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
-                .thenReturn(ApiResponse.success(new HoldingsSnapshotResponse(ASSET_ID, AS_OF, null, null, false), null));
+                .thenReturn(ApiResponse.success(new HoldingsSnapshotResponse(ASSET_ID, AS_OF, 0L, null, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
 
@@ -120,7 +116,7 @@ class AssetHoldingsSnapshotFetcherTest {
         assertThat(result.totalHoldingQuantity()).isZero();
     }
 
-    private HoldingsSnapshotResponse page(List<HoldingItem> holdings, String nextCursor, boolean hasNext) {
-        return new HoldingsSnapshotResponse(ASSET_ID, AS_OF, holdings, nextCursor, hasNext);
+    private HoldingsSnapshotResponse page(List<HoldingItem> holdings, long totalHoldingQuantity, UUID nextCursor, boolean hasNext) {
+        return new HoldingsSnapshotResponse(ASSET_ID, AS_OF, totalHoldingQuantity, holdings, nextCursor, hasNext);
     }
 }

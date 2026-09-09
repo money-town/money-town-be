@@ -94,6 +94,38 @@ public class User extends BaseUpdatableEntity {
 
     }
 
+    // 발행자 권한 승인
+    public void promoteToIssuer() {
+        this.role = UserRole.ISSUER;
+    }
+
+    // 현재 KYC 승인 상태 반영
+    public void verifyKyc(Instant expiresAt) {
+        this.kycStatus = KycStatus.VERIFIED;
+        this.kycExpiresAt = expiresAt;
+    }
+
+    // 현재 KYC 거절 상태 반영
+    public void rejectKyc() {
+        this.kycStatus = KycStatus.REJECTED;
+        this.kycExpiresAt = null;
+    }
+
+    // 현재 KYC 신청 상태 반영
+    public void submitKyc() {
+        this.kycStatus = KycStatus.PENDING;
+        this.kycExpiresAt = null;
+    }
+
+    // 사용자 현재 KYC 만료 상태 반영
+    public void expireKyc(Instant now) {
+        if (this.kycStatus != KycStatus.VERIFIED) {return;}
+
+        if (this.kycExpiresAt == null || this.kycExpiresAt.isAfter(now)) {return;}
+
+        this.kycStatus = KycStatus.EXPIRED;
+    }
+
 
 
 }

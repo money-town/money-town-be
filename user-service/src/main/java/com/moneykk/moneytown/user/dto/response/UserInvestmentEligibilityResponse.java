@@ -9,6 +9,7 @@ import java.util.UUID;
 
 public record UserInvestmentEligibilityResponse(
         UUID userId,
+        String userRole,
         String accountStatus,
         String kycStatus,
         Instant kycExpiresAt
@@ -18,6 +19,7 @@ public record UserInvestmentEligibilityResponse(
     ) {
         return new UserInvestmentEligibilityResponse(
                 user.getUserId(),
+                user.getRole().name(),
                 user.getAccountStatus().name(),
                 user.getKycStatus().name(),
                 user.getKycExpiresAt()

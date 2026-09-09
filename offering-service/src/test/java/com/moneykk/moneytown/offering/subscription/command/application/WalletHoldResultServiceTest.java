@@ -193,34 +193,70 @@ class WalletHoldResultServiceTest {
         );
     }
 
-    @Test
-    @DisplayName("타임아웃 후 늦은 동결 성공은 기존 실패 사유를 보존하며 수동 확인으로 전환한다")
-    void marksTimedOutSubscriptionForManualReview() {
+    @ParameterizedTest
+    @EnumSource(
+            value = CompensationStatus.class,
+            names = {"PENDING", "FAILED"}
+    )
+    @DisplayName("타임아웃 보상 중 늦은 동결 성공이 오면 보상을 재요청한다")
+    void requestsExpirationCompensationForLateHoldSuccess(
+            CompensationStatus walletStatus
+    ) {
+        // given
         Subscription subscription = newSubscription();
+
         subscription.startExpirationCompensation(
                 subscription.getReservationExpiresAt()
         );
 
+        SubscriptionCompensation compensation =
+                SubscriptionCompensation
+                        .createForReservationExpiration(
+                                subscription.getSubscriptionId()
+                        );
+
+        if (walletStatus == CompensationStatus.FAILED) {
+            compensation.markWalletFailed(
+                    "HOLD_NOT_FOUND"
+            );
+        }
+
         executeBusinessAction();
         stubSubscription(subscription);
-        stubCompensation(subscription, null);
+        stubCompensation(subscription, compensation);
+        stubOfferingForPublish();
 
-        boolean result = walletHoldResultService.handleSucceeded(
-                succeededEvent(subscription),
-                CONSUMER_GROUP
-        );
+        // when
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
+        // then
         assertThat(result).isTrue();
+
         assertThat(subscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
         assertThat(subscription.getFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
         assertThat(subscription.getConfirmedAt()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
 
-        verifyNoInteractions(
-                subscriptionEventPublisher,
-                offeringRepository
+        assertThat(compensation.getWalletStatus())
+                .isEqualTo(walletStatus);
+        assertThat(compensation.getHoldingStatus())
+                .isEqualTo(CompensationStatus.SUCCEEDED);
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        subscription,
+                        assetId,
+                        CORRELATION_ID
+                );
+
+        verifyNoMoreInteractions(
+                subscriptionEventPublisher
         );
     }
 

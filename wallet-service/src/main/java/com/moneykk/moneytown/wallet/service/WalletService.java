@@ -5,6 +5,7 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
+import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
@@ -46,6 +47,17 @@ public class WalletService {
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
         return WalletResponse.from(wallet);
+    }
+
+    public AdminWalletDetailResponse getWalletDetail(Long walletId, String role) {
+        if (!"ADMIN".equals(role)) {
+            throw new BusinessException(WalletErrorCode.WALLET_ADMIN_ACCESS_DENIED);
+        }
+
+        Wallet wallet = walletRepository.findById(walletId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
+
+        return AdminWalletDetailResponse.from(wallet);
     }
 
     public WalletStatusResponse getWalletStatus(UUID userId) {

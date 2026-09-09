@@ -254,12 +254,6 @@ public class WalletHoldResultService {
             return;
         }
 
-        /*
-         * TODO: Wallet 담당자와 WalletHoldFailed.reason 계약 확정
-         * - INSUFFICIENT_BALANCE와 INSUFFICIENT_AVAILABLE_BALANCE 중 하나로 통일
-         * - INVALID_AMOUNT, BALANCE_OVERFLOW 등 업무 실패 코드 구분
-         * - 시스템 예외는 실패 이벤트가 아닌 Kafka 재시도 대상으로 처리
-         */
         subscription.startHoldFailureCompensation(
                 envelope.payload().reason()
         );
@@ -368,16 +362,23 @@ public class WalletHoldResultService {
         }
 
         /*
-         * 공모 중단·모집 미달 보상 도중 늦게 HOLD 성공이 확인된 경우,
+         * 공모 취소 또는 예약 만료 보상 도중 늦게 HOLD 성공이 확인되면
          * 보상 요청을 다시 저장한다.
          *
          * 기존 요청이 HOLD보다 먼저 처리되어 HOLD_NOT_FOUND가
-         * 발생했을 가능성도 있으므로, Wallet이 실제 상태를 재판단한다.
-         * 보상 결과를 받기 전까지 기존 보상 상태는 유지한다.
+         * 발생했을 가능성도 있으므로 Wallet이 현재 금융 상태를
+         * 다시 판단하도록 한다.
+         *
+         * 보상 결과를 받기 전까지 기존 보상 상태를 유지한다.
          */
+        boolean compensationRequestAvailable =
+                subscription.getCancellationType() != null
+                        || subscription
+                        .isReservationExpirationCompensation();
+
         if (subscription.getSubscriptionStatus()
                 == SubscriptionStatus.COMPENSATING
-                && subscription.getCancellationType() != null
+                && compensationRequestAvailable
                 && compensation != null) {
 
             Offering offering = offeringRepository
@@ -399,11 +400,12 @@ public class WalletHoldResultService {
                     envelope.eventId(),
                     envelope.payload().holdId()
             );
+
             return;
         }
 
         /*
-         * 타임아웃, 보상 진행 정보 누락, 종료 상태와 충돌하는 결과 등은
+         * 보상 진행 정보 누락이나 종료 상태와 충돌하는 결과는
          * 자동 확정하거나 성공으로 간주하지 않고 수동 확인 대상으로 남긴다.
          */
         SubscriptionStatus previousStatus =

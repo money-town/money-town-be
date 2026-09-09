@@ -6,6 +6,8 @@ import com.moneykk.moneytown.analysis.notification.command.dto.request.Notificat
 import com.moneykk.moneytown.analysis.notification.command.dto.response.NotificationResponse;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+@Tag(name = "알림", description = "알림 전송 API")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/analysis/notifications")
@@ -23,6 +26,10 @@ public class NotificationCommandController {
 
     private final NotificationCommandService notificationCommandService;
 
+    @Operation(
+            summary = "Slack 테스트 알림 전송",
+            description = "ADMIN이 운영 Slack 채널로 테스트 알림을 전송합니다."
+    )
     @PostMapping("/test")
     public ApiResponse<NotificationResponse> sendTest(
             @RequestHeader(value = "X-User-Role", required = false) String role,

@@ -89,6 +89,7 @@ public class Portfolio extends BaseUpdatableEntity {
     }
 
     public void complete(String response, long processingTime){
+        if(this.status != AiStatus.PROCESSING) return;
         this.response = response;
         this.processingTime = processingTime;
         this.status = AiStatus.COMPLETED;
@@ -96,6 +97,7 @@ public class Portfolio extends BaseUpdatableEntity {
     }
 
     public void fail(String errorMessage, long processingTime){
+        if(this.status != AiStatus.PROCESSING) return;
         this.errorMessage = errorMessage;
         this.status = AiStatus.FAILED;
         this.processingTime = processingTime;

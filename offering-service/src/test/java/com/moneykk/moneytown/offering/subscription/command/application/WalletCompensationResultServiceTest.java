@@ -88,6 +88,107 @@ class WalletCompensationResultServiceTest {
     }
 
     @Test
+    @DisplayName("HOLD가 없는 NONE 성공 결과는 null 식별자를 허용하고 완료 판정을 호출한다")
+    void acceptsNoneWithoutHoldInformation() {
+        // given
+        compensation.markWalletFailed("HOLD_NOT_FOUND");
+        stubContext();
+
+        EventEnvelope<WalletCompensationResultPayload> event =
+                envelope(
+                        "WalletCompensationSucceeded",
+                        new WalletCompensationResultPayload(
+                                null,
+                                null,
+                                "NONE",
+                                null,
+                                null,
+                                null
+                        )
+                );
+
+        // when
+        boolean result =
+                service.handleSucceeded(
+                        event,
+                        GROUP
+                );
+
+        // then
+        assertThat(result).isTrue();
+        assertThat(compensation.getWalletStatus())
+                .isEqualTo(CompensationStatus.SUCCEEDED);
+        assertThat(compensation.getWalletErrorCode()).isNull();
+
+        verify(subscriptionCompensationCompletionService)
+                .completeIfReady(
+                        subscription.getSubscriptionId()
+                );
+    }
+
+    @Test
+    @DisplayName("NONE 결과의 holdId와 walletId 중 하나만 존재하면 업무 처리 전에 거부한다")
+    void rejectsNoneWithPartialHoldInformation() {
+        // given
+        EventEnvelope<WalletCompensationResultPayload> missingWalletId =
+                envelope(
+                        "WalletCompensationSucceeded",
+                        new WalletCompensationResultPayload(
+                                10L,
+                                null,
+                                "NONE",
+                                null,
+                                null,
+                                null
+                        )
+                );
+
+        EventEnvelope<WalletCompensationResultPayload> missingHoldId =
+                envelope(
+                        "WalletCompensationSucceeded",
+                        new WalletCompensationResultPayload(
+                                null,
+                                20L,
+                                "NONE",
+                                null,
+                                null,
+                                null
+                        )
+                );
+
+        // when & then
+        assertThatThrownBy(
+                () -> service.handleSucceeded(
+                        missingWalletId,
+                        GROUP
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        "holdId와 walletId는 함께 존재하거나 모두 null"
+                );
+
+        assertThatThrownBy(
+                () -> service.handleSucceeded(
+                        missingHoldId,
+                        GROUP
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        "holdId와 walletId는 함께 존재하거나 모두 null"
+                );
+
+        verifyNoInteractions(
+                processedEventService,
+                offeringRepository,
+                subscriptionRepository,
+                subscriptionCompensationRepository,
+                subscriptionCompensationCompletionService
+        );
+    }
+
+    @Test
     @DisplayName("Wallet 실패는 오류 코드만 기록하고 완료 판정을 호출하지 않는다")
     void recordsFailureWithoutCompleting() {
         stubContext();

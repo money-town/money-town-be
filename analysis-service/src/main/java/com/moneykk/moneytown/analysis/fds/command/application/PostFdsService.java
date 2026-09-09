@@ -37,7 +37,12 @@ public class PostFdsService {
         UUID eventId = envelope.eventId();
         SubscriptionEventPayload payload = envelope.payload();
         UUID userId = payload.userId();
-        EventType eventType = EventType.valueOf(envelope.eventType());
+        EventType eventType = EventType.fromEventName(envelope.eventType()).orElse(null);
+
+        if(eventType == null){
+            log.info("Post-FDS 대상이 아닌 이벤트 skip eventId={}, eventType={}", eventId, envelope.eventType());
+            return;
+        }
 
 
         // 1. 멱등

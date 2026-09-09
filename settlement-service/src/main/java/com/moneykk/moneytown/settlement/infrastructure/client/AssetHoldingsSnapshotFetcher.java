@@ -25,7 +25,7 @@ public class AssetHoldingsSnapshotFetcher {
 
     public Aggregated fetchAll(UUID assetId, LocalDate asOf) {
         List<HoldingItem> allItems = new ArrayList<>();
-        String cursor = null;
+        UUID cursor = null;
         boolean hasNext = true;
         int pageCount = 0;
 
@@ -34,7 +34,7 @@ public class AssetHoldingsSnapshotFetcher {
                 throw new BusinessException(SettlementErrorCode.ASSET_HOLDINGS_PAGINATION_STALLED);
             }
 
-            String requestCursor = cursor;
+            UUID requestCursor = cursor;
             HoldingsSnapshotResponse page = FeignExceptionTranslator.call(
                     () -> assetServiceClient.getHoldingsSnapshot(SYSTEM_ROLE, assetId, asOf, requestCursor).data(),
                     SettlementErrorCode.ASSET_HOLDINGS_NOT_FOUND);
@@ -44,14 +44,15 @@ public class AssetHoldingsSnapshotFetcher {
             }
             hasNext = page.hasNext();
 
-            String nextCursor = page.nextCursor();
+            UUID nextCursor = page.nextCursor();
             if (hasNext && Objects.equals(nextCursor, requestCursor)) {
                 throw new BusinessException(SettlementErrorCode.ASSET_HOLDINGS_PAGINATION_STALLED);
             }
             cursor = nextCursor;
         }
 
-        // 자산 서비스가 전체 발행 지분 수량을 내려주지 않아, 모든 페이지를 합친 뒤 직접 합산한다.
+        // 자산 서비스가 페이지마다 totalHoldingQuantity를 함께 내려주지만,
+        // 여러 페이지에 걸쳐 모은 항목 수량 합계를 정산 서비스가 직접 재계산해 값을 신뢰한다.
         long totalHoldingQuantity = allItems.stream()
                 .mapToLong(item -> item.quantity() == null ? 0L : item.quantity())
                 .sum();
