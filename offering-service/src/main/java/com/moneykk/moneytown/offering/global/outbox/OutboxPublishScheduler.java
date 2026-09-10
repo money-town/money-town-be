@@ -2,29 +2,44 @@ package com.moneykk.moneytown.offering.global.outbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class OutboxPublishScheduler {
 
     private final OutboxPublishService outboxPublishService;
     private final OutboxKafkaPublisher outboxKafkaPublisher;
     private final ObjectMapper objectMapper;
+    private final Executor outboxPublishCallbackExecutor;
 
     @Value("${outbox.publish.batch-size:10}")
     private int batchSize;
+
+    public OutboxPublishScheduler(
+            OutboxPublishService outboxPublishService,
+            OutboxKafkaPublisher outboxKafkaPublisher,
+            ObjectMapper objectMapper,
+            @Qualifier("outboxPublishCallbackExecutor")
+            Executor outboxPublishCallbackExecutor
+    ) {
+        this.outboxPublishService = outboxPublishService;
+        this.outboxKafkaPublisher = outboxKafkaPublisher;
+        this.objectMapper = objectMapper;
+        this.outboxPublishCallbackExecutor =
+                outboxPublishCallbackExecutor;
+    }
 
     @Scheduled(fixedDelayString = "${outbox.publish.fixed-delay-ms:1000}")
     public void publishPendingEvents() {
@@ -38,84 +53,141 @@ public class OutboxPublishScheduler {
         }
 
         for (OutboxPublishService.ClaimedEvent event : events) {
-            boolean continuePublishing = publishClaimedEvent(event);
-
-            if (!continuePublishing) {
-                return;
-            }
+            publishClaimedEvent(event);
         }
     }
 
     /**
-     * 선점한 Outbox 이벤트 한 건을 발행하고 결과를 기록한다.
+     * 선점한 Outbox 이벤트를 Kafka에 비동기로 발행한다.
      *
-     * @return 다음 이벤트 발행을 계속할 수 있으면 true,
-     * 스레드 인터럽트로 중단해야 하면 false
+     * Kafka 완료 결과는 전용 executor에서 처리하여
+     * 스케줄러 스레드가 broker 응답을 기다리지 않도록 한다.
      */
-    private boolean publishClaimedEvent(
+    private void publishClaimedEvent(
+            OutboxPublishService.ClaimedEvent event
+    ) {
+        final String messageKey;
+
+        try {
+            messageKey = resolveMessageKey(event);
+        } catch (Exception e) {
+            // Kafka 전송 전에 실패했으므로 명확한 발행 실패로 기록한다.
+            recordFailure(event, e);
+            return;
+        }
+
+        final CompletableFuture<SendResult<String, String>> publishFuture;
+
+        try {
+            /*
+             * KafkaTemplate.send() 자체도 잘못된 topic이나 producer 상태 등에
+             * 의해 Future를 반환하기 전에 예외를 던질 수 있다.
+             */
+            publishFuture =
+                    outboxKafkaPublisher.publish(event, messageKey);
+
+            if (publishFuture == null) {
+                throw new IllegalStateException(
+                        "Kafka 발행 Future가 null입니다."
+                );
+            }
+        } catch (Exception e) {
+            recordFailure(event, e);
+            return;
+        }
+
+        try {
+            /*
+             * handleAsync를 사용하여 Kafka 실패도 콜백 안에서 소비한다.
+             * 스케줄러 스레드는 Kafka ACK를 기다리지 않는다.
+             */
+            publishFuture
+                    .handleAsync(
+                            (result, failure) -> {
+                                handlePublishCompletion(
+                                        event,
+                                        failure
+                                );
+                                return null;
+                            },
+                            outboxPublishCallbackExecutor
+                    )
+                    .exceptionally(callbackFailure -> {
+                        /*
+                         * executor 거절 등으로 완료 처리 자체가 실행되지 않은 경우다.
+                         * Kafka 성공 여부를 확정할 수 없으므로 Outbox 상태는
+                         * PROCESSING으로 유지하고 복구 스케줄러에 맡긴다.
+                         */
+                        log.error(
+                                "Outbox 발행 완료 처리 실행 실패. "
+                                        + "복구 대기. eventId={}",
+                                event.eventId(),
+                                unwrapCompletionFailure(callbackFailure)
+                        );
+                        return null;
+                    });
+        } catch (Exception e) {
+            /*
+             * 이미 Kafka 전송 요청을 넘긴 뒤이므로 실패 상태로 변경하면
+             * 실제 성공 이벤트가 중복 발행될 수 있다.
+             */
+            log.error(
+                    "Outbox 발행 완료 콜백 등록 실패. "
+                            + "복구 대기. eventId={}",
+                    event.eventId(),
+                    e
+            );
+        }
+    }
+
+    private void handlePublishCompletion(
+            OutboxPublishService.ClaimedEvent event,
+            Throwable failure
+    ) {
+        if (failure != null) {
+            recordFailure(event, unwrapCompletionFailure(failure));
+            return;
+        }
+
+        recordPublished(event);
+    }
+
+    private void recordPublished(
             OutboxPublishService.ClaimedEvent event
     ) {
         try {
-            String messageKey = resolveMessageKey(event);
-
-            outboxKafkaPublisher.publish(event, messageKey)
-                    .get(10, TimeUnit.SECONDS);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-
-            /*
-             * 애플리케이션 종료 등으로 스레드가 중단된 경우
-             * 남은 이벤트는 PROCESSING 복구 스케줄러가 다시 처리한다.
-             */
-            log.warn(
-                    "Outbox 발행 대기 중 인터럽트. eventId={}",
-                    event.eventId()
-            );
-            return false;
-
-        } catch (TimeoutException e) {
-            /*
-             * 대기 시간이 끝났어도 Kafka 전송은 진행 중일 수 있으므로
-             * 실패로 확정하지 않고 PROCESSING 복구 대상으로 남긴다.
-             */
-            log.warn(
-                    "Outbox 발행 결과 대기 시간 초과. 복구 대기. eventId={}",
-                    event.eventId()
-            );
-            return true;
-
-        } catch (ExecutionException e) {
-            recordFailure(
-                    event,
-                    e.getCause() != null ? e.getCause() : e
-            );
-            return true;
-
-        } catch (Exception e) {
-            recordFailure(event, e);
-            return true;
-        }
-
-        // Kafka 성공 후 DB 기록 실패를 전송 실패로 처리하지 않도록 분리한다.
-        try {
-            boolean updated = outboxPublishService.markPublished(event);
+            boolean updated =
+                    outboxPublishService.markPublished(event);
 
             if (!updated) {
                 log.warn(
-                        "Outbox 발행 성공 결과 미반영: 상태 또는 시도 변경. eventId={}",
+                        "Outbox 발행 성공 결과 미반영: "
+                                + "상태 또는 시도 변경. eventId={}",
                         event.eventId()
                 );
             }
         } catch (Exception e) {
+            /*
+             * Kafka 발행은 성공했지만 DB 반영 여부는 불확실하므로
+             * PROCESSING 복구 정책에 맡긴다.
+             */
             log.error(
                     "Kafka 발행 성공 후 Outbox 결과 저장 실패. eventId={}",
                     event.eventId(),
                     e
             );
         }
+    }
 
-        return true;
+    private Throwable unwrapCompletionFailure(
+            Throwable failure
+    ) {
+        if (failure instanceof CompletionException
+                && failure.getCause() != null) {
+            return failure.getCause();
+        }
+
+        return failure;
     }
 
     @Scheduled(fixedDelayString = "${outbox.publish.recovery-delay-ms:30000}")

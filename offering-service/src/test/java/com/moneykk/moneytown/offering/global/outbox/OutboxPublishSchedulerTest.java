@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -40,7 +39,8 @@ class OutboxPublishSchedulerTest {
         scheduler = new OutboxPublishScheduler(
                 outboxPublishService,
                 outboxKafkaPublisher,
-                new ObjectMapper()
+                new ObjectMapper(),
+                Runnable::run
         );
 
         ReflectionTestUtils.setField(
@@ -148,8 +148,8 @@ class OutboxPublishSchedulerTest {
     }
 
     @Test
-    @DisplayName("발행 대기 중 인터럽트되면 남은 이벤트를 처리하지 않는다")
-    void stopsBatchWhenInterrupted() {
+    @DisplayName("첫 이벤트의 Kafka 응답을 기다리지 않고 다음 이벤트를 발행한다")
+    void publishesNextEventWithoutWaitingForFirstResult() {
         UUID firstUserId = UUID.randomUUID();
         UUID secondUserId = UUID.randomUUID();
 
@@ -170,29 +170,32 @@ class OutboxPublishSchedulerTest {
                 firstUserId.toString()
         )).thenReturn(pendingFuture);
 
-        Thread.currentThread().interrupt();
+        when(outboxKafkaPublisher.publish(
+                second,
+                secondUserId.toString()
+        )).thenReturn(successfulFuture());
 
-        try {
-            scheduler.publishPendingEvents();
+        when(outboxPublishService.markPublished(first))
+                .thenReturn(true);
 
-            assertThat(Thread.currentThread().isInterrupted())
-                    .isTrue();
-        } finally {
-            // 다음 테스트에 인터럽트 상태를 남기지 않는다.
-            Thread.interrupted();
-        }
+        when(outboxPublishService.markPublished(second))
+                .thenReturn(true);
+
+        scheduler.publishPendingEvents();
 
         verify(outboxKafkaPublisher)
-                .publish(first, firstUserId.toString());
-
-        verify(outboxKafkaPublisher, never())
                 .publish(second, secondUserId.toString());
 
         verify(outboxPublishService, never())
-                .markPublished(any());
+                .markPublished(first);
 
-        verify(outboxPublishService, never())
-                .markFailedAttempt(any(), anyString());
+        verify(outboxPublishService)
+                .markPublished(second);
+
+        pendingFuture.complete(null);
+
+        verify(outboxPublishService)
+                .markPublished(first);
     }
 
     @Test
@@ -356,6 +359,54 @@ class OutboxPublishSchedulerTest {
                 envelopeJson,
                 Instant.parse("2026-09-06T00:00:00Z")
         );
+    }
+
+    @Test
+    @DisplayName("Kafka 발행 호출이 즉시 실패해도 다음 이벤트를 처리한다")
+    void continuesAfterImmediatePublishFailure() {
+        UUID firstUserId = UUID.randomUUID();
+        UUID secondUserId = UUID.randomUUID();
+
+        OutboxPublishService.ClaimedEvent first =
+                createEvent(firstUserId);
+
+        OutboxPublishService.ClaimedEvent second =
+                createEvent(secondUserId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(first, second));
+
+        when(outboxKafkaPublisher.publish(
+                first,
+                firstUserId.toString()
+        )).thenThrow(new IllegalStateException("Kafka unavailable"));
+
+        when(outboxKafkaPublisher.publish(
+                second,
+                secondUserId.toString()
+        )).thenReturn(successfulFuture());
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(first),
+                contains("IllegalStateException: Kafka unavailable")
+        )).thenReturn(true);
+
+        when(outboxPublishService.markPublished(second))
+                .thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markFailedAttempt(
+                        eq(first),
+                        contains("IllegalStateException: Kafka unavailable")
+                );
+
+        verify(outboxKafkaPublisher)
+                .publish(second, secondUserId.toString());
+
+        verify(outboxPublishService)
+                .markPublished(second);
     }
 
     private CompletableFuture<SendResult<String, String>>

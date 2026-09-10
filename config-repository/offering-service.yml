@@ -25,10 +25,11 @@ spring:
     listener:
       ack-mode: record
 
+
   task:
     scheduling:
       pool:
-        size: 2
+        size: 4
 
   cloud:
     openfeign:
@@ -52,3 +53,7 @@ subscription:
 outbox:
   publish:
     batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
+    fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:500}
+    callback-core-pool-size: ${OUTBOX_CALLBACK_CORE_POOL_SIZE:2}
+    callback-max-pool-size: ${OUTBOX_CALLBACK_MAX_POOL_SIZE:4}
+    callback-queue-capacity: ${OUTBOX_CALLBACK_QUEUE_CAPACITY:100}
