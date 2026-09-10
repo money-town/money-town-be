@@ -178,8 +178,14 @@ jobs:
           COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml -f infrastructure/docker-compose.ecr.yml"
           $COMPOSE config --quiet
 
-          PUB=$($COMPOSE config | grep -E '^[[:space:]]+published:' | grep -oE '[0-9]+' | sort -u)
-          echo "병합 설정의 publish 포트: $(echo $PUB)"
+          # host_ip가 127.0.0.1인 published 포트(prometheus/grafana 루프백 바인딩)는
+          # 인터넷에 노출되지 않으므로 제외한다. host_ip가 없거나 0.0.0.0인 것만 검사.
+          PUB=$($COMPOSE config | awk '
+            /mode: ingress/ { host="" }
+            /host_ip:/ { host=$2 }
+            /published:/ { pub=$2; gsub(/"/,"",pub); if (host != "127.0.0.1") print pub }
+          ' | sort -u)
+          echo "병합 설정의 publish 포트(루프백 제외): $(echo $PUB)"
           BAD=$(printf '%s\n' "$PUB" | grep -vE '^(80|443)$' | grep -v '^$' || true)
           if [ -n "$BAD" ]; then
             echo "::error::nginx(80/443) 외 포트가 설정에 남아 있다: $(echo $BAD)"
