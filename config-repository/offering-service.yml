@@ -15,6 +15,13 @@ spring:
       properties:
         "[enable.idempotence]": true
 
+        # Kafka가 메시지 전송 성공 여부를 확정할 최대 시간
+        "[delivery.timeout.ms]": ${KAFKA_DELIVERY_TIMEOUT_MS:60000}
+
+        # 메타데이터 조회 또는 Producer Buffer 확보 시
+        # KafkaTemplate.send()가 동기적으로 대기할 최대 시간
+        "[max.block.ms]": ${KAFKA_MAX_BLOCK_MS:5000}
+
     consumer:
       group-id: ${spring.application.name}
       enable-auto-commit: false
@@ -54,6 +61,12 @@ outbox:
   publish:
     batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
     fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:500}
+    # Kafka 응답 대기 상태를 포함한 인스턴스당 최대 동시 발행 수
+    max-in-flight: ${OUTBOX_PUBLISH_MAX_IN_FLIGHT:20}
     callback-core-pool-size: ${OUTBOX_CALLBACK_CORE_POOL_SIZE:2}
     callback-max-pool-size: ${OUTBOX_CALLBACK_MAX_POOL_SIZE:4}
     callback-queue-capacity: ${OUTBOX_CALLBACK_QUEUE_CAPACITY:100}
+
+  # PROCESSING 이벤트 건수를 DB에서 다시 조회하는 주기
+  metrics:
+    refresh-delay-ms: ${OUTBOX_METRICS_REFRESH_DELAY_MS:5000}

@@ -9,12 +9,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.test.util.ReflectionTestUtils;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
+import static org.mockito.Mockito.times;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -36,22 +38,13 @@ class OutboxPublishSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        scheduler = new OutboxPublishScheduler(
-                outboxPublishService,
-                outboxKafkaPublisher,
-                new ObjectMapper(),
-                Runnable::run
-        );
-
-        ReflectionTestUtils.setField(
-                scheduler,
-                "batchSize",
-                10
-        );
+        scheduler = createScheduler(20);
     }
 
     @Test
-    @DisplayName("설정한 배치 크기만큼 선점하고 모든 이벤트를 순차 발행한다")
+    @DisplayName(
+            "설정한 배치 크기만큼 선점하고 모든 이벤트의 발행을 요청한다"
+    )
     void publishesAllClaimedEvents() {
         UUID firstUserId = UUID.randomUUID();
         UUID secondUserId = UUID.randomUUID();
@@ -90,7 +83,9 @@ class OutboxPublishSchedulerTest {
     }
 
     @Test
-    @DisplayName("한 이벤트의 Kafka 발행이 실패해도 다음 이벤트를 계속 처리한다")
+    @DisplayName(
+            "한 이벤트의 Kafka 발행이 실패해도 다음 이벤트를 계속 처리한다"
+    )
     void continuesAfterPublishFailure() {
         UUID firstUserId = UUID.randomUUID();
         UUID secondUserId = UUID.randomUUID();
@@ -134,7 +129,9 @@ class OutboxPublishSchedulerTest {
         verify(outboxPublishService)
                 .markFailedAttempt(
                         eq(first),
-                        contains("IllegalStateException: Kafka unavailable")
+                        contains(
+                                "IllegalStateException: Kafka unavailable"
+                        )
                 );
 
         verify(outboxPublishService, never())
@@ -148,7 +145,9 @@ class OutboxPublishSchedulerTest {
     }
 
     @Test
-    @DisplayName("첫 이벤트의 Kafka 응답을 기다리지 않고 다음 이벤트를 발행한다")
+    @DisplayName(
+            "첫 이벤트의 Kafka 응답을 기다리지 않고 다음 이벤트를 발행한다"
+    )
     void publishesNextEventWithoutWaitingForFirstResult() {
         UUID firstUserId = UUID.randomUUID();
         UUID secondUserId = UUID.randomUUID();
@@ -199,27 +198,29 @@ class OutboxPublishSchedulerTest {
     }
 
     @Test
-    @DisplayName("청약 한도 초과 이벤트는 userId를 Kafka 메시지 Key로 사용한다")
+    @DisplayName(
+            "청약 한도 초과 이벤트는 userId를 Kafka 메시지 Key로 사용한다"
+    )
     void publishesSubscriptionLimitExceededWithUserIdKey() {
         UUID eventId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
         String envelopeJson = """
-            {
-              "eventId": "%s",
-              "eventType": "SubscriptionLimitExceeded",
-              "aggregateId": "%s",
-              "userId": "%s",
-              "correlationId": "%s",
-              "payload": {
-                "userId": "%s",
-                "assetId": "%s",
-                "subscriptionId": null,
-                "requestedQuantity": 101,
-                "maxSubscriptionQuantity": 100
-              }
-            }
-            """.formatted(
+                {
+                  "eventId": "%s",
+                  "eventType": "SubscriptionLimitExceeded",
+                  "aggregateId": "%s",
+                  "userId": "%s",
+                  "correlationId": "%s",
+                  "payload": {
+                    "userId": "%s",
+                    "assetId": "%s",
+                    "subscriptionId": null,
+                    "requestedQuantity": 101,
+                    "maxSubscriptionQuantity": 100
+                  }
+                }
+                """.formatted(
                 eventId,
                 UUID.randomUUID(),
                 userId,
@@ -269,7 +270,9 @@ class OutboxPublishSchedulerTest {
     }
 
     @Test
-    @DisplayName("청약 실패 이벤트는 userId를 Kafka 메시지 Key로 사용한다")
+    @DisplayName(
+            "청약 실패 이벤트는 userId를 Kafka 메시지 Key로 사용한다"
+    )
     void publishesSubscriptionFailedWithUserIdKey() {
         UUID eventId = UUID.randomUUID();
         UUID subscriptionId = UUID.randomUUID();
@@ -277,20 +280,20 @@ class OutboxPublishSchedulerTest {
         UUID assetId = UUID.randomUUID();
 
         String envelopeJson = """
-            {
-              "eventId": "%s",
-              "eventType": "SubscriptionFailed",
-              "aggregateId": "%s",
-              "userId": "%s",
-              "correlationId": "%s",
-              "payload": {
-                "userId": "%s",
-                "assetId": "%s",
-                "subscriptionId": "%s",
-                "failureCode": "INSUFFICIENT_BALANCE"
-              }
-            }
-            """.formatted(
+                {
+                  "eventId": "%s",
+                  "eventType": "SubscriptionFailed",
+                  "aggregateId": "%s",
+                  "userId": "%s",
+                  "correlationId": "%s",
+                  "payload": {
+                    "userId": "%s",
+                    "assetId": "%s",
+                    "subscriptionId": "%s",
+                    "failureCode": "INSUFFICIENT_BALANCE"
+                  }
+                }
+                """.formatted(
                 eventId,
                 subscriptionId,
                 userId,
@@ -340,29 +343,10 @@ class OutboxPublishSchedulerTest {
                 );
     }
 
-    private OutboxPublishService.ClaimedEvent createEvent(
-            UUID userId
-    ) {
-        UUID eventId = UUID.randomUUID();
-
-        String envelopeJson = """
-                {
-                  "eventId": "%s",
-                  "eventType": "SubscriptionReserved",
-                  "userId": "%s"
-                }
-                """.formatted(eventId, userId);
-
-        return new OutboxPublishService.ClaimedEvent(
-                eventId,
-                "subscription-reserved",
-                envelopeJson,
-                Instant.parse("2026-09-06T00:00:00Z")
-        );
-    }
-
     @Test
-    @DisplayName("Kafka 발행 호출이 즉시 실패해도 다음 이벤트를 처리한다")
+    @DisplayName(
+            "Kafka 발행 호출이 즉시 실패해도 다음 이벤트를 처리한다"
+    )
     void continuesAfterImmediatePublishFailure() {
         UUID firstUserId = UUID.randomUUID();
         UUID secondUserId = UUID.randomUUID();
@@ -379,7 +363,9 @@ class OutboxPublishSchedulerTest {
         when(outboxKafkaPublisher.publish(
                 first,
                 firstUserId.toString()
-        )).thenThrow(new IllegalStateException("Kafka unavailable"));
+        )).thenThrow(
+                new IllegalStateException("Kafka unavailable")
+        );
 
         when(outboxKafkaPublisher.publish(
                 second,
@@ -399,7 +385,9 @@ class OutboxPublishSchedulerTest {
         verify(outboxPublishService)
                 .markFailedAttempt(
                         eq(first),
-                        contains("IllegalStateException: Kafka unavailable")
+                        contains(
+                                "IllegalStateException: Kafka unavailable"
+                        )
                 );
 
         verify(outboxKafkaPublisher)
@@ -407,6 +395,199 @@ class OutboxPublishSchedulerTest {
 
         verify(outboxPublishService)
                 .markPublished(second);
+    }
+
+    @Test
+    @DisplayName(
+            "최대 동시 발행 수에 도달하면 추가 이벤트를 선점하지 않는다"
+    )
+    void doesNotClaimWhenMaxInFlightReached() {
+        scheduler = createScheduler(1);
+
+        UUID firstUserId = UUID.randomUUID();
+        UUID secondUserId = UUID.randomUUID();
+
+        OutboxPublishService.ClaimedEvent first =
+                createEvent(firstUserId);
+
+        OutboxPublishService.ClaimedEvent second =
+                createEvent(secondUserId);
+
+        CompletableFuture<SendResult<String, String>> pendingFuture =
+                new CompletableFuture<>();
+
+        when(outboxPublishService.claimPendingEvents(1))
+                .thenReturn(
+                        List.of(first),
+                        List.of(second)
+                );
+
+        when(outboxKafkaPublisher.publish(
+                first,
+                firstUserId.toString()
+        )).thenReturn(pendingFuture);
+
+        when(outboxKafkaPublisher.publish(
+                second,
+                secondUserId.toString()
+        )).thenReturn(successfulFuture());
+
+        when(outboxPublishService.markPublished(first))
+                .thenReturn(true);
+
+        when(outboxPublishService.markPublished(second))
+                .thenReturn(true);
+
+        // 첫 이벤트가 Kafka 응답을 기다리면서 유일한 슬롯을 점유한다.
+        scheduler.publishPendingEvents();
+
+        // 사용할 수 있는 슬롯이 없으므로 DB 이벤트를 선점하지 않는다.
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService, times(1))
+                .claimPendingEvents(1);
+
+        verify(outboxKafkaPublisher, never())
+                .publish(
+                        second,
+                        secondUserId.toString()
+                );
+
+        // Kafka 응답 완료 후 슬롯이 반환된다.
+        pendingFuture.complete(null);
+
+        // 반환된 슬롯을 이용해 다음 이벤트를 선점한다.
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService, times(2))
+                .claimPendingEvents(1);
+
+        verify(outboxKafkaPublisher)
+                .publish(
+                        second,
+                        secondUserId.toString()
+                );
+
+        verify(outboxPublishService)
+                .markPublished(second);
+    }
+
+    @Test
+    @DisplayName(
+            "Kafka 발행이 즉시 실패하면 슬롯을 반환하여 다음 이벤트를 처리한다"
+    )
+    void releasesSlotAfterImmediatePublishFailure() {
+        scheduler = createScheduler(1);
+
+        UUID firstUserId = UUID.randomUUID();
+        UUID secondUserId = UUID.randomUUID();
+
+        OutboxPublishService.ClaimedEvent first =
+                createEvent(firstUserId);
+
+        OutboxPublishService.ClaimedEvent second =
+                createEvent(secondUserId);
+
+        when(outboxPublishService.claimPendingEvents(1))
+                .thenReturn(
+                        List.of(first),
+                        List.of(second)
+                );
+
+        when(outboxKafkaPublisher.publish(
+                first,
+                firstUserId.toString()
+        )).thenThrow(
+                new IllegalStateException("Kafka unavailable")
+        );
+
+        when(outboxKafkaPublisher.publish(
+                second,
+                secondUserId.toString()
+        )).thenReturn(successfulFuture());
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(first),
+                contains("IllegalStateException: Kafka unavailable")
+        )).thenReturn(true);
+
+        when(outboxPublishService.markPublished(second))
+                .thenReturn(true);
+
+        // 첫 발행이 즉시 실패하면서 슬롯이 반환된다.
+        scheduler.publishPendingEvents();
+
+        // 반환된 슬롯으로 다음 이벤트를 처리한다.
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService, times(2))
+                .claimPendingEvents(1);
+
+        verify(outboxPublishService)
+                .markFailedAttempt(
+                        eq(first),
+                        contains(
+                                "IllegalStateException: Kafka unavailable"
+                        )
+                );
+
+        verify(outboxKafkaPublisher)
+                .publish(
+                        second,
+                        secondUserId.toString()
+                );
+
+        verify(outboxPublishService)
+                .markPublished(second);
+    }
+
+    private OutboxPublishScheduler createScheduler(
+            int maxInFlight
+    ) {
+        OutboxPublishMonitor monitor =
+                new OutboxPublishMonitor(
+                        outboxPublishService,
+                        new SimpleMeterRegistry(),
+                        maxInFlight
+                );
+
+        OutboxPublishScheduler createdScheduler =
+                new OutboxPublishScheduler(
+                        outboxPublishService,
+                        outboxKafkaPublisher,
+                        new ObjectMapper(),
+                        Runnable::run,
+                        monitor
+                );
+
+        ReflectionTestUtils.setField(
+                createdScheduler,
+                "batchSize",
+                10
+        );
+
+        return createdScheduler;
+    }
+
+    private OutboxPublishService.ClaimedEvent createEvent(
+            UUID userId
+    ) {
+        UUID eventId = UUID.randomUUID();
+
+        String envelopeJson = """
+                {
+                  "eventId": "%s",
+                  "eventType": "SubscriptionReserved",
+                  "userId": "%s"
+                }
+                """.formatted(eventId, userId);
+
+        return new OutboxPublishService.ClaimedEvent(
+                eventId,
+                "subscription-reserved",
+                envelopeJson,
+                Instant.parse("2026-09-06T00:00:00Z")
+        );
     }
 
     private CompletableFuture<SendResult<String, String>>
