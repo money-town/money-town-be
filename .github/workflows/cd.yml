@@ -1,66 +1,124 @@
 name: CD
 
-# main 에 머지된 것만 배포한다.
-# workflow_run 은 main 브랜치에서 CI 가 성공 →  이 이미지를 ECR 에 푸시하고 성공으로 끝난 뒤에만 발동
 on:
   workflow_run:
-    workflows: [Publish to ECR]
+    workflows: [CI]
     types: [completed]
     branches: [main]
   workflow_dispatch:
-
-# 배포가 겹치면 EC2에서 docker pull과 up이 서로를 덮어쓴다. 항상 1개만 돈다.
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
 
 permissions:
   contents: read
   # OIDC 토큰 발급용. 이게 있어야 AWS에 장기 액세스 키 없이 역할을 위임받는다.
   id-token: write
-  # Publish to ECR 워크플로 실행의 아티팩트(image-tag)를 다운로드하기 위함.
-  actions: read
 
 jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - id: tag
+        run: echo "image_tag=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    environment: ecr-push
+    # 같은 커밋을 중복으로 두 번 빌드하지 않는다. 다른 커밋끼리는 서로 막지 않는다.
+    concurrency:
+      group: publish-ecr-${{ needs.resolve-tag.outputs.image_tag }}
+      cancel-in-progress: false
+
+    env:
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - discovery-server
+          - config-server
+          - gateway-service
+          - user-service
+          - wallet-service
+          - asset-service
+          - offering-service
+          - settlement-service
+          - analysis-service
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.IMAGE_TAG }}
+
+      - name: JDK 설정
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: ${{ matrix.service }} jar 빌드
+        run: ./gradlew :${{ matrix.service }}:bootJar
+
+      - name: AWS 자격 (OIDC — 장기 키 없음)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: money-town-ecr-push-${{ github.run_id }}
+
+      - name: ECR 레지스트리 주소 계산 + 로그인
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          echo "ECR_REGISTRY=${ECR_REGISTRY}" >> "$GITHUB_ENV"
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+      - name: ${{ matrix.service }} 이미지 빌드 · 푸시
+        run: |
+          set -euo pipefail
+          IMAGE="${ECR_REGISTRY}/money-town/${{ matrix.service }}:${IMAGE_TAG}"
+          docker build \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -f infrastructure/Dockerfile \
+            -t "${IMAGE}" \
+            .
+          docker push "${IMAGE}"
+
   deploy:
+    needs: publish
     runs-on: ubuntu-latest
     environment: production
-    if: >-
-      vars.DEPLOY_ENABLED == 'true' && (
-        github.event_name == 'workflow_dispatch' || (
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'workflow_run' &&
-          github.event.workflow_run.head_branch == 'main'
-        )
-      )
+    if: vars.DEPLOY_ENABLED == 'true' && needs.publish.result == 'success'
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
 
-    # job-level 에는 비밀이 아닌 값만 둔다.
-    # job env 는 서드파티 액션을 포함한 모든 step 의 환경변수가 되기 때문
     env:
-      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+      DEPLOY_SHA: ${{ needs.resolve-tag.outputs.image_tag }}
       SSH_OPTS: -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts
       SG_ID: ${{ vars.EC2_SECURITY_GROUP_ID }}
 
     steps:
-      # Publish to ECR이 실제로 빌드·푸시한 태그를 아티팩트로 직접 받는다
-      - name: Publish 단계가 사용한 이미지 태그 다운로드
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: image-tag
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: DEPLOY_SHA를 아티팩트 값으로 확정
-        if: github.event_name == 'workflow_run'
-        run: echo "DEPLOY_SHA=$(cat image-tag.txt)" >> "$GITHUB_ENV"
-
       - name: 배포 대상 확인
         run: |
           echo "trigger : ${{ github.event_name }}"
-          echo "commit  : ${DEPLOY_SHA:-(수동 실행 — main 최신을 배포)}"
+          echo "commit  : ${DEPLOY_SHA}"
 
-      # ── 보안 그룹 22번은 평소 "내 IP"로만 열려 있다. Actions 러너는 매번 IP가 달라서 배포 직전에 러너 IP만 열고, 끝나면 반드시 닫는다.
       - name: AWS 자격 (OIDC — 장기 키 없음)
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
@@ -178,8 +236,6 @@ jobs:
           COMPOSE="docker compose --env-file .env -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.prod.yml -f infrastructure/docker-compose.ecr.yml"
           $COMPOSE config --quiet
 
-          # host_ip가 127.0.0.1인 published 포트(prometheus/grafana 루프백 바인딩)는
-          # 인터넷에 노출되지 않으므로 제외한다. host_ip가 없거나 0.0.0.0인 것만 검사.
           PUB=$($COMPOSE config | awk '
             /mode: ingress/ { host="" }
             /host_ip:/ { host=$2 }
