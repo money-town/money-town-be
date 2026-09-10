@@ -24,14 +24,23 @@ services:
   zipkin:
     ports: !reset []
 
-  # 모니터링은 운영에서도 계속 돌리되, 공인 IP로는 노출하지 않는다.
-  # 루프백에만 바인딩하므로 인터넷에서는 접근 불가.
-  # 확인할 때는 SSM(AWS-StartPortForwardingSession) 또는 `ssh -L` 로 접근한다.
+  # 모니터링은 운영에서도 계속 돌린다.
+  # Prometheus: 호스트 포트를 루프백에만 바인딩 → 인터넷 접근 불가.
+  #             확인할 때는 SSM(AWS-StartPortForwardingSession) 또는 `ssh -L`.
   prometheus:
     ports: !override
       - "127.0.0.1:9090:9090"
 
+  # Grafana: nginx 가 https://<도메인>/grafana/ 서브패스로 프록시한다(nginx.prod.conf).
+  #   - ROOT_URL / SERVE_FROM_SUB_PATH 를 서브패스에 맞춰야 리다이렉트·정적 리소스가 안 깨진다.
+  #   - 호스트 포트는 루프백에만 바인딩(디버깅/터널용). 외부 접근은 nginx 경유.
+  #   - IP 고정이 어려워 접근 제한은 인증에 의존한다. GRAFANA_ADMIN_PASSWORD 를 강하게 두고
+  #     팀원은 개별 계정(Viewer)으로 발급할 것.
   grafana:
+    environment:
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-https://www.moneytown.shop/grafana/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_COOKIE_SECURE: "true"
     ports: !override
       - "127.0.0.1:3000:3000"
 
