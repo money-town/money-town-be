@@ -33,12 +33,13 @@ public class OfferingTransactionService {
     public OfferingCreateResponse createOffering(
             UUID issuerId,
             OfferingCreateRequest request,
+            String title,
             Long unitPrice
     ) {
         Offering offering = Offering.create(
                 request.assetId(),
                 issuerId,
-                request.title(),
+                title,
                 unitPrice,
                 request.totalQuantity(),
                 request.minSubscriptionQuantity(),

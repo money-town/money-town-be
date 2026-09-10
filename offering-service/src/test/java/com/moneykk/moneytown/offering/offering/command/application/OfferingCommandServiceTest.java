@@ -52,7 +52,7 @@ class OfferingCommandServiceTest {
     private OfferingCommandService offeringCommandService;
 
     @Test
-    @DisplayName("유효한 ISSUER는 사용자와 자산 검증 후 공모를 생성한다")
+    @DisplayName("유효한 ISSUER는 사용자와 자산 검증 후 자동 생성한 제목으로 공모를 생성한다")
     void createsOfferingForEligibleIssuer() {
         // given
         UUID issuerId = UUID.randomUUID();
@@ -75,7 +75,7 @@ class OfferingCommandServiceTest {
                         "사용자 조회 성공"
                 ));
 
-        when(assetServiceClient.getAsset("SYSTEM",assetId))
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
                 .thenReturn(ApiResponse.success(
                         asset,
                         "자산 조회 성공"
@@ -84,6 +84,7 @@ class OfferingCommandServiceTest {
         when(offeringTransactionService.createOffering(
                 issuerId,
                 request,
+                "테스트 자산 공모",
                 asset.unitPrice()
         )).thenReturn(expectedResponse);
 
@@ -101,12 +102,13 @@ class OfferingCommandServiceTest {
                 .getInvestmentEligibility(issuerId);
 
         verify(assetServiceClient)
-                .getAsset("SYSTEM",assetId);
+                .getAsset("SYSTEM", assetId);
 
         verify(offeringTransactionService)
                 .createOffering(
                         issuerId,
                         request,
+                        "테스트 자산 공모",
                         asset.unitPrice()
                 );
     }
@@ -377,7 +379,6 @@ class OfferingCommandServiceTest {
 
         return new OfferingCreateRequest(
                 assetId,
-                "테스트 공모",
                 100L,
                 1L,
                 10L,

@@ -47,7 +47,7 @@ class OfferingTransactionServiceTest {
     private OfferingTransactionService offeringTransactionService;
 
     @Test
-    @DisplayName("공모를 DRAFT 상태로 생성하고 저장한다")
+    @DisplayName("자동 생성된 제목으로 공모를 DRAFT 상태로 생성하고 저장한다")
     void createsOffering() {
         // given
         UUID issuerId = UUID.randomUUID();
@@ -56,16 +56,20 @@ class OfferingTransactionServiceTest {
 
         LocalDateTime now = LocalDateTime.now();
 
+        // OfferingCreateRequest에서 title 인자 제거
         OfferingCreateRequest request =
                 new OfferingCreateRequest(
                         assetId,
-                        "테스트 공모",
                         100L,
                         1L,
                         10L,
                         now.plusHours(1),
                         now.plusHours(2)
                 );
+
+        // OfferingCommandService에서 생성되어 전달되는 제목
+        String generatedTitle =
+                "테스트 자산 공모";
 
         when(offeringRepository.save(any(Offering.class)))
                 .thenAnswer(invocation -> {
@@ -86,13 +90,17 @@ class OfferingTransactionServiceTest {
                 offeringTransactionService.createOffering(
                         issuerId,
                         request,
+                        generatedTitle,
+
                         10_000L
                 );
 
         // then
         assertThat(response.offeringId()).isEqualTo(offeringId);
         assertThat(response.assetId()).isEqualTo(assetId);
-        assertThat(response.title()).isEqualTo("테스트 공모");
+
+        assertThat(response.title()).isEqualTo(generatedTitle);
+
         assertThat(response.offeringStatus())
                 .isEqualTo(OfferingStatus.DRAFT);
         assertThat(response.totalQuantity()).isEqualTo(100L);
@@ -101,9 +109,14 @@ class OfferingTransactionServiceTest {
         ArgumentCaptor<Offering> offeringCaptor =
                 ArgumentCaptor.forClass(Offering.class);
 
-        verify(offeringRepository).save(offeringCaptor.capture());
+        verify(offeringRepository)
+                .save(offeringCaptor.capture());
 
         Offering savedOffering = offeringCaptor.getValue();
+
+        // 응답뿐 아니라 실제 저장 Entity에도 제목이 들어갔는지 검증
+        assertThat(savedOffering.getTitle())
+                .isEqualTo(generatedTitle);
 
         assertThat(savedOffering.getStartAt())
                 .isEqualTo(
