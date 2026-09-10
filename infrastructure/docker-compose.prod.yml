@@ -24,6 +24,17 @@ services:
   zipkin:
     ports: !reset []
 
+  # 모니터링은 운영에서도 계속 돌리되, 공인 IP로는 노출하지 않는다.
+  # 루프백에만 바인딩하므로 인터넷에서는 접근 불가.
+  # 확인할 때는 SSM(AWS-StartPortForwardingSession) 또는 `ssh -L` 로 접근한다.
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    ports: !override
+      - "127.0.0.1:3000:3000"
+
   discovery-server:
     ports: !reset []
     healthcheck: { start_period: 120s, retries: 20 }
