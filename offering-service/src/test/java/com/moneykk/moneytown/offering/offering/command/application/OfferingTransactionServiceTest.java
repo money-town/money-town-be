@@ -15,12 +15,15 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Subscriptio
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +54,8 @@ class OfferingTransactionServiceTest {
         UUID assetId = UUID.randomUUID();
         UUID offeringId = UUID.randomUUID();
 
+        LocalDateTime now = LocalDateTime.now();
+
         OfferingCreateRequest request =
                 new OfferingCreateRequest(
                         assetId,
@@ -58,8 +63,8 @@ class OfferingTransactionServiceTest {
                         100L,
                         1L,
                         10L,
-                        Instant.now().plusSeconds(3_600),
-                        Instant.now().plusSeconds(7_200)
+                        now.plusHours(1),
+                        now.plusHours(2)
                 );
 
         when(offeringRepository.save(any(Offering.class)))
@@ -93,7 +98,27 @@ class OfferingTransactionServiceTest {
         assertThat(response.totalQuantity()).isEqualTo(100L);
         assertThat(response.remainingQuantity()).isEqualTo(100L);
 
-        verify(offeringRepository).save(any(Offering.class));
+        ArgumentCaptor<Offering> offeringCaptor =
+                ArgumentCaptor.forClass(Offering.class);
+
+        verify(offeringRepository).save(offeringCaptor.capture());
+
+        Offering savedOffering = offeringCaptor.getValue();
+
+        assertThat(savedOffering.getStartAt())
+                .isEqualTo(
+                        request.startAt()
+                                .atZone(ZoneId.of("Asia/Seoul"))
+                                .toInstant()
+                );
+
+        assertThat(savedOffering.getEndAt())
+                .isEqualTo(
+                        request.endAt()
+                                .atZone(ZoneId.of("Asia/Seoul"))
+                                .toInstant()
+                );
+
         verifyNoInteractions(subscriptionRepository);
     }
 
@@ -467,15 +492,15 @@ class OfferingTransactionServiceTest {
     }
 
     private OfferingUpdateRequest updateRequest() {
-        Instant now = Instant.now();
+        LocalDateTime now = LocalDateTime.now();
 
         return new OfferingUpdateRequest(
                 "수정된 공모",
                 200L,
                 2L,
                 20L,
-                now.plusSeconds(7_200),
-                now.plusSeconds(10_800)
+                now.plusHours(2),
+                now.plusHours(3)
         );
     }
 }

@@ -15,6 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 @Service
@@ -23,6 +26,8 @@ public class OfferingTransactionService {
 
     private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
+
+    private static final ZoneId SERVICE_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     @Transactional
     public OfferingCreateResponse createOffering(
@@ -38,8 +43,8 @@ public class OfferingTransactionService {
                 request.totalQuantity(),
                 request.minSubscriptionQuantity(),
                 request.maxSubscriptionQuantity(),
-                request.startAt(),
-                request.endAt()
+                toInstant(request.startAt()),
+                toInstant(request.endAt())
         );
 
         Offering savedOffering =
@@ -75,11 +80,21 @@ public class OfferingTransactionService {
                 request.totalQuantity(),
                 request.minSubscriptionQuantity(),
                 request.maxSubscriptionQuantity(),
-                request.startAt(),
-                request.endAt()
+                toInstant(request.startAt()),
+                toInstant(request.endAt())
         );
 
         return OfferingUpdateResponse.from(offering);
+    }
+
+    private Instant toInstant(LocalDateTime dateTime) {
+        if (dateTime == null) {
+            return null;
+        }
+
+        return dateTime
+                .atZone(SERVICE_ZONE_ID)
+                .toInstant();
     }
 
     @Transactional

@@ -22,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -372,7 +373,7 @@ class OfferingCommandServiceTest {
     }
 
     private OfferingCreateRequest createRequest(UUID assetId) {
-        Instant now = Instant.now();
+        LocalDateTime now = LocalDateTime.now();
 
         return new OfferingCreateRequest(
                 assetId,
@@ -380,8 +381,8 @@ class OfferingCommandServiceTest {
                 100L,
                 1L,
                 10L,
-                now.plusSeconds(3_600),
-                now.plusSeconds(7_200)
+                now.plusHours(1),
+                now.plusHours(2)
         );
     }
 
