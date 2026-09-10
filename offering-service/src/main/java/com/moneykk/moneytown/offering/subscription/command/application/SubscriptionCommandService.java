@@ -9,6 +9,7 @@ import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
+import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResult;
 import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyOperation;
 import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyRequest;
 import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyRequestStatus;
@@ -49,7 +50,7 @@ public class SubscriptionCommandService {
     private final AnalysisServiceClient analysisServiceClient;
     private final UserServiceClient userServiceClient;
 
-    public SubscriptionCreateResponse create(
+    public SubscriptionCreateResult create(
             UUID offeringId,
             UUID userId,
             String idempotencyKey,
@@ -188,14 +189,18 @@ public class SubscriptionCommandService {
              * - Idempotency COMPLETED 처리
              * - SubscriptionReserved Outbox 저장
              */
-            return subscriptionTransactionService.createSubscription(
-                    offering.getOfferingId(),
-                    userId,
-                    idempotencyKey,
-                    request.quantity(),
-                    offering.getPricePerUnit(),
-                    correlationId
-            );
+
+            SubscriptionCreateResponse response =
+                    subscriptionTransactionService.createSubscription(
+                            offering.getOfferingId(),
+                            userId,
+                            idempotencyKey,
+                            request.quantity(),
+                            offering.getPricePerUnit(),
+                            correlationId
+                    );
+
+            return SubscriptionCreateResult.created(response);
 
         } catch (BusinessException e) {
 
@@ -240,7 +245,7 @@ public class SubscriptionCommandService {
      * 동일 Key + 다른 요청:
      * - 멱등 키 충돌 처리
      */
-    private SubscriptionCreateResponse handleExistingRequest(
+    private SubscriptionCreateResult handleExistingRequest(
             UUID userId,
             IdempotencyOperation operation,
             String idempotencyKey,
@@ -277,7 +282,9 @@ public class SubscriptionCommandService {
                 existing.getIdempotencyRequestStatus();
 
         if (status == IdempotencyRequestStatus.COMPLETED) {
-            return getCompletedSubscription(existing);
+            return SubscriptionCreateResult.replayed(
+                    getCompletedSubscription(existing)
+            );
         }
 
         if (status == IdempotencyRequestStatus.PROCESSING) {
