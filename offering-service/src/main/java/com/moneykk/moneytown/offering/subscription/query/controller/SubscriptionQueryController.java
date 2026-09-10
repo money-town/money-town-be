@@ -13,7 +13,10 @@ import com.moneykk.moneytown.offering.subscription.query.dto.response.Subscripti
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -43,6 +46,13 @@ public class SubscriptionQueryController {
             @RequestParam(required = false) SubscriptionStatus subscriptionStatus,
             @RequestParam(required = false) Instant startDate,
             @RequestParam(required = false) Instant endDate,
+            @ParameterObject
+            @PageableDefault(
+                    page = 0,
+                    size = 10,
+                    sort = "createdAt",
+                    direction = Sort.Direction.DESC
+            )
             Pageable pageable
     ) {
         if (!"INVESTOR".equalsIgnoreCase(role)) {

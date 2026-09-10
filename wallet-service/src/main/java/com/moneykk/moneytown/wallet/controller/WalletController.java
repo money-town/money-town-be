@@ -14,7 +14,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -58,9 +58,10 @@ public class WalletController {
     public ResponseEntity<ApiResponse<PageResponse<TransactionListItemResponse>>> getTransactions(
             @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @Parameter(description = "거래 타입 필터 (생략 시 전체 조회)") @RequestParam(required = false) WalletTransactionType type,
-            Pageable pageable
+            @Parameter(description = "페이지 번호 (0부터 시작)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "페이지 크기") @RequestParam(defaultValue = "20") int size
     ) {
-        PageResponse<TransactionListItemResponse> response = walletService.getTransactions(userId, type, pageable);
+        PageResponse<TransactionListItemResponse> response = walletService.getTransactions(userId, type, PageRequest.of(page, size));
 
         return ResponseEntity.ok(
                 ApiResponse.success(response, "거래 내역 조회가 완료되었습니다.")
