@@ -281,6 +281,8 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/asset_db
+      AWS_REGION: ${AWS_REGION:-ap-northeast-2}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-moneytown-asset}
     # 외부에서 내부 API를 직접 호출하지 못하도록 호스트 포트를 열지 않는다.
     expose: ["19095"]
     depends_on:

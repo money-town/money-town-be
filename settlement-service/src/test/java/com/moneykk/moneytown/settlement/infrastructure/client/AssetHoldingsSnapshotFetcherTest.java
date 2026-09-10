@@ -13,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,6 +29,8 @@ class AssetHoldingsSnapshotFetcherTest {
 
     private static final UUID ASSET_ID = UUID.randomUUID();
     private static final LocalDate AS_OF = LocalDate.of(2026, 9, 1);
+    // Feign 클라이언트는 로케일 종속 직렬화를 피하려고 asOf를 String으로 받는다 (AssetHoldingsSnapshotFetcher 참고)
+    private static final String AS_OF_ISO = AS_OF.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
     @Mock
     private AssetServiceClient assetServiceClient;
@@ -39,7 +42,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("단일 페이지면 한 번만 호출하고, 지분 수량 합계는 직접 계산한다")
     void fetchesSinglePage() {
         HoldingItem item = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L);
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, null))
                 .thenReturn(ApiResponse.success(page(List.of(item), 100L, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
@@ -54,9 +57,9 @@ class AssetHoldingsSnapshotFetcherTest {
         HoldingItem item1 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L);
         HoldingItem item2 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 2L);
         UUID cursor1 = UUID.randomUUID();
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, null))
                 .thenReturn(ApiResponse.success(page(List.of(item1), 3L, cursor1, true), null));
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, cursor1))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, cursor1))
                 .thenReturn(ApiResponse.success(page(List.of(item2), 3L, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
@@ -68,7 +71,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("hasNext=true인데 nextCursor가 null이면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorIsNullButHasNextTrue() {
-        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), isNull()))
+        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF_ISO), isNull()))
                 .thenReturn(ApiResponse.success(page(List.of(), 0L, null, true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
@@ -81,9 +84,9 @@ class AssetHoldingsSnapshotFetcherTest {
     @DisplayName("hasNext=true인데 nextCursor가 직전 요청 cursor와 동일하면 정체로 보고 즉시 예외를 던진다")
     void throwsWhenNextCursorRepeatsPreviousCursor() {
         UUID cursor1 = UUID.randomUUID();
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, null))
                 .thenReturn(ApiResponse.success(page(List.of(), 0L, cursor1, true), null));
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, cursor1))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, cursor1))
                 .thenReturn(ApiResponse.success(page(List.of(), 0L, cursor1, true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
@@ -95,7 +98,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("cursor는 계속 바뀌지만 페이지 수가 상한을 넘으면 예외를 던진다")
     void throwsWhenPageCountExceedsCap() {
-        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF), nullable(UUID.class)))
+        when(assetServiceClient.getHoldingsSnapshot(eq("SYSTEM"), eq(ASSET_ID), eq(AS_OF_ISO), nullable(UUID.class)))
                 .thenAnswer(invocation -> ApiResponse.success(page(List.of(), 0L, UUID.randomUUID(), true), null));
 
         assertThatThrownBy(() -> assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF))
@@ -107,7 +110,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("holdings가 null인 페이지는 건너뛰고 계속 진행한다")
     void skipsNullHoldingsPage() {
-        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF, null))
+        when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, null))
                 .thenReturn(ApiResponse.success(new HoldingsSnapshotResponse(ASSET_ID, AS_OF, 0L, null, null, false), null));
 
         AssetHoldingsSnapshotFetcher.Aggregated result = assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, AS_OF);
