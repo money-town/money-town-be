@@ -13,6 +13,8 @@ public class OfferingStatusScheduler {
 
     private final OfferingStatusTransitionService offeringStatusTransitionService;
 
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
+
     /**
      * 시작 시간이 도래한 SCHEDULED 공모를 OPEN 상태로 전환한다.
      * <p>
@@ -23,6 +25,8 @@ public class OfferingStatusScheduler {
         try {
             offeringStatusTransitionService.openScheduledOfferings();
         } catch (Exception e) {
+
+            offeringSchedulerMetrics.recordOpenScheduledFailure();
             log.error(
                     "SCHEDULED 공모 OPEN 전환 스케줄러 실패",
                     e
@@ -38,6 +42,8 @@ public class OfferingStatusScheduler {
         try {
             offeringStatusTransitionService.closeSoldOutOfferings();
         } catch (Exception e) {
+
+            offeringSchedulerMetrics.recordCloseSoldOutFailure();
             log.error(
                     "SOLD_OUT 공모 CLOSED 전환 스케줄러 실패",
                     e
@@ -56,6 +62,8 @@ public class OfferingStatusScheduler {
         try {
             offeringStatusTransitionService.startUnderSubscribedCancellations();
         } catch (Exception e) {
+
+            offeringSchedulerMetrics.recordUnderSubscribedCancellationFailure();
             log.error(
                     "모집 미달 공모 취소 처리 스케줄러 실패",
                     e

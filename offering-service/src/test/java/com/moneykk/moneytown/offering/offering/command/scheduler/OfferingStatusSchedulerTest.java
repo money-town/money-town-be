@@ -18,6 +18,9 @@ class OfferingStatusSchedulerTest {
     @Mock
     private OfferingStatusTransitionService offeringStatusTransitionService;
 
+    @Mock
+    private OfferingSchedulerMetrics offeringSchedulerMetrics;
+
     @InjectMocks
     private OfferingStatusScheduler offeringStatusScheduler;
 
@@ -42,6 +45,9 @@ class OfferingStatusSchedulerTest {
 
         verify(offeringStatusTransitionService)
                 .openScheduledOfferings();
+
+        verify(offeringSchedulerMetrics)
+                .recordOpenScheduledFailure();
     }
 
     @Test
@@ -65,6 +71,9 @@ class OfferingStatusSchedulerTest {
 
         verify(offeringStatusTransitionService)
                 .closeSoldOutOfferings();
+
+        verify(offeringSchedulerMetrics)
+                .recordCloseSoldOutFailure();
     }
 
     @Test
@@ -74,6 +83,7 @@ class OfferingStatusSchedulerTest {
 
         verify(offeringStatusTransitionService)
                 .startUnderSubscribedCancellations();
+
     }
 
     @Test
@@ -91,5 +101,8 @@ class OfferingStatusSchedulerTest {
 
         verify(offeringStatusTransitionService)
                 .startUnderSubscribedCancellations();
+
+        verify(offeringSchedulerMetrics)
+                .recordUnderSubscribedCancellationFailure();
     }
 }
