@@ -22,6 +22,9 @@ public class OutboxPublishScheduler {
     private final OutboxPublishService outboxPublishService;
     private final OutboxKafkaPublisher outboxKafkaPublisher;
     private final ObjectMapper objectMapper;
+
+    private final Executor outboxPublishExecutor;
+
     private final Executor outboxPublishCallbackExecutor;
     private final OutboxPublishMonitor outboxPublishMonitor;
 
@@ -32,6 +35,10 @@ public class OutboxPublishScheduler {
             OutboxPublishService outboxPublishService,
             OutboxKafkaPublisher outboxKafkaPublisher,
             ObjectMapper objectMapper,
+
+            @Qualifier("outboxPublishExecutor")
+            Executor outboxPublishExecutor,
+
             @Qualifier("outboxPublishCallbackExecutor")
             Executor outboxPublishCallbackExecutor,
             OutboxPublishMonitor outboxPublishMonitor
@@ -39,7 +46,12 @@ public class OutboxPublishScheduler {
         this.outboxPublishService = outboxPublishService;
         this.outboxKafkaPublisher = outboxKafkaPublisher;
         this.objectMapper = objectMapper;
-        this.outboxPublishCallbackExecutor = outboxPublishCallbackExecutor;
+
+        this.outboxPublishExecutor = outboxPublishExecutor;
+
+        this.outboxPublishCallbackExecutor =
+                outboxPublishCallbackExecutor;
+
         this.outboxPublishMonitor = outboxPublishMonitor;
     }
 
@@ -85,23 +97,48 @@ public class OutboxPublishScheduler {
         outboxPublishMonitor.releaseUnusedSlots(unusedSlots);
 
         for (OutboxPublishService.ClaimedEvent event : events) {
-            publishClaimedEvent(event);
+            submitPublishTask(event);
         }
     }
 
     /**
-     * 선점한 Outbox 이벤트를 Kafka에 비동기로 발행한다.
+     * Kafka 최초 전송 호출을 전용 executor에 제출한다.
      *
-     * Kafka 완료 결과는 전용 executor에서 처리하여
-     * 스케줄러 스레드가 broker 응답을 기다리지 않도록 한다.
+     * executor가 작업을 거절하면 이벤트를 재시도 대상으로 전환하고
+     * 미리 확보한 in-flight 슬롯을 반환한다.
      */
-    private void publishClaimedEvent(
+    private void submitPublishTask(
             OutboxPublishService.ClaimedEvent event
     ) {
-        // 이벤트별 발행 시간 측정과 슬롯 중복 반환 방지에 사용한다.
         OutboxPublishMonitor.PublishAttempt attempt =
                 outboxPublishMonitor.startAttempt();
 
+        try {
+            outboxPublishExecutor.execute(
+                    () -> publishClaimedEvent(
+                            event,
+                            attempt
+                    )
+            );
+        } catch (RuntimeException e) {
+            try {
+                recordFailure(event, e);
+            } finally {
+                outboxPublishMonitor.completeFailure(attempt);
+            }
+        }
+    }
+
+    /**
+     * 전용 발행 executor에서 Kafka에 비동기로 발행한다.
+     *
+     * Kafka 완료 결과는 callback executor에서 처리한다.
+     */
+    private void publishClaimedEvent(
+            OutboxPublishService.ClaimedEvent event,
+
+            OutboxPublishMonitor.PublishAttempt attempt
+    ) {
         final String messageKey;
 
         try {
@@ -110,7 +147,6 @@ public class OutboxPublishScheduler {
             try {
                 recordFailure(event, e);
             } finally {
-                // Kafka 전송 전 실패해도 확보한 슬롯을 반드시 반환한다.
                 outboxPublishMonitor.completeFailure(attempt);
             }
             return;
@@ -119,8 +155,15 @@ public class OutboxPublishScheduler {
         final CompletableFuture<SendResult<String, String>> publishFuture;
 
         try {
+            /*
+             * 이 호출은 이제 @Scheduled 스레드가 아니라
+             * outboxPublishExecutor에서 실행된다.
+             */
             publishFuture =
-                    outboxKafkaPublisher.publish(event, messageKey);
+                    outboxKafkaPublisher.publish(
+                            event,
+                            messageKey
+                    );
 
             if (publishFuture == null) {
                 throw new IllegalStateException(
@@ -131,7 +174,6 @@ public class OutboxPublishScheduler {
             try {
                 recordFailure(event, e);
             } finally {
-                // KafkaTemplate.send()가 즉시 실패한 경우에도 슬롯을 반환한다.
                 outboxPublishMonitor.completeFailure(attempt);
             }
             return;
@@ -147,9 +189,6 @@ public class OutboxPublishScheduler {
                                             failure
                                     );
                                 } finally {
-
-                                    // Kafka 완료 결과에 따라 지연 시간을 기록하고
-                                    // 확보했던 슬롯을 반환한다.
                                     if (failure == null) {
                                         outboxPublishMonitor
                                                 .completeSuccess(attempt);
@@ -173,8 +212,10 @@ public class OutboxPublishScheduler {
                                 )
                         );
 
-                        // executor 거절이나 콜백 예외에도 슬롯을 반환한다.
-                        // PublishAttempt가 중복 반환을 방지한다.
+                        /*
+                         * callback executor 거절이나 콜백 오류가 발생하면
+                         * PROCESSING 복구 스케줄러가 다시 처리한다.
+                         */
                         outboxPublishMonitor.completeFailure(
                                 attempt
                         );
@@ -189,7 +230,6 @@ public class OutboxPublishScheduler {
                     e
             );
 
-            // 콜백 등록 자체가 실패해도 슬롯이 영구 점유되지 않게 한다.
             outboxPublishMonitor.completeFailure(attempt);
         }
     }

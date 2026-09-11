@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
 import static org.mockito.Mockito.times;
 import static org.mockito.ArgumentMatchers.any;
@@ -544,6 +546,17 @@ class OutboxPublishSchedulerTest {
     private OutboxPublishScheduler createScheduler(
             int maxInFlight
     ) {
+        // 기존 테스트 동작을 유지하기 위해 즉시 실행 executor 사용
+        return createScheduler(
+                maxInFlight,
+                Runnable::run
+        );
+    }
+
+    private OutboxPublishScheduler createScheduler(
+            int maxInFlight,
+            Executor publishExecutor
+    ) {
         OutboxPublishMonitor monitor =
                 new OutboxPublishMonitor(
                         outboxPublishService,
@@ -556,6 +569,10 @@ class OutboxPublishSchedulerTest {
                         outboxPublishService,
                         outboxKafkaPublisher,
                         new ObjectMapper(),
+
+                        publishExecutor,
+
+                        // callback executor
                         Runnable::run,
                         monitor
                 );
@@ -568,6 +585,70 @@ class OutboxPublishSchedulerTest {
 
         return createdScheduler;
     }
+
+    @Test
+    @DisplayName(
+            "발행 executor가 작업을 거절하면 실패를 기록하고 슬롯을 반환한다"
+    )
+    void recordsFailureAndReleasesSlotWhenExecutorRejectsTask() {
+        // given
+        scheduler = createScheduler(
+                1,
+                command -> {
+                    throw new RejectedExecutionException(
+                            "publish executor saturated"
+                    );
+                }
+        );
+
+        UUID userId = UUID.randomUUID();
+
+        OutboxPublishService.ClaimedEvent event =
+                createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(1))
+                .thenReturn(
+                        List.of(event),
+                        List.of()
+                );
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(event),
+                contains(
+                        "RejectedExecutionException: "
+                                + "publish executor saturated"
+                )
+        )).thenReturn(true);
+
+        // when
+        scheduler.publishPendingEvents();
+
+        /*
+         * 첫 요청에서 슬롯이 정상 반환됐다면
+         * 두 번째 실행에서도 다시 이벤트 선점을 시도할 수 있다.
+         */
+        scheduler.publishPendingEvents();
+
+        // then
+        verify(outboxPublishService, times(2))
+                .claimPendingEvents(1);
+
+        verify(outboxPublishService)
+                .markFailedAttempt(
+                        eq(event),
+                        contains(
+                                "RejectedExecutionException: "
+                                        + "publish executor saturated"
+                        )
+                );
+
+        verify(outboxKafkaPublisher, never())
+                .publish(
+                        any(),
+                        anyString()
+                );
+    }
+
 
     private OutboxPublishService.ClaimedEvent createEvent(
             UUID userId
