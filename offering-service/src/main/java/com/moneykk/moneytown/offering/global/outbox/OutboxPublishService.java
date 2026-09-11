@@ -120,6 +120,18 @@ public class OutboxPublishService {
     }
 
     /**
+     * 현재 DB에서 발행 처리 중인 Outbox 이벤트 수를 조회한다.
+     *
+     * OutboxPublishMonitor가 PROCESSING 건수 Gauge를 갱신할 때 사용한다.
+     */
+    @Transactional(readOnly = true)
+    public long countProcessingEvents() {
+        return outboxEventRepository.countByEventStatus(
+                OutboxEventStatus.PROCESSING
+        );
+    }
+
+    /**
      * 장시간 PROCESSING 상태인 이벤트를 재시도 또는 FAILED로 전환한다.
      *
      * @return 복구 처리한 이벤트 수

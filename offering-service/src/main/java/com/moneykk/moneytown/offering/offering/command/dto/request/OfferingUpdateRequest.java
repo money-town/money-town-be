@@ -1,11 +1,12 @@
 package com.moneykk.moneytown.offering.offering.command.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 public record OfferingUpdateRequest(
         @Schema(
@@ -41,15 +42,27 @@ public record OfferingUpdateRequest(
         Long maxSubscriptionQuantity,
 
         @Schema(
-                description = "변경할 공모 모집 시작 시각. 미입력 시 기존 값을 유지합니다.",
-                example = "2026-09-12T09:00:00Z"
+                description = """
+                변경할 공모 모집 시작 시각. 미입력 시 기존 값을 유지합니다.
+                한국 시각 기준으로 yyyy-MM-dd HH:mm 형식으로 입력합니다.
+                현재 시각보다 충분히 미래로 설정해야 합니다.
+                """,
+                type = "string",
+                example = "2030-01-01 14:40"
         )
-        Instant startAt,
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm")
+        LocalDateTime startAt,
 
         @Schema(
-                description = "변경할 공모 모집 종료 시각. 미입력 시 기존 값을 유지합니다.",
-                example = "2026-09-19T09:00:00Z"
+                description = """
+                변경할 공모 모집 종료 시각. 미입력 시 기존 값을 유지합니다.
+                한국 시각 기준으로 yyyy-MM-dd HH:mm 형식으로 입력하며
+                모집 시작 시각보다 이후여야 합니다.
+                """,
+                type = "string",
+                example = "2030-01-08 18:00"
         )
-        Instant endAt
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm")
+        LocalDateTime endAt
 ) {
 }

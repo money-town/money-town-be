@@ -30,6 +30,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OfferingCommandService {
 
+    private static final int MAX_OFFERING_TITLE_LENGTH = 200;
+
     private final OfferingRepository offeringRepository;
     private final AssetServiceClient assetServiceClient;
     private final UserServiceClient userServiceClient;
@@ -50,9 +52,12 @@ public class OfferingCommandService {
                         request.totalQuantity()
                 );
 
+        String title = createOfferingTitle(asset);
+
         return offeringTransactionService.createOffering(
                 issuerId,
                 request,
+                title,
                 asset.unitPrice()
         );
     }
@@ -350,11 +355,39 @@ public class OfferingCommandService {
         }
     }
 
+    private String createOfferingTitle(
+            AssetOfferingInfoResponse asset
+    ) {
+        // 공모 생성에서 실제 필요한 자산명만 검증
+        if (asset.assetName() == null
+                || asset.assetName().isBlank()) {
+            throw new BusinessException(
+                    OfferingErrorCode.ASSET_RESPONSE_INVALID
+            );
+        }
+
+        String suffix = " 공모";
+        // trim()은 ASCII 공백만 제거하므로 Unicode 공백을 처리하는 strip() 사용
+        String assetName = asset.assetName().strip();
+
+        int maxAssetNameLength =
+                MAX_OFFERING_TITLE_LENGTH - suffix.length();
+
+        // 자산 원본 이름은 그대로 두고 공모 제목에서만 길이를 조정
+        String titleAssetName =
+                assetName.length() > maxAssetNameLength
+                        ? assetName.substring(0, maxAssetNameLength)
+                        : assetName;
+
+        return titleAssetName + suffix;
+    }
+
+
     private ApiResponse<AssetOfferingInfoResponse> getAsset(
             UUID assetId
     ) {
         try {
-            return assetServiceClient.getAsset("SYSTEM",assetId);
+            return assetServiceClient.getAsset("SYSTEM", assetId);
 
         } catch (FeignException.NotFound e) {
             throw new BusinessException(
