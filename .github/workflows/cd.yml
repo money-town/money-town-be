@@ -100,7 +100,7 @@ jobs:
           docker push "${IMAGE}"
 
   deploy:
-    needs: publish
+    needs: [resolve-tag, publish]
     runs-on: ubuntu-latest
     environment: production
     if: vars.DEPLOY_ENABLED == 'true' && needs.publish.result == 'success'
