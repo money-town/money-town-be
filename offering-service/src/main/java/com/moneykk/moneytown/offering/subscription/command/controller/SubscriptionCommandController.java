@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import io.swagger.v3.oas.annotations.Parameter;
 
 import java.util.UUID;
 
@@ -47,7 +46,6 @@ public class SubscriptionCommandController {
             @PathVariable UUID offeringId,
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
-            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.CORRELATION_ID) String correlationId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubscriptionCreateRequest request

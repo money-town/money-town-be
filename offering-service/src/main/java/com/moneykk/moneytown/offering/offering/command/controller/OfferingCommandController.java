@@ -18,7 +18,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import io.swagger.v3.oas.annotations.Parameter;
 
 import java.util.UUID;
 
@@ -169,7 +168,6 @@ public class OfferingCommandController {
             @PathVariable UUID offeringId,
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
-            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.CORRELATION_ID)
             String correlationId
     ) {

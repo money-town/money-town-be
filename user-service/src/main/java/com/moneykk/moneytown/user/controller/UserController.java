@@ -4,7 +4,6 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
-import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.user.dto.response.UserListResponse;
 import com.moneykk.moneytown.user.dto.response.UserResponse;
 import com.moneykk.moneytown.user.service.UserService;
@@ -30,8 +29,6 @@ import java.util.UUID;
 public class UserController {
     private final UserService userService;
 
-
-
     @Operation(
             summary = "내 정보 조회",
             description = "JWT로 인증된 사용자의 정보를 조회",
@@ -42,13 +39,15 @@ public class UserController {
             @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId){
 
-
         return ApiResponse.success(userService.getUserMe(userId),
                 "내 정보 조회 성공");
+
     }
 
-
-    // 내 정보 수정
+    @Operation(
+            summary = "내 정보 수정",
+            description = "JWT로 인증된 사용자의 정보를 수정합니다."
+    )
     @PatchMapping("/users/me")
     public ApiResponse<UserResponse> updateUser(
             @Parameter(hidden = true)
@@ -60,12 +59,14 @@ public class UserController {
 
     }
 
-    // 회원 탈퇴
+    @Operation(
+            summary = "회원 탈퇴",
+            description = "JWT로 인증된 사용자를 탈퇴 처리합니다."
+    )
     @DeleteMapping("/users/me")
     public ApiResponse<Void> deleteUser(
             @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
-            @Parameter(hidden = true)
             @RequestHeader(
                     value = AuthHeaderConstants.CORRELATION_ID,
                     required = false
@@ -75,6 +76,7 @@ public class UserController {
 
         return ApiResponse.success(null,
                 "삭제 완료");
+
     }
 
     // 관리자
@@ -93,21 +95,26 @@ public class UserController {
     ){
 
         return ApiResponse.success(userService.userList(name),
-                "사용자 목록 조회 성공"
-        );
+                "사용자 목록 조회 성공");
+
     }
 
-    // 사용자 단건 조회
-    @GetMapping("users/{userId}")
+    @Operation(
+            summary = "사용자 단건 조회",
+            description = "ADMIN이 사용자 ID로 사용자 정보를 조회합니다."
+    )
+    @GetMapping("/users/{userId}")
     public ApiResponse<UserResponse> getUser(@PathVariable UUID userId){
+
         return ApiResponse.success(userService.getUser(userId),
                 "사용자 단건 조회 성공");
     
     }
 
-   
-
-    // 관리자 단건 수정
+    @Operation(
+            summary = "관리자 사용자 정보 수정",
+            description = "ADMIN이 지정한 사용자의 정보를 수정합니다."
+    )
     @PatchMapping("/users/{userId}")
     public ApiResponse<UserResponse> updateUserByAdmin(
             @PathVariable UUID userId,
@@ -118,12 +125,14 @@ public class UserController {
 
     }
 
-    // 관리자 사용자 탈퇴 처리
+    @Operation(
+            summary = "관리자 사용자 탈퇴 처리",
+            description = "ADMIN이 지정한 사용자를 탈퇴 처리합니다."
+    )
     @DeleteMapping("/users/{userId}")
     public ApiResponse<Void> deleteUserByAdmin(
             @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID adminId,
-            @Parameter(hidden = true)
             @RequestHeader(
                     value = AuthHeaderConstants.CORRELATION_ID,
                     required = false
@@ -132,15 +141,8 @@ public class UserController {
     ) {
         userService.deleteUserByAdmin(adminId, userId, correlationId);
 
-
-
         return ApiResponse.success(null,"사용자 탈퇴 처리 성공");
+
     }
-
-
-
-
-
-
 
 } // Controller
