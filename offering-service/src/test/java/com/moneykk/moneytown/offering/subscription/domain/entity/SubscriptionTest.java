@@ -421,4 +421,104 @@ class SubscriptionTest {
                 Instant.now().plusSeconds(300)
         );
     }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 청약은 관리자 보상 요청으로 COMPENSATING 상태로 전환된다")
+    void restartsCompensationFromManualReview() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startCompensation(
+                CancellationType.OFFERING_ADMIN_CANCELLED
+        );
+        subscription.requireManualReview(
+                "WALLET_COMPENSATION_FAILED"
+        );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
+
+        // when
+        subscription.restartCompensation();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+
+        assertThat(subscription.getCancellationType())
+                .isEqualTo(
+                        CancellationType.OFFERING_ADMIN_CANCELLED
+                );
+
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("WALLET_COMPENSATION_FAILED");
+
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 상태가 아니면 관리자 보상을 다시 시작할 수 없다")
+    void cannotRestartCompensationFromNonManualReviewStatus() {
+        // given
+        Subscription subscription = createSubscription();
+
+        // when & then
+        assertThatThrownBy(subscription::restartCompensation)
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.PROCESSING);
+
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("예약 만료 보상을 다시 시작해도 기존 보상 원인을 유지한다")
+    void preservesExpirationContextWhenRestartingCompensation() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startExpirationCompensation(
+                subscription.getReservationExpiresAt()
+        );
+        subscription.requireManualReview(
+                "LATE_WALLET_HOLD_SUCCEEDED"
+        );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
+
+        /*
+         * requireManualReview는 기존 failureCode가 있으면
+         * 새로운 사유로 덮어쓰지 않는다.
+         */
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+
+        // when
+        subscription.restartCompensation();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+
+        assertThat(subscription.getCancellationType()).isNull();
+        assertThat(subscription.isQuantityReserved()).isTrue();
+
+        assertThat(
+                subscription.isReservationExpirationCompensation()
+        ).isTrue();
+    }
 }

@@ -348,7 +348,25 @@ public class Subscription extends BaseUpdatableEntity {
         this.subscriptionStatus = SubscriptionStatus.REJECTED;
     }
 
-    // TODO : 운영 재처리 구현 시 MANUAL_REVIEW 청약의 보상 재시작 규칙을 추가한다.
+    /**
+     * 관리자의 보상 요청으로 수동 확인 상태의 청약 보상을 다시 시작한다.
+     *
+     * 기존 failureCode, cancellationType, 수량 확보 여부 등
+     * 보상 원인을 판단하는 정보는 그대로 유지한다.
+     *
+     * MANUAL_REVIEW → COMPENSATING
+     */
+    public void restartCompensation() {
+
+        if (subscriptionStatus != SubscriptionStatus.MANUAL_REVIEW) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
+    }
+
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
