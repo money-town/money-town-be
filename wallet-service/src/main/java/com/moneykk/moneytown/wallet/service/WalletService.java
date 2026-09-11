@@ -79,14 +79,14 @@ public class WalletService {
     }
 
     // 클래스 레벨 readOnly 트랜잭션에 합류하면 Feign 호출/UNIQUE 복구가 다시 트랜잭션에 묶인다.
+    // 지갑 조회(락 없음)는 멱등키 재사용/충돌 복구 같은 드문 경로에서만 하고, 정상 경로는
+    // WalletTransactionService의 락 있는 조회 한 번만 타도록 분리했다 (매 요청 중복 조회 제거).
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
-        Wallet wallet = walletRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
         Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
-            return buildIdempotentResponse(existing.get(), wallet.getId(), WalletTransactionType.DEPOSIT, amount);
+            Long walletId = requireWallet(userId).getId();
+            return buildIdempotentResponse(existing.get(), walletId, WalletTransactionType.DEPOSIT, amount);
         }
 
         requireEligibleForTransaction(userId);
@@ -94,18 +94,17 @@ public class WalletService {
         try {
             return walletTransactionService.deposit(userId, idempotencyKey, amount);
         } catch (DataIntegrityViolationException e) {
-            return recoverFromConcurrentDuplicate(e, wallet.getId(), WalletTransactionType.DEPOSIT, idempotencyKey, amount);
+            Long walletId = requireWallet(userId).getId();
+            return recoverFromConcurrentDuplicate(e, walletId, WalletTransactionType.DEPOSIT, idempotencyKey, amount);
         }
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
-        Wallet wallet = walletRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
         Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
-            return buildIdempotentResponse(existing.get(), wallet.getId(), WalletTransactionType.WITHDRAW, amount);
+            Long walletId = requireWallet(userId).getId();
+            return buildIdempotentResponse(existing.get(), walletId, WalletTransactionType.WITHDRAW, amount);
         }
 
         requireEligibleForTransaction(userId);
@@ -113,8 +112,14 @@ public class WalletService {
         try {
             return walletTransactionService.withdraw(userId, idempotencyKey, amount);
         } catch (DataIntegrityViolationException e) {
-            return recoverFromConcurrentDuplicate(e, wallet.getId(), WalletTransactionType.WITHDRAW, idempotencyKey, amount);
+            Long walletId = requireWallet(userId).getId();
+            return recoverFromConcurrentDuplicate(e, walletId, WalletTransactionType.WITHDRAW, idempotencyKey, amount);
         }
+    }
+
+    private Wallet requireWallet(UUID userId) {
+        return walletRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
     }
 
     // Settlement가 배당 지급 시 호출하는 내부 API. 사용자 요청이 아니라 시스템 간 호출이라
