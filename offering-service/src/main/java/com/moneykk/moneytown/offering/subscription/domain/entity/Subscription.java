@@ -210,13 +210,31 @@ public class Subscription extends BaseUpdatableEntity {
     }
 
     /**
-     * Wallet 동결 성공을 확인한 청약을 확정한다.
+     * Wallet HOLD 성공을 기록한다.
      *
-     * 수량이 확보된 PROCESSING 청약만 확정할 수 있다.
+     * PROCESSING → HOLD_SUCCEEDED
+     */
+    public void markHoldSucceeded() {
+        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                || !quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.HOLD_SUCCEEDED;
+    }
+
+    /**
+     * 수량이 확보되고 Wallet HOLD에 성공한
+     * HOLD_SUCCEEDED 청약만 최종 확정할 수 있다.
+     *
      * 중복 이벤트와 늦게 도착한 이벤트의 처리는
      * 호출하는 서비스에서 잠금 조회 후 판단한다.
      *
-     * 동결 성공: PROCESSING -> CONFIRMED
+     * 공모 전체 확정 조건을 만족한 청약을 최종 확정한다.
+     *
+     * HOLD_SUCCEEDED → CONFIRMED
      * CONFIRMED 전환 시 confirmedAt 기록
      *
      * @param confirmedAt 청약 확정 처리 시각
@@ -228,7 +246,7 @@ public class Subscription extends BaseUpdatableEntity {
             );
         }
 
-        if (subscriptionStatus != SubscriptionStatus.PROCESSING
+        if (subscriptionStatus != SubscriptionStatus.HOLD_SUCCEEDED
                 || !quantityReserved) {
             throw new BusinessException(
                     SubscriptionErrorCode.SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
@@ -334,7 +352,7 @@ public class Subscription extends BaseUpdatableEntity {
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.
      *
-     * PROCESSING 또는 CONFIRMED 상태의 청약만
+     * PROCESSING, HOLD_SUCCEEDED 또는 CONFIRMED 상태의 청약만
      * COMPENSATING 상태로 전환할 수 있다.
      */
     public void startCompensation(CancellationType cancellationType) {
@@ -346,6 +364,7 @@ public class Subscription extends BaseUpdatableEntity {
         }
 
         if (subscriptionStatus != SubscriptionStatus.PROCESSING
+                && subscriptionStatus != SubscriptionStatus.HOLD_SUCCEEDED
                 && subscriptionStatus != SubscriptionStatus.CONFIRMED) {
             throw new BusinessException(
                     SubscriptionErrorCode.SUBSCRIPTION_COMPENSATION_NOT_ALLOWED

@@ -56,6 +56,13 @@ class OfferingStatusTransitionServiceTest {
     @InjectMocks
     private OfferingStatusTransitionService offeringStatusTransitionService;
 
+    private static final List<SubscriptionStatus> COMPENSATABLE_STATUSES =
+            List.of(
+                    SubscriptionStatus.PROCESSING,
+                    SubscriptionStatus.HOLD_SUCCEEDED,
+                    SubscriptionStatus.CONFIRMED
+            );
+
     @Test
     @DisplayName("SCHEDULED 공모의 OPEN 전환 건수를 반환한다")
     void opensScheduledOfferings() {
@@ -98,27 +105,60 @@ class OfferingStatusTransitionServiceTest {
         // given
         UUID offeringId = UUID.randomUUID();
         UUID assetId = UUID.randomUUID();
+
         UUID processingSubscriptionId = UUID.randomUUID();
+
+        UUID holdSucceededSubscriptionId = UUID.randomUUID();
+
         UUID confirmedSubscriptionId = UUID.randomUUID();
 
         Offering offering = mock(Offering.class);
-        Subscription processingSubscription = mock(Subscription.class);
-        Subscription confirmedSubscription = mock(Subscription.class);
+
+        Subscription processingSubscription =
+                mock(Subscription.class);
+
+        Subscription holdSucceededSubscription =
+                mock(Subscription.class);
+
+        Subscription confirmedSubscription =
+                mock(Subscription.class);
+
+        when(processingSubscription.getSubscriptionId())
+                .thenReturn(processingSubscriptionId);
 
 
-        when(processingSubscription.getSubscriptionId()).thenReturn(processingSubscriptionId);
-        when(confirmedSubscription.getSubscriptionId()).thenReturn(confirmedSubscriptionId);
-        when(offering.getOfferingId()).thenReturn(offeringId);
-        when(offering.getAssetId()).thenReturn(assetId);
-        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(any(),any())).thenReturn(List.of(offering));
-        when(subscriptionRepository.findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
+        when(holdSucceededSubscription.getSubscriptionId())
+                .thenReturn(holdSucceededSubscriptionId);
+
+        when(confirmedSubscription.getSubscriptionId())
+                .thenReturn(confirmedSubscriptionId);
+
+        when(offering.getOfferingId())
+                .thenReturn(offeringId);
+
+        when(offering.getAssetId())
+                .thenReturn(assetId);
+
+        when(offeringRepository.findUnderSubscribedOfferingsForUpdate(
+                any(),
+                any()
+        )).thenReturn(List.of(offering));
+
+        when(subscriptionRepository
+                .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
                         eq(offeringId),
-                        eq(List.of(SubscriptionStatus.PROCESSING, SubscriptionStatus.CONFIRMED))
-                ))
-                .thenReturn(List.of(processingSubscription, confirmedSubscription));
+                        eq(COMPENSATABLE_STATUSES)
+                )
+        ).thenReturn(List.of(
+                processingSubscription,
+                holdSucceededSubscription,
+                confirmedSubscription
+        ));
 
         // when
-        int result = offeringStatusTransitionService.startUnderSubscribedCancellations();
+        int result =
+                offeringStatusTransitionService
+                        .startUnderSubscribedCancellations();
 
         // then
         assertThat(result).isEqualTo(1);
@@ -127,6 +167,11 @@ class OfferingStatusTransitionServiceTest {
                 .startUnderSubscribedCancellation();
 
         verify(processingSubscription)
+                .startCompensation(
+                        CancellationType.OFFERING_UNDER_SUBSCRIBED
+                );
+
+        verify(holdSucceededSubscription)
                 .startCompensation(
                         CancellationType.OFFERING_UNDER_SUBSCRIBED
                 );
@@ -152,21 +197,33 @@ class OfferingStatusTransitionServiceTest {
 
         verify(subscriptionEventPublisher)
                 .publishCompensationRequested(
+                        eq(holdSucceededSubscription),
+                        eq(assetId),
+                        eq(correlationId)
+                );
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
                         eq(confirmedSubscription),
                         eq(assetId),
                         eq(correlationId)
                 );
 
         ArgumentCaptor<SubscriptionCompensation> compensationCaptor =
-                ArgumentCaptor.forClass(SubscriptionCompensation.class);
+                ArgumentCaptor.forClass(
+                        SubscriptionCompensation.class
+                );
 
-        verify(subscriptionCompensationRepository, times(2))
+        verify(subscriptionCompensationRepository, times(3))
                 .save(compensationCaptor.capture());
 
         assertThat(compensationCaptor.getAllValues())
-                .extracting(SubscriptionCompensation::getSubscriptionId)
+                .extracting(
+                        SubscriptionCompensation::getSubscriptionId
+                )
                 .containsExactlyInAnyOrder(
                         processingSubscriptionId,
+                        holdSucceededSubscriptionId,
                         confirmedSubscriptionId
                 );
 
@@ -190,10 +247,7 @@ class OfferingStatusTransitionServiceTest {
         when(subscriptionRepository
                 .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
                         eq(offeringId),
-                        eq(List.of(
-                                SubscriptionStatus.PROCESSING,
-                                SubscriptionStatus.CONFIRMED
-                        ))
+                        eq(COMPENSATABLE_STATUSES)
                 )
         ).thenReturn(List.of());
 
@@ -237,13 +291,10 @@ class OfferingStatusTransitionServiceTest {
 
         when(subscriptionRepository
                 .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-                        offeringId,
-                        List.of(
-                                SubscriptionStatus.PROCESSING,
-                                SubscriptionStatus.CONFIRMED
-                        )
-                ))
-                .thenReturn(List.of());
+                        eq(offeringId),
+                        eq(COMPENSATABLE_STATUSES)
+                )
+        ).thenReturn(List.of());
 
         // when
         OfferingCancellationResponse response =
@@ -300,13 +351,10 @@ class OfferingStatusTransitionServiceTest {
 
         when(subscriptionRepository
                 .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-                        offeringId,
-                        List.of(
-                                SubscriptionStatus.PROCESSING,
-                                SubscriptionStatus.CONFIRMED
-                        )
-                ))
-                .thenReturn(List.of(subscription));
+                        eq(offeringId),
+                        eq(COMPENSATABLE_STATUSES)
+                )
+        ).thenReturn(List.of(subscription));
 
         // when
         OfferingCancellationResponse response =

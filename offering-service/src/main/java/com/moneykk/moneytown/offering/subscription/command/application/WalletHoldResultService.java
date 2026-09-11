@@ -7,6 +7,7 @@ import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CompensationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
@@ -22,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -63,64 +65,184 @@ public class WalletHoldResultService {
         );
     }
 
+    /**
+     * Wallet HOLD 성공을 기록하고,
+     * 공모 전체 확정 조건을 만족하면 유효한 모든 청약을 확정한다.
+     *
+     * 잠금 순서:
+     * Offering → 현재 Subscription → 공모의 전체 유효 Subscription
+     */
     private void confirmSubscription(
             UUID subscriptionId,
             EventEnvelope<WalletHoldSucceededPayload> envelope
     ) {
+        /*
+         *
+         * 공모 중단·모집 미달 처리와 잠금 순서를 통일하기 위해
+         * 청약을 잠그기 전에 offeringId만 먼저 조회한다.
+         */
+        UUID offeringId = subscriptionRepository
+                .findOfferingIdBySubscriptionId(subscriptionId)
+                .orElseThrow(() -> new BusinessException(
+                        SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+                ));
+
+        /*
+         *
+         * 동일 공모의 다른 WalletHoldSucceeded 처리 및
+         * 공모 취소 처리와 충돌하지 않도록 공모를 먼저 잠근다.
+         */
+        Offering offering = offeringRepository
+                .findByIdForUpdate(offeringId)
+                .orElseThrow(() -> new BusinessException(
+                        OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
+
         Subscription subscription = subscriptionRepository
                 .findByIdForUpdate(subscriptionId)
                 .orElseThrow(() -> new BusinessException(
                         SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
                 ));
 
-        // 수신 이벤트가 실제 청약자의 지갑 처리 결과인지 확인한다.
         if (!subscription.getUserId().equals(envelope.userId())) {
             throw new IllegalArgumentException(
                     "동결 성공 이벤트의 userId가 청약자와 일치하지 않습니다."
             );
         }
 
-        /*
-         * 서로 다른 eventId로 같은 청약의 성공 결과가 도착하더라도
-         * 이미 확정된 청약은 다시 확정하거나 이벤트를 다시 생성하지 않는다.
-         */
-        if (subscription.getSubscriptionStatus()
-                == SubscriptionStatus.CONFIRMED) {
-            log.info(
-                    "이미 확정된 청약의 동결 성공 이벤트. "
-                            + "subscriptionId={}, eventId={}",
-                    subscriptionId,
-                    envelope.eventId()
-            );
-            return;
-        }
+        SubscriptionStatus currentStatus =
+                subscription.getSubscriptionStatus();
 
         /*
-         * 보상 중이거나 종료된 청약을 다시 확정하지 않는다.
-         * 현재 보상 상태에 따라 재요청 또는 수동 확인으로 연결한다.
+         * 최초 성공 이벤트라면 PROCESSING → HOLD_SUCCEEDED로 변경한다.
          */
-        if (subscription.getSubscriptionStatus()
-                != SubscriptionStatus.PROCESSING) {
+        if (currentStatus == SubscriptionStatus.PROCESSING) {
+            subscription.markHoldSucceeded();
+
+            /*
+             * 서로 다른 eventId로 동일 성공 결과가 다시 수신될 수 있다.
+             *
+             * HOLD_SUCCEEDED는 이미 성공이 반영된 상태이므로 다시 변경하지 않고,
+             * 다른 청약까지 모두 성공했는지 다시 확인한다.
+             *
+             * CONFIRMED도 이미 Wallet HOLD 성공을 거친 상태이므로
+             * 전체 확정 조건을 다시 확인할 수 있다.
+             */
+        } else if (currentStatus == SubscriptionStatus.HOLD_SUCCEEDED
+                || currentStatus == SubscriptionStatus.CONFIRMED) {
+
+            log.info(
+                    "이미 Wallet HOLD 성공이 반영된 청약. "
+                            + "전체 확정 조건 재확인. "
+                            + "subscriptionId={}, eventId={}, status={}",
+                    subscriptionId,
+                    envelope.eventId(),
+                    currentStatus
+            );
+
+            /*
+             * COMPENSATING, REJECTED, CANCELLED, MANUAL_REVIEW 상태에
+             * 성공 이벤트가 늦게 도착한 경우 기존 예외 처리 흐름을 사용한다.
+             */
+        } else {
             handleLateHoldSucceeded(subscription, envelope);
             return;
         }
 
         /*
-         * 청약이 참조하는 공모에서 assetId를 가져온다.
-         * 수신 Payload나 클라이언트 입력을 assetId로 사용하지 않는다.
+         *
+         * 공모 수량이 전부 예약된 경우에만 전체 확정을 검토한다.
+         *
+         * CLOSED도 허용하는 이유:
+         * 마지막 Wallet HOLD 결과가 늦게 도착하는 동안
+         * 종료 스케줄러가 SOLD_OUT → CLOSED로 변경할 수 있기 때문이다.
          */
-        Offering offering = offeringRepository
-                .findById(subscription.getOfferingId())
-                .orElseThrow(() -> new BusinessException(
-                        OfferingErrorCode.OFFERING_NOT_FOUND
-                ));
+        boolean finalizableOffering =
+                (offering.getOfferingStatus() == OfferingStatus.SOLD_OUT
+                        || offering.getOfferingStatus() == OfferingStatus.CLOSED)
+                        && offering.getRemainingQuantity() == 0L;
 
-        subscription.confirm(Instant.now());
+        if (!finalizableOffering) {
+            log.debug(
+                    "공모 전체 확정 조건 미충족. "
+                            + "offeringId={}, status={}, remainingQuantity={}",
+                    offeringId,
+                    offering.getOfferingStatus(),
+                    offering.getRemainingQuantity()
+            );
+            return;
+        }
 
-        subscriptionEventPublisher.publishConfirmed(
-                subscription,
-                offering.getAssetId(),
-                envelope.correlationId()
+        /*
+         *
+         * 현재 수량을 확보하고 있는 모든 청약을 잠근다.
+         * Hold 실패 후 수량이 복원된 REJECTED 청약은 제외된다.
+         */
+        List<Subscription> reservedSubscriptions =
+                subscriptionRepository
+                        .findAllReservedByOfferingIdForUpdate(offeringId);
+
+        if (reservedSubscriptions.isEmpty()) {
+            throw new IllegalStateException(
+                    "매진된 공모에 수량 확보 청약이 존재하지 않습니다. "
+                            + "offeringId=" + offeringId
+            );
+        }
+
+        /*
+         * 기존 데이터나 재처리를 고려해 CONFIRMED도
+         * Wallet HOLD가 완료된 상태로 인정한다.
+         */
+        boolean allHoldsSucceeded = reservedSubscriptions.stream()
+                .allMatch(candidate ->
+                        candidate.getSubscriptionStatus()
+                                == SubscriptionStatus.HOLD_SUCCEEDED
+                                || candidate.getSubscriptionStatus()
+                                == SubscriptionStatus.CONFIRMED
+                );
+
+        if (!allHoldsSucceeded) {
+            log.debug(
+                    "일부 청약의 Wallet HOLD 결과 대기 중. "
+                            + "offeringId={}, reservedSubscriptionCount={}",
+                    offeringId,
+                    reservedSubscriptions.size()
+            );
+            return;
+        }
+
+        Instant confirmedAt = Instant.now();
+        int confirmedCount = 0;
+
+        /*
+         * 모든 Hold가 성공한 경우 아직 HOLD_SUCCEEDED인 청약만
+         * CONFIRMED로 전환하고 각각 확정 이벤트를 저장한다.
+         *
+         * 청약 상태 변경, Outbox 저장, 수신 이벤트 처리 이력은
+         * ProcessedEventService의 동일 트랜잭션에서 커밋된다.
+         */
+        for (Subscription reservedSubscription : reservedSubscriptions) {
+            if (reservedSubscription.getSubscriptionStatus()
+                    == SubscriptionStatus.CONFIRMED) {
+                continue;
+            }
+
+            reservedSubscription.confirm(confirmedAt);
+
+            subscriptionEventPublisher.publishConfirmed(
+                    reservedSubscription,
+                    offering.getAssetId(),
+                    envelope.correlationId()
+            );
+
+            confirmedCount++;
+        }
+
+        log.info(
+                "공모 전체 Wallet HOLD 성공으로 청약 일괄 확정. "
+                        + "offeringId={}, confirmedCount={}",
+                offeringId,
+                confirmedCount
         );
     }
 

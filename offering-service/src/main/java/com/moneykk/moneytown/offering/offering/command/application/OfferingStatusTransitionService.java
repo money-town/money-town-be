@@ -38,6 +38,7 @@ public class OfferingStatusTransitionService {
     private static final List<SubscriptionStatus> COMPENSATABLE_STATUSES =
             List.of(
                     SubscriptionStatus.PROCESSING,
+                    SubscriptionStatus.HOLD_SUCCEEDED,
                     SubscriptionStatus.CONFIRMED
             );
 

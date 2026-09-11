@@ -15,12 +15,79 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SubscriptionTest {
 
     @Test
+    @DisplayName("PROCESSING 청약은 Wallet HOLD 성공 시 HOLD_SUCCEEDED로 전환된다")
+    void marksHoldSucceeded() {
+        Subscription subscription = createSubscription();
+
+        subscription.markHoldSucceeded();
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
+        assertThat(subscription.getConfirmedAt()).isNull();
+        assertThat(subscription.getHoldingAllocationStatus()).isNull();
+    }
+
+    @Test
+    @DisplayName("HOLD_SUCCEEDED 청약은 최종 확정할 수 있다")
+    void confirmsHoldSucceededSubscription() {
+        Subscription subscription = createSubscription();
+        Instant confirmedAt = Instant.now();
+
+        subscription.markHoldSucceeded();
+        subscription.confirm(confirmedAt);
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.CONFIRMED);
+        assertThat(subscription.getConfirmedAt())
+                .isEqualTo(confirmedAt);
+        assertThat(subscription.getHoldingAllocationStatus())
+                .isEqualTo(HoldingAllocationStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("PROCESSING 청약은 HOLD 성공 없이 바로 확정할 수 없다")
+    void cannotConfirmProcessingSubscription() {
+        Subscription subscription = createSubscription();
+
+        assertThatThrownBy(() ->
+                subscription.confirm(Instant.now())
+        ).isInstanceOf(BusinessException.class)
+         .satisfies(exception ->
+                assertThat(
+                        ((BusinessException) exception).getErrorCode()
+                ).isEqualTo(
+                        SubscriptionErrorCode
+                                .SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
+                )
+        );
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.PROCESSING);
+    }
+
+    @Test
+    @DisplayName("HOLD_SUCCEEDED 청약은 공모 취소 보상을 시작할 수 있다")
+    void startsCompensationFromHoldSucceeded() {
+        Subscription subscription = createSubscription();
+
+        subscription.markHoldSucceeded();
+        subscription.startCompensation(
+                CancellationType.OFFERING_UNDER_SUBSCRIBED
+        );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+        assertThat(subscription.getCancellationType())
+                .isEqualTo(CancellationType.OFFERING_UNDER_SUBSCRIBED);
+    }
+
+    @Test
     @DisplayName("청약 확정 시 Holding 배정 후처리를 PENDING으로 시작한다")
     void startsHoldingAllocationWhenConfirmed() {
         // given
         Subscription subscription = createSubscription();
 
         // when
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         // then
@@ -39,6 +106,7 @@ class SubscriptionTest {
     void recordsHoldingAllocationFailure() {
         // given
         Subscription subscription = createSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         // when
@@ -62,6 +130,7 @@ class SubscriptionTest {
     void completesHoldingAllocationAfterFailure() {
         // given
         Subscription subscription = createSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         subscription.markHoldingAllocationFailed(
@@ -87,6 +156,7 @@ class SubscriptionTest {
     void preservesHoldingAllocationSuccessAgainstLateFailure() {
         // given
         Subscription subscription = createSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
         subscription.markHoldingAllocationSucceeded();
 
@@ -116,8 +186,7 @@ class SubscriptionTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(exception ->
                         assertThat(
-                                ((BusinessException) exception)
-                                        .getErrorCode()
+                                ((BusinessException) exception).getErrorCode()
                         ).isEqualTo(
                                 SubscriptionErrorCode
                                         .SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
@@ -152,11 +221,8 @@ class SubscriptionTest {
         // given
         Subscription subscription = createSubscription();
 
-        ReflectionTestUtils.setField(
-                subscription,
-                "subscriptionStatus",
-                SubscriptionStatus.CONFIRMED
-        );
+        subscription.markHoldSucceeded();
+        subscription.confirm(Instant.now());
 
         // when
         subscription.startCompensation(

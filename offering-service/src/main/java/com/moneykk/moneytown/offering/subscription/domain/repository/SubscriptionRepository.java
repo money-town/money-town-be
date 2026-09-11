@@ -109,14 +109,42 @@ public interface SubscriptionRepository
     /**
      * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
      *
-     * PROCESSING, CONFIRMED 상태이면서
+     * 전달받은 청약 상태에 해당하면서
      * 삭제되지 않은 청약만 조회한다.
+     *
+     * HOLD_SUCCEEDED 상태도 보상 대상에 포함할 수 있다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
             UUID offeringId,
             List<SubscriptionStatus> subscriptionStatuses
+    );
+
+    /*
+     * SOLD_OUT 공모의 최종 확정을 위해
+     * 현재 수량이 확보되어 있는 모든 청약을 잠금 조회한다.
+     *
+     * Hold 실패 후 수량이 복원된 REJECTED 청약은
+     * quantityReserved=false이므로 조회 대상에서 제외한다.
+     *
+     * 공모 취소 처리와 잠금 순서를 통일하기 위해
+     * 호출하는 서비스에서 공모를 먼저 잠근 후 이 메서드를 호출해야 한다.
+     *
+     * subscriptionId 순서로 잠가 동시 처리 시 교착 가능성을 줄인다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT s
+          FROM Subscription s
+         WHERE s.offeringId = :offeringId
+           AND s.quantityReserved = true
+           AND s.isDeleted = false
+         ORDER BY s.subscriptionId
+        """)
+    List<Subscription> findAllReservedByOfferingIdForUpdate(
+            @Param("offeringId") UUID offeringId
     );
 
     /**
