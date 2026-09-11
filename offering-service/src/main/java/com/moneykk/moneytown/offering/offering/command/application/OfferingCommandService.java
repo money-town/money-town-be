@@ -367,7 +367,8 @@ public class OfferingCommandService {
         }
 
         String suffix = " 공모";
-        String assetName = asset.assetName().trim();
+        // trim()은 ASCII 공백만 제거하므로 Unicode 공백을 처리하는 strip() 사용
+        String assetName = asset.assetName().strip();
 
         int maxAssetNameLength =
                 MAX_OFFERING_TITLE_LENGTH - suffix.length();

@@ -549,6 +549,72 @@ class OfferingCommandServiceTest {
                 );
     }
 
+    @Test
+    @DisplayName("자산명의 앞뒤 Unicode 공백을 제거하여 공모 제목을 생성한다")
+    void stripsUnicodeWhitespaceFromOfferingTitle() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        OfferingCreateRequest request =
+                createRequest(assetId);
+
+        AssetOfferingInfoResponse asset =
+                new AssetOfferingInfoResponse(
+                        assetId,
+                        issuerId,
+                        "REAL_ESTATE",
+
+                        // U+2003 EM SPACE를 자산명 앞뒤에 배치
+                        "\u2003테스트 자산\u2003",
+
+                        10_000L,
+                        1_000L,
+                        0L,
+                        "APPROVED"
+                );
+
+        OfferingCreateResponse expectedResponse =
+                mock(OfferingCreateResponse.class);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId),
+                        "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(
+                        asset,
+                        "자산 조회 성공"
+                ));
+
+        when(offeringTransactionService.createOffering(
+                issuerId,
+                request,
+                "테스트 자산 공모",
+                asset.unitPrice()
+        )).thenReturn(expectedResponse);
+
+        // when
+        OfferingCreateResponse response =
+                offeringCommandService.create(
+                        issuerId,
+                        request
+                );
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+
+        verify(offeringTransactionService)
+                .createOffering(
+                        issuerId,
+                        request,
+                        "테스트 자산 공모",
+                        asset.unitPrice()
+                );
+    }
+
     private UserInvestmentEligibilityResponse eligibleIssuer(
             UUID issuerId
     ) {
