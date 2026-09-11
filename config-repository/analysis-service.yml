@@ -81,3 +81,6 @@ fds:
 notification:
   slack:
     webhook-url: ${SLACK_WEBHOOK_URL}
+
+  stale-timeout: PT10M
+  reaper-interval-ms: 180000
