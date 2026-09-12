@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.domain.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
+import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyOperation;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -13,7 +14,7 @@ import java.util.UUID;
 /**
  * 청약 요청의 비즈니스 데이터를 기준으로
  * 멱등성 검증에 사용할 SHA-256 요청 해시를 생성한다.
- *
+ * <p>
  * 동일 Idempotency-Key가 재사용되었을 때
  * offeringId와 quantity가 기존 요청과 동일한지 검증하는 데 사용한다.
  */
@@ -22,7 +23,7 @@ public class SubscriptionRequestHasher {
 
     /**
      * 청약 요청을 식별할 SHA-256 해시를 생성한다.
-     *
+     * <p>
      * userId는 멱등성 UNIQUE 조건
      * (userId, operation, idempotencyKey)에 별도로 포함되므로
      * 요청 해시에는 비즈니스 요청 데이터인 offeringId와 quantity를 사용한다.
@@ -45,6 +46,37 @@ public class SubscriptionRequestHasher {
 
         String source = offeringId + ":" + quantity;
 
+        return hashSource(source);
+    }
+
+    /**
+     * 관리자 청약 보상 요청을 식별할 SHA-256 해시를 생성한다.
+     * <p>
+     * 보상 API에는 Request Body가 없으므로
+     * 보상 작업 종류와 subscriptionId를 요청 데이터로 사용한다.
+     */
+    public String hashCompensation(
+            UUID subscriptionId
+    ) {
+        if (subscriptionId == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        String source =
+                IdempotencyOperation.COMPENSATE_SUBSCRIPTION.name()
+                        + ":" + subscriptionId;
+
+        return hashSource(source);
+    }
+
+    /**
+     * 전달받은 문자열을 SHA-256 해시로 변환한다.
+     */
+    private String hashSource(
+            String source
+    ) {
         try {
             MessageDigest digest =
                     MessageDigest.getInstance("SHA-256");

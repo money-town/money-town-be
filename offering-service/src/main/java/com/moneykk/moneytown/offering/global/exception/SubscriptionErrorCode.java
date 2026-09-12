@@ -124,6 +124,17 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_503_02",
             "사용자 상태 조회 서비스를 사용할 수 없습니다."
     ),
+    WALLET_SERVICE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SUBSCRIPTION_503_03",
+            "현재 지갑 처리 상태를 확인할 수 없습니다."
+    ),
+
+    HOLDING_SERVICE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SUBSCRIPTION_503_04",
+            "현재 지분 처리 상태를 확인할 수 없습니다."
+    ),
 
     // 500 INTERNAL_SERVER_ERROR
     IDEMPOTENCY_REQUEST_STATE_INVALID(
