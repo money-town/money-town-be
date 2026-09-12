@@ -10,5 +10,10 @@ public enum IdempotencyOperation {
     /**
      * 관리자의 청약 보상 처리 요청.
      */
-    COMPENSATE_SUBSCRIPTION
+    COMPENSATE_SUBSCRIPTION,
+
+    /**
+     * 관리자의 청약 재처리 요청.
+     */
+    RETRY_SUBSCRIPTION
 }

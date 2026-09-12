@@ -112,6 +112,11 @@ public enum SubscriptionErrorCode implements ErrorCode {
             "SUBSCRIPTION_409_09",
             "현재 상태에서는 지갑 동결 실패를 처리할 수 없습니다."
     ),
+    SUBSCRIPTION_RETRY_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "SUBSCRIPTION_409_10",
+            "현재 상태에서는 청약을 재처리할 수 없습니다."
+    ),
 
     // 503 SERVICE_UNAVAILABLE
     FDS_SERVICE_UNAVAILABLE(

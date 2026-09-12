@@ -223,6 +223,8 @@ public class Subscription extends BaseUpdatableEntity {
         }
 
         this.subscriptionStatus = SubscriptionStatus.HOLD_SUCCEEDED;
+        // Wallet HOLD 대기가 끝났으므로 만료 시각 제거
+        this.reservationExpiresAt = null;
     }
 
     /**
@@ -366,6 +368,192 @@ public class Subscription extends BaseUpdatableEntity {
 
         this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
     }
+
+    /**
+     * Wallet HOLD가 아직 생성되지 않은 청약을
+     * 정상 청약 처리 흐름으로 다시 전환한다.
+     *
+     * MANUAL_REVIEW → PROCESSING
+     *
+     * PROCESSING 상태로 전환하면 예약 만료 스케줄러의
+     * 조회 대상이 되므로 새로운 예약 만료 시각을 설정해야 한다.
+     */
+    public void restartProcessing(
+            Instant newReservationExpiresAt
+    ) {
+        validateForwardRetryContext();
+
+        if (newReservationExpiresAt == null
+                || !newReservationExpiresAt.isAfter(
+                Instant.now()
+        )) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        /*
+         * 이전에 청약 확정까지 진행된 이력이 있다면
+         * PROCESSING 상태로 되돌릴 수 없다.
+         */
+        if (confirmedAt != null
+                || holdingAllocationStatus != null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus =
+                SubscriptionStatus.PROCESSING;
+
+        /*
+         * 기존 예약 만료 시각을 그대로 사용하면
+         * 전환 직후 만료 스케줄러가 다시 보상을 시작할 수 있다.
+         */
+        this.reservationExpiresAt =
+                newReservationExpiresAt;
+
+        /*
+         * MANUAL_REVIEW 진입 사유는 정상 흐름으로 복구되었으므로
+         * 현재 실패 코드에서 제거한다.
+         */
+        this.failureCode = null;
+    }
+
+    /**
+     * Wallet 조회 결과 실제 자금 동결이 완료된 경우
+     * HOLD 성공 상태로 복구한다.
+     *
+     * MANUAL_REVIEW → HOLD_SUCCEEDED
+     */
+    public void restartHoldSucceeded() {
+        validateForwardRetryContext();
+
+        /*
+         * 이미 확정된 이력이 있는 청약을
+         * HOLD_SUCCEEDED 상태로 되돌리지 않는다.
+         */
+        if (confirmedAt != null
+                || holdingAllocationStatus != null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus = SubscriptionStatus.HOLD_SUCCEEDED;
+        // Wallet에서 HELD 상태를 확인했으므로 만료 시각 제거
+        this.reservationExpiresAt = null;
+        this.failureCode = null;
+    }
+
+    /**
+     * 청약 확정 이후 Wallet COMMIT 또는 Holding 배정
+     * 후처리 장애로 MANUAL_REVIEW가 된 청약을
+     * CONFIRMED 상태로 복구한다.
+     *
+     * MANUAL_REVIEW → CONFIRMED
+     *
+     * 기존 confirmedAt은 최초 확정 시각이므로 변경하지 않는다.
+     */
+    public void restartConfirmed() {
+        validateForwardRetryContext();
+
+        /*
+         * CONFIRMED 상태였던 청약은 최초 확정 시각과
+         * Holding 처리 상태가 존재해야 한다.
+         */
+        if (confirmedAt == null
+                || holdingAllocationStatus == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        this.subscriptionStatus =
+                SubscriptionStatus.CONFIRMED;
+        this.failureCode = null;
+    }
+
+    /**
+     * Holding 배정 이벤트를 다시 발행하기 전에
+     * 로컬 후처리 상태를 대기 상태로 초기화한다.
+     *
+     * 이미 성공한 Holding 상태는 재시도 대상으로
+     * 되돌릴 수 없다.
+     */
+    public void prepareHoldingAllocationRetry() {
+        if (subscriptionStatus
+                != SubscriptionStatus.CONFIRMED
+                || !quantityReserved
+                || holdingAllocationStatus == null
+                || holdingAllocationStatus
+                == HoldingAllocationStatus.SUCCEEDED) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        this.holdingAllocationStatus =
+                HoldingAllocationStatus.PENDING;
+        this.holdingAllocationErrorCode = null;
+    }
+
+    /**
+     * 정상 청약 진행 방향으로 재처리 가능한 공통 조건을 검증한다.
+     */
+    private void validateForwardRetryContext() {
+        /*
+         * 관리자 재처리 API는 자동 처리가 실패하여
+         * MANUAL_REVIEW로 전환된 청약만 처리한다.
+         */
+        if (subscriptionStatus
+                != SubscriptionStatus.MANUAL_REVIEW) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        /*
+         * 이미 수량이 복원된 청약은 정상 진행 방향으로
+         * 다시 처리할 수 없다.
+         */
+        if (!quantityReserved) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        /*
+         * 공모 중단 또는 모집 미달 취소 맥락은
+         * 관리자 보상 API에서 처리해야 한다.
+         */
+        if (cancellationType != null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+
+        /*
+         * 예약 만료 보상도 정상 청약 진행 방향으로
+         * 되돌리지 않고 관리자 보상 API에서 처리한다.
+         */
+        if (RESERVATION_EXPIRED_FAILURE_CODE.equals(
+                failureCode
+        )) {
+            throw new BusinessException(
+                    SubscriptionErrorCode
+                            .SUBSCRIPTION_RETRY_NOT_ALLOWED
+            );
+        }
+    }
+
 
     /**
      * 공모 취소에 따른 청약 보상을 시작한다.

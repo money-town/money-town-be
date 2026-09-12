@@ -72,6 +72,28 @@ public class SubscriptionRequestHasher {
     }
 
     /**
+     * 관리자 청약 재처리 요청 해시를 생성한다.
+     *
+     * Request Body가 없으므로 작업 종류와 subscriptionId를
+     * 이용해 동일 요청 여부를 확인한다.
+     */
+    public String hashRetry(
+            UUID subscriptionId
+    ) {
+        if (subscriptionId == null) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT
+            );
+        }
+
+        String source =
+                IdempotencyOperation.RETRY_SUBSCRIPTION.name()
+                        + ":" + subscriptionId;
+
+        return hashSource(source);
+    }
+
+    /**
      * 전달받은 문자열을 SHA-256 해시로 변환한다.
      */
     private String hashSource(
