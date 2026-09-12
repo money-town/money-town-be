@@ -10,7 +10,7 @@ import java.util.UUID;
 
 // Offering-User 협의로 만들어진 계약을 그대로 재사용
 // 이 계약은 Wallet 소유가 아니므로, 실제 Path/필드가 바뀌면 이 문서와 함께 갱신할 것.
-@FeignClient(name = "user-service")
+@FeignClient(name = "user-service", fallback = UserServiceClientFallback.class)
 public interface UserServiceClient {
 
     @GetMapping("/api/v1/internal/users/{userId}/investment-eligibility")
