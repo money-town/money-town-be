@@ -9,8 +9,15 @@ public enum SubscriptionStatus {
     PROCESSING,
 
     /**
+     * Wallet 자금 동결에는 성공했지만
+     * 공모 전체 청약 확정 조건을 기다리는 상태.
+     */
+    HOLD_SUCCEEDED,
+
+    /**
      * 청약 처리가 정상적으로 완료된 상태.
-     * 선착순 수량 확보와 Wallet HOLD가 모두 성공한 상태를 의미한다.
+     * 선착순 수량 확보로 공모가 전량 모집되고
+     * 모든 청약의 Wallet HOLD가 성공하여 최종적으로 확정된 상태.
      */
     CONFIRMED,
 

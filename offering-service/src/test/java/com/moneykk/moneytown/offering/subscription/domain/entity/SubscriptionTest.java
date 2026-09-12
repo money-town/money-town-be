@@ -15,12 +15,79 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SubscriptionTest {
 
     @Test
+    @DisplayName("PROCESSING 청약은 Wallet HOLD 성공 시 HOLD_SUCCEEDED로 전환된다")
+    void marksHoldSucceeded() {
+        Subscription subscription = createSubscription();
+
+        subscription.markHoldSucceeded();
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
+        assertThat(subscription.getConfirmedAt()).isNull();
+        assertThat(subscription.getHoldingAllocationStatus()).isNull();
+    }
+
+    @Test
+    @DisplayName("HOLD_SUCCEEDED 청약은 최종 확정할 수 있다")
+    void confirmsHoldSucceededSubscription() {
+        Subscription subscription = createSubscription();
+        Instant confirmedAt = Instant.now();
+
+        subscription.markHoldSucceeded();
+        subscription.confirm(confirmedAt);
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.CONFIRMED);
+        assertThat(subscription.getConfirmedAt())
+                .isEqualTo(confirmedAt);
+        assertThat(subscription.getHoldingAllocationStatus())
+                .isEqualTo(HoldingAllocationStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("PROCESSING 청약은 HOLD 성공 없이 바로 확정할 수 없다")
+    void cannotConfirmProcessingSubscription() {
+        Subscription subscription = createSubscription();
+
+        assertThatThrownBy(() ->
+                subscription.confirm(Instant.now())
+        ).isInstanceOf(BusinessException.class)
+         .satisfies(exception ->
+                assertThat(
+                        ((BusinessException) exception).getErrorCode()
+                ).isEqualTo(
+                        SubscriptionErrorCode
+                                .SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
+                )
+        );
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.PROCESSING);
+    }
+
+    @Test
+    @DisplayName("HOLD_SUCCEEDED 청약은 공모 취소 보상을 시작할 수 있다")
+    void startsCompensationFromHoldSucceeded() {
+        Subscription subscription = createSubscription();
+
+        subscription.markHoldSucceeded();
+        subscription.startCompensation(
+                CancellationType.OFFERING_UNDER_SUBSCRIBED
+        );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+        assertThat(subscription.getCancellationType())
+                .isEqualTo(CancellationType.OFFERING_UNDER_SUBSCRIBED);
+    }
+
+    @Test
     @DisplayName("청약 확정 시 Holding 배정 후처리를 PENDING으로 시작한다")
     void startsHoldingAllocationWhenConfirmed() {
         // given
         Subscription subscription = createSubscription();
 
         // when
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         // then
@@ -39,6 +106,7 @@ class SubscriptionTest {
     void recordsHoldingAllocationFailure() {
         // given
         Subscription subscription = createSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         // when
@@ -62,6 +130,7 @@ class SubscriptionTest {
     void completesHoldingAllocationAfterFailure() {
         // given
         Subscription subscription = createSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         subscription.markHoldingAllocationFailed(
@@ -87,6 +156,7 @@ class SubscriptionTest {
     void preservesHoldingAllocationSuccessAgainstLateFailure() {
         // given
         Subscription subscription = createSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
         subscription.markHoldingAllocationSucceeded();
 
@@ -116,8 +186,7 @@ class SubscriptionTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(exception ->
                         assertThat(
-                                ((BusinessException) exception)
-                                        .getErrorCode()
+                                ((BusinessException) exception).getErrorCode()
                         ).isEqualTo(
                                 SubscriptionErrorCode
                                         .SUBSCRIPTION_CONFIRMATION_NOT_ALLOWED
@@ -152,11 +221,8 @@ class SubscriptionTest {
         // given
         Subscription subscription = createSubscription();
 
-        ReflectionTestUtils.setField(
-                subscription,
-                "subscriptionStatus",
-                SubscriptionStatus.CONFIRMED
-        );
+        subscription.markHoldSucceeded();
+        subscription.confirm(Instant.now());
 
         // when
         subscription.startCompensation(
@@ -354,5 +420,349 @@ class SubscriptionTest {
                 10_000L,
                 Instant.now().plusSeconds(300)
         );
+    }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 청약은 관리자 보상 요청으로 COMPENSATING 상태로 전환된다")
+    void restartsCompensationFromManualReview() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startCompensation(
+                CancellationType.OFFERING_ADMIN_CANCELLED
+        );
+        subscription.requireManualReview(
+                "WALLET_COMPENSATION_FAILED"
+        );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
+
+        // when
+        subscription.restartCompensation();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+
+        assertThat(subscription.getCancellationType())
+                .isEqualTo(
+                        CancellationType.OFFERING_ADMIN_CANCELLED
+                );
+
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("WALLET_COMPENSATION_FAILED");
+
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 상태가 아니면 관리자 보상을 다시 시작할 수 없다")
+    void cannotRestartCompensationFromNonManualReviewStatus() {
+        // given
+        Subscription subscription = createSubscription();
+
+        // when & then
+        assertThatThrownBy(subscription::restartCompensation)
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.PROCESSING);
+
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("예약 만료 보상을 다시 시작해도 기존 보상 원인을 유지한다")
+    void preservesExpirationContextWhenRestartingCompensation() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startExpirationCompensation(
+                subscription.getReservationExpiresAt()
+        );
+        subscription.requireManualReview(
+                "LATE_WALLET_HOLD_SUCCEEDED"
+        );
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
+
+        /*
+         * requireManualReview는 기존 failureCode가 있으면
+         * 새로운 사유로 덮어쓰지 않는다.
+         */
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+
+        // when
+        subscription.restartCompensation();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
+
+        assertThat(subscription.getFailureCode())
+                .isEqualTo("RESERVATION_EXPIRED");
+
+        assertThat(subscription.getCancellationType()).isNull();
+        assertThat(subscription.isQuantityReserved()).isTrue();
+
+        assertThat(
+                subscription.isReservationExpirationCompensation()
+        ).isTrue();
+    }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 청약은 새로운 만료 시각으로 PROCESSING 재처리를 시작한다")
+    void restartsProcessingFromManualReview() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.requireManualReview(
+                "WALLET_HOLD_RESULT_MISSING"
+        );
+
+        Instant newReservationExpiresAt =
+                Instant.now().plusSeconds(600);
+
+        // when
+        subscription.restartProcessing(
+                newReservationExpiresAt
+        );
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.PROCESSING);
+
+        assertThat(subscription.getReservationExpiresAt())
+                .isEqualTo(newReservationExpiresAt);
+
+        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Wallet HELD가 확인된 MANUAL_REVIEW 청약은 HOLD_SUCCEEDED로 복구한다")
+    void restartsHoldSucceededFromManualReview() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.requireManualReview(
+                "WALLET_HOLD_RESULT_MISSING"
+        );
+
+        // when
+        subscription.restartHoldSucceeded();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
+
+        assertThat(subscription.getReservationExpiresAt()).isNull();
+        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.isQuantityReserved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("확정 이력이 있는 MANUAL_REVIEW 청약은 CONFIRMED로 복구한다")
+    void restartsConfirmedFromManualReview() {
+        // given
+        Subscription subscription = createSubscription();
+        Instant confirmedAt = Instant.now();
+
+        subscription.markHoldSucceeded();
+        subscription.confirm(confirmedAt);
+
+        subscription.markHoldingAllocationFailed(
+                "HOLDING_ALLOCATION_FAILED"
+        );
+
+        subscription.requireManualReview(
+                "CONFIRMED_PROCESSING_FAILED"
+        );
+
+        // when
+        subscription.restartConfirmed();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.CONFIRMED);
+
+        assertThat(subscription.getConfirmedAt())
+                .isEqualTo(confirmedAt);
+
+        assertThat(subscription.getHoldingAllocationStatus())
+                .isEqualTo(HoldingAllocationStatus.FAILED);
+
+        assertThat(subscription.getHoldingAllocationErrorCode())
+                .isEqualTo("HOLDING_ALLOCATION_FAILED");
+
+        assertThat(subscription.getFailureCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("Holding 배정 실패 청약은 재발행 전에 PENDING으로 초기화한다")
+    void preparesHoldingAllocationRetry() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.markHoldSucceeded();
+        subscription.confirm(Instant.now());
+
+        subscription.markHoldingAllocationFailed(
+                "HOLDING_ALLOCATION_FAILED"
+        );
+
+        // when
+        subscription.prepareHoldingAllocationRetry();
+
+        // then
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.CONFIRMED);
+
+        assertThat(subscription.getHoldingAllocationStatus())
+                .isEqualTo(HoldingAllocationStatus.PENDING);
+
+        assertThat(subscription.getHoldingAllocationErrorCode())
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("Holding 배정 성공 상태는 재처리 대기 상태로 되돌릴 수 없다")
+    void cannotRetrySuccessfulHoldingAllocation() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.markHoldSucceeded();
+        subscription.confirm(Instant.now());
+        subscription.markHoldingAllocationSucceeded();
+
+        // when & then
+        assertThatThrownBy(
+                subscription::prepareHoldingAllocationRetry
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_RETRY_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(subscription.getHoldingAllocationStatus())
+                .isEqualTo(HoldingAllocationStatus.SUCCEEDED);
+    }
+
+    @Test
+    @DisplayName("공모 취소 보상 상태의 MANUAL_REVIEW 청약은 정상 재처리할 수 없다")
+    void cannotRetryOfferingCancellationAsNormalFlow() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startCompensation(
+                CancellationType.OFFERING_ADMIN_CANCELLED
+        );
+
+        subscription.requireManualReview(
+                "WALLET_COMPENSATION_FAILED"
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscription.restartProcessing(
+                        Instant.now().plusSeconds(600)
+                )
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_RETRY_NOT_ALLOWED
+                        )
+                );
+    }
+
+    @Test
+    @DisplayName("예약 만료 보상 상태의 MANUAL_REVIEW 청약은 정상 재처리할 수 없다")
+    void cannotRetryExpiredReservationAsNormalFlow() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startExpirationCompensation(
+                subscription.getReservationExpiresAt()
+        );
+
+        subscription.requireManualReview(
+                "WALLET_COMPENSATION_FAILED"
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscription.restartProcessing(
+                        Instant.now().plusSeconds(600)
+                )
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_RETRY_NOT_ALLOWED
+                        )
+                );
+    }
+
+    @Test
+    @DisplayName("이미 확보 수량을 복원한 청약은 정상 재처리할 수 없다")
+    void cannotRetryAfterQuantityWasRestored() {
+        // given
+        Subscription subscription = createSubscription();
+
+        subscription.startHoldFailureCompensation(
+                "INSUFFICIENT_AVAILABLE_BALANCE"
+        );
+
+        subscription.completeHoldFailureRejection();
+
+        subscription.requireManualReview(
+                "OPERATOR_REVIEW_REQUIRED"
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscription.restartProcessing(
+                        Instant.now().plusSeconds(600)
+                )
+        )
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception ->
+                        assertThat(
+                                ((BusinessException) exception)
+                                        .getErrorCode()
+                        ).isEqualTo(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_RETRY_NOT_ALLOWED
+                        )
+                );
+
+        assertThat(subscription.isQuantityReserved()).isFalse();
     }
 }
