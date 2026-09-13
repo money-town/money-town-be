@@ -23,12 +23,13 @@ public class OutboxPublishMonitor {
     private final Semaphore publishSlots;
 
     // 현재 애플리케이션 인스턴스에서 발행 처리 중인 이벤트 수
-    private final AtomicInteger inFlightCount =
-            new AtomicInteger();
+    private final AtomicInteger inFlightCount = new AtomicInteger();
 
     // DB에 남아 있는 PROCESSING 이벤트 수를 메트릭으로 보관
-    private final AtomicLong processingEventCount =
-            new AtomicLong();
+    private final AtomicLong processingEventCount = new AtomicLong();
+
+    // DB에 남아 있는 FAILED 이벤트 수
+    private final AtomicLong failedEventCount = new AtomicLong();
 
     private final Timer successLatency;
     private final Timer failureLatency;
@@ -70,6 +71,17 @@ public class OutboxPublishMonitor {
                 )
                 .description(
                         "DB에서 PROCESSING 상태인 Outbox 이벤트 수"
+                )
+                .register(meterRegistry);
+
+        // DB에서 FAILED 상태인 Outbox 이벤트 수
+        Gauge.builder(
+                        "outbox.events.failed",
+                        failedEventCount,
+                        AtomicLong::get
+                )
+                .description(
+                        "DB에서 FAILED 상태인 Outbox 이벤트 수"
                 )
                 .register(meterRegistry);
 
@@ -194,9 +206,13 @@ public class OutboxPublishMonitor {
     }
 
     /**
-     * DB의 PROCESSING 건수를 주기적으로 갱신한다.
+     * DB에 남아 있는 PROCESSING 및 FAILED 이벤트 건수를
+     * 주기적으로 조회하여 Gauge 값을 갱신한다.
      *
-     * 실제 쿼리는 다음 단계에서 OutboxPublishService에 추가한다.
+     * 각 상태 조회는 독립적으로 처리하여 한쪽 조회가 실패해도
+     * 다른 상태의 메트릭은 계속 갱신한다.
+     *
+     * 조회에 실패하면 해당 Gauge의 직전 값을 유지한다.
      */
     @Scheduled(
             initialDelayString =
@@ -204,7 +220,7 @@ public class OutboxPublishMonitor {
             fixedDelayString =
                     "${outbox.metrics.refresh-delay-ms:5000}"
     )
-    public void refreshProcessingEventCount() {
+    public void refreshEventCounts() {
         try {
             processingEventCount.set(
                     outboxPublishService.countProcessingEvents()
@@ -213,6 +229,17 @@ public class OutboxPublishMonitor {
             // 조회 실패 시 직전 메트릭 값을 유지한다.
             log.warn(
                     "Outbox PROCESSING 건수 메트릭 갱신 실패",
+                    e
+            );
+        }
+
+        try {
+            failedEventCount.set(
+                    outboxPublishService.countFailedEvents()
+            );
+        } catch (Exception e) {
+            log.warn(
+                    "Outbox FAILED 건수 메트릭 갱신 실패",
                     e
             );
         }
