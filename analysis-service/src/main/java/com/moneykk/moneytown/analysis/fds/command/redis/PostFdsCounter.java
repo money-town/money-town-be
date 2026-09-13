@@ -57,4 +57,14 @@ public class PostFdsCounter {
                 "fds:post:recent:{" + userId + "}"
         ));
     }
+
+    public void clear(UUID userId, RuleCode rule){
+        String key = switch (rule) {
+            case REPEATED_FAILURE -> "fds:post:fail:{" + userId + "}";
+            case REPEATED_LIMIT_EXCEEDED -> "fds:post:limit:{" + userId + "}";
+            case HIGH_CANCEL_RATE -> "fds:post:recent:{" + userId + "}";
+            default -> null;
+        };
+        if(key != null) redisTemplate.delete(key);
+    }
 }

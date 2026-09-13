@@ -86,6 +86,11 @@ public class PostFdsService {
             return;
         }
 
+        try{
+            postFdsCounter.clear(userId, violated);
+        }catch (Exception e){
+            log.error("Post-FDS 카운터 초기화 실패 UserId = {} , rule = {}", userId, violated, e);
+        }
         // 7. SUSPICIOUS->BLOCKED 전이일 때만 알림 (실패 격리)
         if(newStatus == UserStatus.BLOCKED){
             notifyBlocked(userId, eventId, payload, violated, observed, threshold);
