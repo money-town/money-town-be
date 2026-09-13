@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ public class SubscriptionTimeoutService {
     private static final int TIMEOUT_BATCH_SIZE = 100;
 
     private final SubscriptionRepository subscriptionRepository;
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     /*
      * 청약 한 건을 독립 트랜잭션으로 처리하는 서비스를 주입한다.
@@ -73,6 +75,8 @@ public class SubscriptionTimeoutService {
                 }
 
             } catch (Exception e) {
+
+                offeringSchedulerMetrics.recordSubscriptionTimeoutItemFailure();
                 /*
                  * 실패한 청약 ID와 예외를 명시적으로 기록한다.
                  *

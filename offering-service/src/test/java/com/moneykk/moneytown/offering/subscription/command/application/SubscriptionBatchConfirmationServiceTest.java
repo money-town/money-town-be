@@ -6,6 +6,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +31,9 @@ class SubscriptionBatchConfirmationServiceTest {
 
     @Mock
     private SubscriptionEventPublisher subscriptionEventPublisher;
+
+    @Mock
+    private SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     @InjectMocks
     private SubscriptionBatchConfirmationService service;
@@ -97,6 +101,20 @@ class SubscriptionBatchConfirmationServiceTest {
                         secondSubscription,
                         assetId,
                         correlationId
+                );
+
+        verify(subscriptionLifecycleMetrics)
+                .publishOutcome(
+                        eq(firstSubscription),
+                        eq(SubscriptionLifecycleMetrics.Result.CONFIRMED),
+                        any(Instant.class)
+                );
+
+        verify(subscriptionLifecycleMetrics)
+                .publishOutcome(
+                        eq(secondSubscription),
+                        eq(SubscriptionLifecycleMetrics.Result.CONFIRMED),
+                        any(Instant.class)
                 );
     }
 

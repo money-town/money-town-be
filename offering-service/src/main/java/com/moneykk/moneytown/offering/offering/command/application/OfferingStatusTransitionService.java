@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCancellationResponse;
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
@@ -44,16 +45,15 @@ public class OfferingStatusTransitionService {
      */
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
-    private final SubscriptionCompensationRepository
-            subscriptionCompensationRepository;
-    private final OfferingCompensationCompletionService
-            offeringCompensationCompletionService;
+    private final SubscriptionCompensationRepository subscriptionCompensationRepository;
+    private final OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     /*
      * 모집 미달 공모 한 건을 독립 트랜잭션으로 처리한다.
      */
-    private final OfferingUnderSubscribedTransactionService
-            offeringUnderSubscribedTransactionService;
+    private final OfferingUnderSubscribedTransactionService offeringUnderSubscribedTransactionService;
+
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     /**
      * 시작 시간이 도래한 SCHEDULED 공모를 OPEN으로 일괄 전환한다.
@@ -154,6 +154,8 @@ public class OfferingStatusTransitionService {
                 }
 
             } catch (Exception e) {
+
+                offeringSchedulerMetrics.recordUnderSubscribedItemFailure();
                 /*
                  * 한 공모가 실패해도 다음 공모 처리를 계속한다.
                  */

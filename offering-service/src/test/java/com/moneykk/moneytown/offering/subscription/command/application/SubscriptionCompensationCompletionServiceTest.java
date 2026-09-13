@@ -12,6 +12,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCom
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +30,8 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
@@ -50,6 +53,8 @@ class SubscriptionCompensationCompletionServiceTest {
     @Mock private SubscriptionCompensationRepository subscriptionCompensationRepository;
     @Mock private OfferingCompensationCompletionService offeringCompensationCompletionService;
     @Mock private EntityManager entityManager;
+    @Mock private SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
+
     @InjectMocks private SubscriptionCompensationCompletionService service;
 
     @BeforeEach
@@ -121,6 +126,13 @@ class SubscriptionCompensationCompletionServiceTest {
         );
         verify(entityManager).refresh(offering);
         verify(offeringCompensationCompletionService).completeIfReady(offeringId);
+
+        verify(subscriptionLifecycleMetrics, times(1))
+                .publishOutcome(
+                        eq(subscription),
+                        eq(SubscriptionLifecycleMetrics.Result.CANCELLED),
+                        any(Instant.class)
+                );
     }
 
     @ParameterizedTest
@@ -231,6 +243,13 @@ class SubscriptionCompensationCompletionServiceTest {
         verifyNoInteractions(
                 offeringCompensationCompletionService
         );
+
+        verify(subscriptionLifecycleMetrics, times(1))
+                .publishOutcome(
+                        eq(subscription),
+                        eq(SubscriptionLifecycleMetrics.Result.REJECTED),
+                        any(Instant.class)
+                );
     }
 
     @Test

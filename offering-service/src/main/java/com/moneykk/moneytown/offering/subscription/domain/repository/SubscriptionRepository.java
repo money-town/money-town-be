@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.domain.repository;
 
+import com.moneykk.moneytown.offering.subscription.domain.entity.HoldingAllocationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -166,5 +167,29 @@ public interface SubscriptionRepository
     List<UUID> findExpiredProcessingSubscriptionIds(
             @Param("now") Instant now,
             Pageable pageable
+    );
+
+    /**
+     * 예약 시간이 지났지만 PROCESSING에 남은 청약 수를 조회한다.
+     */
+    long countBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
+            SubscriptionStatus subscriptionStatus,
+            Instant now
+    );
+
+    /**
+     * Holding 배정 결과를 일정 시간 이상 기다리는 청약 수를 조회한다.
+     */
+    long countBySubscriptionStatusAndHoldingAllocationStatusAndUpdatedAtLessThanEqualAndIsDeletedFalse(
+            SubscriptionStatus subscriptionStatus,
+            HoldingAllocationStatus holdingAllocationStatus,
+            Instant updatedBefore
+    );
+
+    /**
+     * 특정 상태의 삭제되지 않은 청약 수를 조회한다.
+     */
+    long countBySubscriptionStatusAndIsDeletedFalse(
+            SubscriptionStatus subscriptionStatus
     );
 }

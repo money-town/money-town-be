@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.offering.global.outbox;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,9 @@ class OutboxPublishSchedulerTest {
 
     @Mock
     private OutboxKafkaPublisher outboxKafkaPublisher;
+
+    @Mock
+    private OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     private OutboxPublishScheduler scheduler;
 
@@ -569,12 +573,11 @@ class OutboxPublishSchedulerTest {
                         outboxPublishService,
                         outboxKafkaPublisher,
                         new ObjectMapper(),
-
                         publishExecutor,
-
                         // callback executor
                         Runnable::run,
-                        monitor
+                        monitor,
+                        offeringSchedulerMetrics
                 );
 
         ReflectionTestUtils.setField(
@@ -649,6 +652,29 @@ class OutboxPublishSchedulerTest {
                 );
     }
 
+    @Test
+    @DisplayName("Outbox 이벤트 선점 실패를 스케줄러 실패 메트릭에 기록한다")
+    void recordsMetricWhenClaimFails() {
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.publishPendingEvents();
+
+        verify(offeringSchedulerMetrics)
+                .recordOutboxPublishBatchFailure();
+    }
+
+    @Test
+    @DisplayName("Outbox 복구 실패를 스케줄러 실패 메트릭에 기록한다")
+    void recordsMetricWhenRecoveryFails() {
+        when(outboxPublishService.recoverExpiredProcessing(100))
+                .thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.recoverExpiredEvents();
+
+        verify(offeringSchedulerMetrics)
+                .recordOutboxRecoveryFailure();
+    }
 
     private OutboxPublishService.ClaimedEvent createEvent(
             UUID userId

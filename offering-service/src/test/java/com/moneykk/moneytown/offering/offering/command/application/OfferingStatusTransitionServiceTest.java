@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCancellationResponse;
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -58,20 +59,19 @@ class OfferingStatusTransitionServiceTest {
     private SubscriptionEventPublisher subscriptionEventPublisher;
 
     @Mock
-    private SubscriptionCompensationRepository
-            subscriptionCompensationRepository;
+    private SubscriptionCompensationRepository subscriptionCompensationRepository;
 
     @Mock
-    private OfferingCompensationCompletionService
-            offeringCompensationCompletionService;
+    private OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     @Mock
-    private OfferingUnderSubscribedTransactionService
-            offeringUnderSubscribedTransactionService;
+    private OfferingUnderSubscribedTransactionService offeringUnderSubscribedTransactionService;
+
+    @Mock
+    private OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     @InjectMocks
-    private OfferingStatusTransitionService
-            offeringStatusTransitionService;
+    private OfferingStatusTransitionService offeringStatusTransitionService;
 
     @Test
     @DisplayName("SCHEDULED 공모의 OPEN 전환 건수를 반환한다")
@@ -232,6 +232,9 @@ class OfferingStatusTransitionServiceTest {
                         eq(lastOfferingId),
                         any(Instant.class)
                 );
+
+        verify(offeringSchedulerMetrics)
+                .recordUnderSubscribedItemFailure();
     }
 
     @Test

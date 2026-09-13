@@ -1,8 +1,10 @@
 package com.moneykk.moneytown.offering.global.outbox;
 
 import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Counter;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,8 +33,15 @@ public class OutboxPublishMonitor {
     // DB에 남아 있는 FAILED 이벤트 수
     private final AtomicLong failedEventCount = new AtomicLong();
 
+    // DB에서 Kafka 발행을 기다리는 PENDING 이벤트 수
+    private final AtomicLong pendingEventCount = new AtomicLong();
+
+    // 처리 기한을 초과하여 복구된 Outbox 이벤트 누적 수
+    private final Counter recoveredEventCounter;
+
     private final Timer successLatency;
     private final Timer failureLatency;
+
     private final OutboxPublishService outboxPublishService;
 
     public OutboxPublishMonitor(
@@ -60,6 +69,16 @@ public class OutboxPublishMonitor {
                 )
                 .description(
                         "현재 Kafka 발행 처리 중인 Outbox 이벤트 수"
+                )
+                .register(meterRegistry);
+
+        Gauge.builder(
+                        "outbox.events.pending",
+                        pendingEventCount,
+                        AtomicLong::get
+                )
+                .description(
+                        "DB에서 Kafka 발행을 기다리는 PENDING Outbox 이벤트 수"
                 )
                 .register(meterRegistry);
 
@@ -100,6 +119,29 @@ public class OutboxPublishMonitor {
                 .description("Outbox Kafka 발행 처리 시간")
                 .tag("result", "failure")
                 .register(meterRegistry);
+
+        this.recoveredEventCounter = Counter.builder(
+                        "outbox.events.recovered"
+                )
+                .description(
+                        "처리 기한을 초과하여 복구된 Outbox 이벤트 수"
+                )
+                .register(meterRegistry);
+    }
+
+    /**
+     * 처리 기한을 초과하여 복구된 Outbox 이벤트 수를 기록한다.
+     */
+    public void recordRecoveredEvents(int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException(
+                    "복구 이벤트 수는 음수일 수 없습니다."
+            );
+        }
+
+        if (count > 0) {
+            recoveredEventCounter.increment(count);
+        }
     }
 
     /**
@@ -221,6 +263,18 @@ public class OutboxPublishMonitor {
                     "${outbox.metrics.refresh-delay-ms:5000}"
     )
     public void refreshEventCounts() {
+
+        try {
+            pendingEventCount.set(
+                    outboxPublishService.countPendingEvents()
+            );
+        } catch (Exception e) {
+            log.warn(
+                    "Outbox PENDING 건수 메트릭 갱신 실패",
+                    e
+            );
+        }
+
         try {
             processingEventCount.set(
                     outboxPublishService.countProcessingEvents()

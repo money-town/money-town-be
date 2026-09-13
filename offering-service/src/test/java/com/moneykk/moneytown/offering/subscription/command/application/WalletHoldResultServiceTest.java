@@ -16,6 +16,7 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Subscriptio
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldFailedPayload;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldSucceededPayload;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,12 +68,13 @@ class WalletHoldResultServiceTest {
     private SubscriptionEventPublisher subscriptionEventPublisher;
 
     @Mock
-    private SubscriptionCompensationRepository
-            subscriptionCompensationRepository;
+    private SubscriptionCompensationRepository subscriptionCompensationRepository;
 
     @Mock
-    private SubscriptionBatchConfirmationService
-            subscriptionBatchConfirmationService;
+    private SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
+
+    @Mock
+    private SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     @InjectMocks
     private WalletHoldResultService walletHoldResultService;
@@ -388,6 +390,13 @@ class WalletHoldResultServiceTest {
                 .findById(offeringId);
 
         verifyNoInteractions(subscriptionEventPublisher);
+
+        verify(subscriptionLifecycleMetrics)
+                .publishOutcome(
+                        eq(subscription),
+                        eq(SubscriptionLifecycleMetrics.Result.MANUAL_REVIEW),
+                        any(Instant.class)
+                );
     }
 
     // =========================================================
@@ -492,6 +501,13 @@ class WalletHoldResultServiceTest {
 
         verifyNoMoreInteractions(subscriptionEventPublisher);
         verifyNoInteractions(subscriptionCompensationRepository);
+
+        verify(subscriptionLifecycleMetrics, times(1))
+                .publishOutcome(
+                        eq(subscription),
+                        eq(SubscriptionLifecycleMetrics.Result.REJECTED),
+                        any(Instant.class)
+                );
     }
 
     @Test
@@ -527,6 +543,13 @@ class WalletHoldResultServiceTest {
 
         verify(subscriptionEventPublisher, never())
                 .publishFailed(
+                        any(),
+                        any(),
+                        any()
+                );
+
+        verify(subscriptionLifecycleMetrics, never())
+                .publishOutcome(
                         any(),
                         any(),
                         any()

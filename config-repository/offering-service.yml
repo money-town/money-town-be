@@ -74,6 +74,11 @@ spring:
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
 
+  monitoring:
+    refresh-delay-ms: ${SUBSCRIPTION_METRICS_REFRESH_DELAY_MS:10000}
+    holding-allocation-stuck-seconds: ${HOLDING_ALLOCATION_STUCK_SECONDS:300}
+    compensation-stuck-seconds: ${COMPENSATION_STUCK_SECONDS:300}
+
 outbox:
   publish:
     batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}

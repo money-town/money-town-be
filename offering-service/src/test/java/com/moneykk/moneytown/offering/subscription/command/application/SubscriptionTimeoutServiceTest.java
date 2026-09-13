@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,8 +28,10 @@ class SubscriptionTimeoutServiceTest {
     private SubscriptionRepository subscriptionRepository;
 
     @Mock
-    private SubscriptionTimeoutTransactionService
-            subscriptionTimeoutTransactionService;
+    private SubscriptionTimeoutTransactionService subscriptionTimeoutTransactionService;
+
+    @Mock
+    private OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     @InjectMocks
     private SubscriptionTimeoutService subscriptionTimeoutService;
@@ -150,6 +153,9 @@ class SubscriptionTimeoutServiceTest {
                         eq(lastSubscriptionId),
                         any(Instant.class)
                 );
+
+        verify(offeringSchedulerMetrics)
+                .recordSubscriptionTimeoutItemFailure();
     }
 
     @Test

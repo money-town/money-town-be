@@ -17,10 +17,12 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Subscriptio
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldFailedPayload;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldSucceededPayload;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -39,6 +41,8 @@ public class WalletHoldResultService {
 
     // 매진 공모의 전체 Wallet HOLD 성공 여부 확인과 청약 일괄 확정을 담당한다.
     private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
+
+    private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     /**
      * 동결 성공 이벤트를 처리한다.
@@ -327,6 +331,12 @@ public class WalletHoldResultService {
                 offering.getAssetId(),
                 envelope.correlationId()
         );
+
+        subscriptionLifecycleMetrics.publishOutcome(
+                subscription,
+                SubscriptionLifecycleMetrics.Result.REJECTED,
+                Instant.now()
+        );
     }
 
     private void validateFailedEvent(
@@ -463,6 +473,14 @@ public class WalletHoldResultService {
         subscription.requireManualReview(
                 "LATE_WALLET_HOLD_SUCCEEDED"
         );
+
+        if (previousStatus != SubscriptionStatus.MANUAL_REVIEW) {
+            subscriptionLifecycleMetrics.publishOutcome(
+                    subscription,
+                    SubscriptionLifecycleMetrics.Result.MANUAL_REVIEW,
+                    Instant.now()
+            );
+        }
 
         log.error(
                 "늦은 동결 성공으로 수동 확인 필요. "

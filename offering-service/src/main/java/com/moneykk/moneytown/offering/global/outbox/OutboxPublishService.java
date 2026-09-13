@@ -177,6 +177,16 @@ public class OutboxPublishService {
     }
 
     /**
+     * Kafka 발행을 기다리는 PENDING Outbox 이벤트 수를 조회한다.
+     */
+    @Transactional(readOnly = true)
+    public long countPendingEvents() {
+        return outboxEventRepository.countByEventStatus(
+                OutboxEventStatus.PENDING
+        );
+    }
+
+    /**
      * 현재 DB에서 발행 처리 중인 Outbox 이벤트 수를 조회한다.
      *
      * OutboxPublishMonitor가 PROCESSING 건수 Gauge를 갱신할 때 사용한다.
@@ -188,7 +198,7 @@ public class OutboxPublishService {
         );
     }
 
-    /*
+    /**
      * 현재 DB에서 영구 실패 상태로 남아 있는
      * FAILED Outbox 이벤트 수를 조회한다.
      *

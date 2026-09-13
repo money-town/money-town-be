@@ -216,12 +216,15 @@ class OutboxPublishMonitorTest {
     }
 
     /*
-     * PROCESSING과 FAILED 건수가 각각의 Gauge에 반영되는지 확인한다.
+     * PENDING, PROCESSING, FAILED 건수가 각각의 Gauge에 반영되는지 확인한다.
      */
     @Test
-    @DisplayName("DB의 PROCESSING과 FAILED 이벤트 건수를 Gauge에 반영한다")
-    void refreshesProcessingAndFailedEventCounts() {
+    @DisplayName("DB의 PENDING, PROCESSING, FAILED 이벤트 건수를 Gauge에 반영한다")
+    void refreshesOutboxEventCounts() {
         // given
+        when(outboxPublishService.countPendingEvents())
+                .thenReturn(11L);
+
         when(outboxPublishService.countProcessingEvents())
                 .thenReturn(7L);
 
@@ -232,11 +235,17 @@ class OutboxPublishMonitorTest {
         monitor.refreshEventCounts();
 
         // then
+        assertThat(pendingGaugeValue())
+                .isEqualTo(11.0);
+
         assertThat(processingGaugeValue())
                 .isEqualTo(7.0);
 
         assertThat(failedGaugeValue())
                 .isEqualTo(3.0);
+
+        verify(outboxPublishService)
+                .countPendingEvents();
 
         verify(outboxPublishService)
                 .countProcessingEvents();
@@ -346,6 +355,18 @@ class OutboxPublishMonitorTest {
     }
 
     @Test
+    @DisplayName("복구된 Outbox 이벤트 수를 누적 기록한다")
+    void recordsRecoveredEventCount() {
+        // when
+        monitor.recordRecoveredEvents(3);
+        monitor.recordRecoveredEvents(2);
+
+        // then
+        assertThat(recoveredEventCount())
+                .isEqualTo(5.0);
+    }
+
+    @Test
     @DisplayName("최대 동시 발행 수는 1 이상이어야 한다")
     void rejectsInvalidMaxInFlight() {
         assertThatThrownBy(
@@ -392,6 +413,13 @@ class OutboxPublishMonitorTest {
                 .value();
     }
 
+    private double pendingGaugeValue() {
+        return meterRegistry
+                .get("outbox.events.pending")
+                .gauge()
+                .value();
+    }
+
     private double processingGaugeValue() {
         return meterRegistry
                 .get("outbox.events.processing")
@@ -407,5 +435,12 @@ class OutboxPublishMonitorTest {
                 .get("outbox.events.failed")
                 .gauge()
                 .value();
+    }
+
+    private double recoveredEventCount() {
+        return meterRegistry
+                .get("outbox.events.recovered")
+                .counter()
+                .count();
     }
 }

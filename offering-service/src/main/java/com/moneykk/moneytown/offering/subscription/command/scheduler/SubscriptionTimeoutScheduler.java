@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.command.scheduler;
 
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionTimeoutService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class SubscriptionTimeoutScheduler {
 
     private final SubscriptionTimeoutService subscriptionTimeoutService;
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     /**
      * 한 번의 스케줄 실행에서 처리할 최대 배치 횟수.
@@ -33,6 +35,7 @@ public class SubscriptionTimeoutScheduler {
     @Scheduled(cron = "0 * * * * *")
     public void processExpiredReservations() {
         if (maxBatchesPerRun <= 0) {
+            offeringSchedulerMetrics.recordSubscriptionTimeoutBatchFailure();
             log.error(
                     "타임아웃 처리 최대 배치 횟수는 1 이상이어야 합니다. value={}",
                     maxBatchesPerRun
@@ -74,6 +77,7 @@ public class SubscriptionTimeoutScheduler {
                 );
             }
         } catch (Exception e) {
+            offeringSchedulerMetrics.recordSubscriptionTimeoutBatchFailure();
             /*
              * 현재 실행은 중단하지만 예외를 전파하지 않아
              * 다음 스케줄에서 남은 청약을 다시 처리할 수 있게 한다.

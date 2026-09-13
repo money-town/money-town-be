@@ -6,6 +6,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,7 @@ public class SubscriptionBatchConfirmationService {
 
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     /**
      * 매진된 공모에서 수량을 확보한 모든 청약의
@@ -151,6 +153,12 @@ public class SubscriptionBatchConfirmationService {
                     subscription,
                     offering.getAssetId(),
                     correlationId
+            );
+
+            subscriptionLifecycleMetrics.publishOutcome(
+                    subscription,
+                    SubscriptionLifecycleMetrics.Result.CONFIRMED,
+                    confirmedAt
             );
 
             confirmedCount++;
