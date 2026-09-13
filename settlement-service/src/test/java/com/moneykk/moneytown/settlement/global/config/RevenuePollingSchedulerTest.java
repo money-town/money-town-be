@@ -12,11 +12,14 @@ import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferSta
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -41,6 +44,8 @@ class RevenuePollingSchedulerTest {
     private RevenueTransferStatusNotifier revenueTransferStatusNotifier;
     @Mock
     private DividendDisbursementService dividendDisbursementService;
+    @Spy
+    private MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     @InjectMocks
     private RevenuePollingScheduler revenuePollingScheduler;

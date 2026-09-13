@@ -7,6 +7,7 @@ import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +28,7 @@ class DividendPayoutWriter {
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
+    private final MeterRegistry meterRegistry;
 
     @Transactional
     public void markDisbursing(UUID settlementBatchId) {
@@ -64,8 +66,10 @@ class DividendPayoutWriter {
     public void markFailedAttempt(UUID payoutId) {
         DividendPayout payout = loadPayout(payoutId);
         payout.incrementRetryCount();
+        meterRegistry.counter("settlement.payout.retry", "type", "dividend").increment();
         if (payout.getRetryCount() >= MAX_RETRY_COUNT) {
             payout.markDeadLetter();
+            meterRegistry.counter("settlement.payout.dead_letter", "type", "dividend", "reason", "retry_exceeded").increment();
         } else {
             payout.markRetrying();
         }
@@ -77,6 +81,7 @@ class DividendPayoutWriter {
     public void markResponseMismatch(UUID payoutId) {
         DividendPayout payout = loadPayout(payoutId);
         payout.markDeadLetter();
+        meterRegistry.counter("settlement.payout.dead_letter", "type", "dividend", "reason", "response_mismatch").increment();
         dividendPayoutRepository.save(payout);
     }
 
@@ -101,6 +106,7 @@ class DividendPayoutWriter {
         } else {
             batch.markFailed();
         }
+        meterRegistry.counter("settlement.batch.status", "type", "dividend", "status", batch.getStatus().name()).increment();
         settlementBatchRepository.save(batch);
         return Optional.of(batch);
     }
