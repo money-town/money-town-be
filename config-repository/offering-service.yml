@@ -1,6 +1,15 @@
 server:
   port: 19096
 
+# HTTP 요청 시간 Histogram 활성화
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 100ms, 300ms, 1s, 3s
+
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/offering_db}
