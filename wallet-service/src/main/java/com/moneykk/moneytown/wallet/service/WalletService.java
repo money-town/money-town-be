@@ -81,14 +81,11 @@ public class WalletService {
     // 클래스 레벨 readOnly 트랜잭션에 합류하면 Feign 호출/UNIQUE 복구가 다시 트랜잭션에 묶인다.
     // 지갑 조회(락 없음)는 멱등키 재사용/충돌 복구 같은 드문 경로에서만 하고, 정상 경로는
     // WalletTransactionService의 락 있는 조회 한 번만 타도록 분리했다 (매 요청 중복 조회 제거).
+    // 멱등키 사전조회를 없애고 바로 시도 → 중복이면 UNIQUE 제약 위반을 catch에서 잡아 기존 결과를 반환한다.
+    // 부하테스트로 확인한 결과, 사전조회 자체가 요청당 DB 커넥션 획득을 2번(사전조회+실제처리)으로
+    // 만들어서 풀 경합이 심할 때 대기시간이 배로 쌓이는 원인이었다 (정상 경로엔 어차피 불필요한 조회였음).
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
-        Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing.isPresent()) {
-            Long walletId = requireWallet(userId).getId();
-            return buildIdempotentResponse(existing.get(), walletId, WalletTransactionType.DEPOSIT, amount);
-        }
-
         requireEligibleForTransaction(userId);
 
         try {
@@ -101,12 +98,6 @@ public class WalletService {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
-        Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing.isPresent()) {
-            Long walletId = requireWallet(userId).getId();
-            return buildIdempotentResponse(existing.get(), walletId, WalletTransactionType.WITHDRAW, amount);
-        }
-
         requireEligibleForTransaction(userId);
 
         try {

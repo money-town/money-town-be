@@ -114,7 +114,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC/거래가능상태 요건을 갖춘 사용자의 충전 요청은 WalletTransactionService에 위임한다")
     void deposit_eligibleUser_delegatesToTransactionService() {
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         TransactionResponse expected = TransactionResponse.from(depositTransaction(1L, 1_000L));
         when(walletTransactionService.deposit(investorId, "key-1", 1_000L)).thenReturn(expected);
@@ -127,7 +126,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC 상태가 유효하지 않으면(만료 시각은 유효해도) 충전이 거부된다")
     void deposit_ineligibleByStatus_throwsBusinessException() {
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByStatusResponse());
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -140,7 +138,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC 상태는 유효해도 만료 시각이 지났으면 충전이 거부된다")
     void deposit_ineligibleByExpiry_throwsBusinessException() {
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByExpiryResponse());
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -151,27 +148,15 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("같은 멱등키로 이미 처리된 충전이면 KYC 검증 없이 기존 결과를 반환한다")
-    void deposit_duplicateIdempotencyKey_returnsExistingResult() {
-        Wallet wallet = walletWithId(1L);
-        WalletTransaction existing = depositTransaction(1L, 1_000L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
-
-        TransactionResponse response = walletService.deposit(investorId, "key-1", 1_000L);
-
-        assertEquals(TransactionResponse.from(existing), response);
-        verify(userServiceClient, never()).getInvestmentEligibility(any());
-        verify(walletTransactionService, never()).deposit(any(), any(), anyLong());
-    }
-
-    @Test
     @DisplayName("같은 멱등키인데 금액이 다르면 충돌로 처리한다")
     void deposit_sameKeyDifferentAmount_throwsConflict() {
         Wallet wallet = walletWithId(1L);
         WalletTransaction existing = depositTransaction(1L, 500L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
+        when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
+                .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
 
         assertThrows(BusinessException.class, () -> walletService.deposit(investorId, "key-1", 1_000L));
     }
@@ -183,6 +168,9 @@ class WalletServiceTest {
         WalletTransaction existing = depositTransaction(2L, 1_000L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
+        when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
+                .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.deposit(investorId, "key-1", 1_000L));
@@ -197,6 +185,9 @@ class WalletServiceTest {
         WalletTransaction existing = withdrawTransaction(1L, 1_000L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
+        when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
+                .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.deposit(investorId, "key-1", 1_000L));
@@ -210,9 +201,7 @@ class WalletServiceTest {
         Wallet wallet = walletWithId(1L);
         WalletTransaction winner = depositTransaction(1L, 1_000L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1"))
-                .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(winner));
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(winner));
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
                 .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
@@ -225,7 +214,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC/거래가능상태 요건을 갖춘 사용자의 출금 요청은 WalletTransactionService에 위임한다")
     void withdraw_eligibleUser_delegatesToTransactionService() {
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         TransactionResponse expected = TransactionResponse.from(withdrawTransaction(1L, 500L));
         when(walletTransactionService.withdraw(investorId, "key-1", 500L)).thenReturn(expected);
@@ -241,9 +229,7 @@ class WalletServiceTest {
         Wallet wallet = walletWithId(1L);
         WalletTransaction winner = withdrawTransaction(1L, 500L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1"))
-                .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(winner));
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(winner));
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         when(walletTransactionService.withdraw(investorId, "key-1", 500L))
                 .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
