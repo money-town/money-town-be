@@ -86,7 +86,11 @@ public class WalletService {
     // 만들어서 풀 경합이 심할 때 대기시간이 배로 쌓이는 원인이었다 (정상 경로엔 어차피 불필요한 조회였음).
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
-        requireEligibleForTransaction(userId);
+        try {
+            requireEligibleForTransaction(userId);
+        } catch (BusinessException e) {
+            return recoverFromIneligibleRetry(e, userId, idempotencyKey, WalletTransactionType.DEPOSIT, amount);
+        }
 
         try {
             return walletTransactionService.deposit(userId, idempotencyKey, amount);
@@ -98,7 +102,11 @@ public class WalletService {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
-        requireEligibleForTransaction(userId);
+        try {
+            requireEligibleForTransaction(userId);
+        } catch (BusinessException e) {
+            return recoverFromIneligibleRetry(e, userId, idempotencyKey, WalletTransactionType.WITHDRAW, amount);
+        }
 
         try {
             return walletTransactionService.withdraw(userId, idempotencyKey, amount);
@@ -106,6 +114,16 @@ public class WalletService {
             Long walletId = requireWallet(userId).getId();
             return recoverFromConcurrentDuplicate(e, walletId, WalletTransactionType.WITHDRAW, idempotencyKey, amount);
         }
+    }
+
+    // KYC 거부/User 서비스 장애 상태에서도 "이미 처리된 요청"의 재시도까지 막으면 멱등키 계약(같은 키=같은 결과)이
+    // 깨진다. 정상 경로(신규 요청, KYC 통과)는 이 조회를 안 타므로 성능에는 영향 없다.
+    private TransactionResponse recoverFromIneligibleRetry(BusinessException cause, UUID userId, String idempotencyKey,
+                                                             WalletTransactionType type, long amount) {
+        WalletTransaction existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
+                .orElseThrow(() -> cause);
+        Long walletId = requireWallet(userId).getId();
+        return buildIdempotentResponse(existing, walletId, type, amount);
     }
 
     private Wallet requireWallet(UUID userId) {

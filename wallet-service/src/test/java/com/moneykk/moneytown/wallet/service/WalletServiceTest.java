@@ -148,6 +148,21 @@ class WalletServiceTest {
     }
 
     @Test
+    @DisplayName("KYC가 거부돼도 이미 처리된 멱등키면 재검증 없이 기존 결과를 반환한다 (재시도 계약 유지)")
+    void deposit_ineligibleButAlreadyProcessed_returnsExistingResult() {
+        Wallet wallet = walletWithId(1L);
+        WalletTransaction existing = depositTransaction(1L, 1_000L);
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByStatusResponse());
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+
+        TransactionResponse response = walletService.deposit(investorId, "key-1", 1_000L);
+
+        assertEquals(TransactionResponse.from(existing), response);
+        verify(walletTransactionService, never()).deposit(any(), any(), anyLong());
+    }
+
+    @Test
     @DisplayName("같은 멱등키인데 금액이 다르면 충돌로 처리한다")
     void deposit_sameKeyDifferentAmount_throwsConflict() {
         Wallet wallet = walletWithId(1L);

@@ -29,7 +29,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
 
     // 지갑별 마지막 거래의 balance_after = 그 지갑의 기대 잔액.
     @Query(value = """
-            SELECT DISTINCT ON (wallet_id) wallet_id AS walletId, balance_after AS balanceAfter
+            SELECT DISTINCT ON (wallet_id) wallet_id AS "walletId", balance_after AS "balanceAfter"
             FROM p_wallet_transactions
             ORDER BY wallet_id, transaction_id DESC
             """, nativeQuery = true)
