@@ -8,7 +8,9 @@ import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletHoldStatusResponse;
 import com.moneykk.moneytown.wallet.entity.Wallet;
+import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
@@ -291,6 +293,31 @@ class WalletServiceTest {
                 () -> walletService.getWalletDetail(1L, "ADMIN"));
 
         assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("청약에 대한 Hold가 있으면 상태와 금액을 조회한다")
+    void getWalletHoldStatus_holdExists_returnsStatus() {
+        UUID subscriptionId = UUID.randomUUID();
+        WalletHold hold = new WalletHold(1L, subscriptionId, 1_000L);
+        ReflectionTestUtils.setField(hold, "updatedAt", Instant.now());
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+
+        WalletHoldStatusResponse response = walletService.getWalletHoldStatus(subscriptionId);
+
+        assertEquals(WalletHoldStatusResponse.from(hold), response);
+    }
+
+    @Test
+    @DisplayName("청약에 대한 Hold가 없으면 404를 반환한다")
+    void getWalletHoldStatus_holdNotFound_throwsBusinessException() {
+        UUID subscriptionId = UUID.randomUUID();
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getWalletHoldStatus(subscriptionId));
+
+        assertEquals(WalletErrorCode.WALLET_HOLD_NOT_FOUND, exception.getErrorCode());
     }
 
     private ApiResponse<UserInvestmentEligibilityResponse> eligibleResponse() {
