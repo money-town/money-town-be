@@ -55,6 +55,10 @@ class SubscriptionRetryTransactionServiceTest {
     private SubscriptionEventPublisher
             subscriptionEventPublisher;
 
+    @Mock
+    private SubscriptionBatchConfirmationService
+            subscriptionBatchConfirmationService;
+
     @InjectMocks
     private SubscriptionRetryTransactionService service;
 
@@ -152,7 +156,10 @@ class SubscriptionRetryTransactionServiceTest {
     }
 
     @Test
-    @DisplayName("Wallet HELD가 확인되면 청약을 HOLD_SUCCEEDED로 복구한다")
+    @DisplayName(
+            "Wallet HELD가 확인되면 HOLD_SUCCEEDED로 복구하고 "
+                    + "청약 일괄 확정 서비스에 위임한다"
+    )
     void recoversHeldSubscription() {
         // given
         UUID offeringId = UUID.randomUUID();
@@ -216,6 +223,17 @@ class SubscriptionRetryTransactionServiceTest {
         assertThat(subscription.getReservationExpiresAt()).isNull();
         assertThat(subscription.getFailureCode()).isNull();
 
+        // 전체 HOLD 성공 여부 확인과 일괄 확정을 공통 서비스에 위임한다.
+        verify(subscriptionBatchConfirmationService)
+                .confirmAllIfReady(
+                        offering,
+                        correlationId
+                );
+
+        /*
+         * SubscriptionRetryTransactionService가 직접 확정 이벤트를
+         * 발행하지 않는다.
+         */
         verify(subscriptionEventPublisher, never())
                 .publishReserved(
                         any(Subscription.class),
@@ -227,112 +245,6 @@ class SubscriptionRetryTransactionServiceTest {
                         any(Subscription.class),
                         any(UUID.class),
                         anyString()
-                );
-
-        verifyIdempotencyCompletion(
-                subscriptionId,
-                adminId,
-                idempotencyKey
-        );
-    }
-
-    @Test
-    @DisplayName("매진 공모의 모든 Wallet Hold가 성공하면 청약들을 일괄 확정한다")
-    void confirmsAllSubscriptionsWhenEveryHoldSucceeded() {
-        // given
-        UUID offeringId = UUID.randomUUID();
-        UUID subscriptionId = UUID.randomUUID();
-        UUID otherSubscriptionId = UUID.randomUUID();
-        UUID adminId = UUID.randomUUID();
-
-        String idempotencyKey = "confirm-all-key";
-        String correlationId = "correlation-id";
-
-        Offering offering = createOffering(
-                offeringId,
-                OfferingStatus.SOLD_OUT,
-                0L
-        );
-
-        Subscription subscription =
-                createManualReviewSubscription(
-                        offeringId,
-                        subscriptionId
-                );
-
-        Subscription otherSubscription =
-                createSubscription(
-                        offeringId,
-                        otherSubscriptionId
-                );
-
-        otherSubscription.markHoldSucceeded();
-
-        WalletHoldStatusResponse walletStatus =
-                walletStatus(
-                        subscription,
-                        WalletHoldStatus.HELD
-                );
-
-        HoldingSubscriptionStatusResponse holdingStatus =
-                holdingStatusWithoutAllocation(subscriptionId);
-
-        stubLockedEntities(
-                offering,
-                subscription,
-                subscriptionId
-        );
-
-        when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(
-                        offeringId
-                ))
-                .thenReturn(
-                        List.of(
-                                subscription,
-                                otherSubscription
-                        )
-                );
-
-        stubIdempotencyCompletion(
-                subscriptionId,
-                adminId,
-                idempotencyKey
-        );
-
-        // when
-        SubscriptionRetryResponse response =
-                service.retry(
-                        subscriptionId,
-                        adminId,
-                        idempotencyKey,
-                        correlationId,
-                        walletStatus,
-                        holdingStatus
-                );
-
-        // then
-        assertThat(response.subscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-
-        assertThat(subscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-
-        assertThat(otherSubscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-
-        verify(subscriptionEventPublisher)
-                .publishConfirmed(
-                        subscription,
-                        offering.getAssetId(),
-                        correlationId
-                );
-
-        verify(subscriptionEventPublisher)
-                .publishConfirmed(
-                        otherSubscription,
-                        offering.getAssetId(),
-                        correlationId
                 );
 
         verifyIdempotencyCompletion(

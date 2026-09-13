@@ -25,7 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -41,6 +40,7 @@ public class SubscriptionRetryTransactionService {
     private final SubscriptionRepository subscriptionRepository;
     private final IdempotencyRequestRepository idempotencyRequestRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
 
     @Value("${subscription.reservation-timeout-minutes:10}")
     private long reservationTimeoutMinutes;
@@ -271,9 +271,9 @@ public class SubscriptionRetryTransactionService {
 
         /*
          * 매진 공모의 모든 Wallet HOLD가 성공했다면
-         * 기존 WalletHoldSucceeded 처리와 동일하게 일괄 확정한다.
+         * 공통 일괄 확정 서비스를 통해 청약을 확정한다.
          */
-        confirmAllIfReady(
+        subscriptionBatchConfirmationService.confirmAllIfReady(
                 offering,
                 correlationId
         );
@@ -377,72 +377,6 @@ public class SubscriptionRetryTransactionService {
                 offering.getAssetId(),
                 correlationId
         );
-    }
-
-    /**
-     * 매진된 공모에서 수량을 확보한 모든 청약의
-     * Wallet HOLD가 성공했는지 확인하고 일괄 확정한다.
-     */
-    private void confirmAllIfReady(
-            Offering offering,
-            String correlationId
-    ) {
-        boolean finalizableOffering =
-                (
-                        offering.getOfferingStatus()
-                                == OfferingStatus.SOLD_OUT
-                                || offering.getOfferingStatus()
-                                == OfferingStatus.CLOSED
-                )
-                        && offering.getRemainingQuantity() == 0L;
-
-        if (!finalizableOffering) {
-            return;
-        }
-
-        List<Subscription> reservedSubscriptions =
-                subscriptionRepository
-                        .findAllReservedByOfferingIdForUpdate(
-                                offering.getOfferingId()
-                        );
-
-        if (reservedSubscriptions.isEmpty()) {
-            throw new IllegalStateException(
-                    "매진된 공모에 수량 확보 청약이 존재하지 않습니다. "
-                            + "offeringId="
-                            + offering.getOfferingId()
-            );
-        }
-
-        boolean allHoldsSucceeded =
-                reservedSubscriptions.stream()
-                        .allMatch(candidate ->
-                                candidate.getSubscriptionStatus()
-                                        == SubscriptionStatus.HOLD_SUCCEEDED
-                                        || candidate.getSubscriptionStatus()
-                                        == SubscriptionStatus.CONFIRMED
-                        );
-
-        if (!allHoldsSucceeded) {
-            return;
-        }
-
-        Instant confirmedAt = Instant.now();
-
-        for (Subscription candidate : reservedSubscriptions) {
-            if (candidate.getSubscriptionStatus()
-                    == SubscriptionStatus.CONFIRMED) {
-                continue;
-            }
-
-            candidate.confirm(confirmedAt);
-
-            subscriptionEventPublisher.publishConfirmed(
-                    candidate,
-                    offering.getAssetId(),
-                    correlationId
-            );
-        }
     }
 
     /**

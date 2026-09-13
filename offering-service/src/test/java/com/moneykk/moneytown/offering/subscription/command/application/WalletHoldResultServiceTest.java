@@ -70,6 +70,10 @@ class WalletHoldResultServiceTest {
     private SubscriptionCompensationRepository
             subscriptionCompensationRepository;
 
+    @Mock
+    private SubscriptionBatchConfirmationService
+            subscriptionBatchConfirmationService;
+
     @InjectMocks
     private WalletHoldResultService walletHoldResultService;
 
@@ -77,9 +81,14 @@ class WalletHoldResultServiceTest {
     // Wallet HOLD 성공 처리
     // =========================================================
 
+
     @Test
-    @DisplayName("매진 전 Wallet HOLD 성공은 HOLD_SUCCEEDED 상태로 대기한다")
-    void waitsForSoldOutAfterHoldSucceeded() {
+    @DisplayName(
+            "Wallet HOLD 성공을 기록하고 "
+                    + "청약 일괄 확정 서비스에 처리를 위임한다"
+    )
+    void recordsHoldSucceededAndDelegatesBatchConfirmation() {
+        // given
         Subscription subscription = newSubscription();
 
         executeBusinessAction();
@@ -87,29 +96,34 @@ class WalletHoldResultServiceTest {
         Offering offering =
                 stubSucceededEventLocks(subscription);
 
-        when(offering.getOfferingStatus())
-                .thenReturn(OfferingStatus.OPEN);
-
+        // when
         boolean result =
                 walletHoldResultService.handleSucceeded(
                         succeededEvent(subscription),
                         CONSUMER_GROUP
                 );
 
+        // then
         assertThat(result).isTrue();
 
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
 
         assertThat(subscription.getConfirmedAt()).isNull();
-
         assertThat(subscription.getHoldingAllocationStatus()).isNull();
-
         assertThat(subscription.isQuantityReserved()).isTrue();
 
-        verify(subscriptionRepository, never())
-                .findAllReservedByOfferingIdForUpdate(any());
+        // 공모 상태와 전체 청약 검증은 공통 서비스에 위임한다.
+        verify(subscriptionBatchConfirmationService)
+                .confirmAllIfReady(
+                        offering,
+                        CORRELATION_ID
+                );
 
+        /*
+         * WalletHoldResultService가 직접 확정 이벤트를 발행하지 않는다.
+         * 실제 확정 이벤트는 SubscriptionBatchConfirmationService가 담당한다.
+         */
         verifyNoInteractions(
                 subscriptionEventPublisher,
                 subscriptionCompensationRepository
@@ -117,134 +131,12 @@ class WalletHoldResultServiceTest {
     }
 
     @Test
-    @DisplayName("공모가 매진되어도 처리 중인 청약이 있으면 전체 확정을 기다린다")
-    void waitsUntilAllWalletHoldsSucceed() {
-        Subscription succeededSubscription = newSubscription();
-        Subscription processingSubscription = newSubscription();
-
-        executeBusinessAction();
-
-        Offering offering =
-                stubSucceededEventLocks(succeededSubscription);
-
-        when(offering.getOfferingStatus())
-                .thenReturn(OfferingStatus.SOLD_OUT);
-
-        when(offering.getRemainingQuantity())
-                .thenReturn(0L);
-
-        when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(offeringId)
-        ).thenReturn(List.of(
-                succeededSubscription,
-                processingSubscription
-        ));
-
-        boolean result =
-                walletHoldResultService.handleSucceeded(
-                        succeededEvent(succeededSubscription),
-                        CONSUMER_GROUP
-                );
-
-        assertThat(result).isTrue();
-
-        assertThat(succeededSubscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
-
-        assertThat(processingSubscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.PROCESSING);
-
-        assertThat(succeededSubscription.getConfirmedAt()).isNull();
-        assertThat(processingSubscription.getConfirmedAt()).isNull();
-
-        verifyNoInteractions(
-                subscriptionEventPublisher,
-                subscriptionCompensationRepository
-        );
-    }
-
-    @Test
-    @DisplayName("매진 공모의 모든 Wallet HOLD가 성공하면 전체 청약을 확정한다")
-    void confirmsAllSubscriptionsWhenEveryHoldSucceeded() {
-        Subscription firstSubscription = newSubscription();
-        Subscription lastSubscription = newSubscription();
-
-        firstSubscription.markHoldSucceeded();
-
-        executeBusinessAction();
-
-        Offering offering =
-                stubSucceededEventLocks(lastSubscription);
-
-        when(offering.getOfferingStatus())
-                .thenReturn(OfferingStatus.SOLD_OUT);
-
-        when(offering.getRemainingQuantity())
-                .thenReturn(0L);
-
-        when(offering.getAssetId())
-                .thenReturn(assetId);
-
-        when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(offeringId)
-        ).thenReturn(List.of(
-                firstSubscription,
-                lastSubscription
-        ));
-
-        boolean result =
-                walletHoldResultService.handleSucceeded(
-                        succeededEvent(lastSubscription),
-                        CONSUMER_GROUP
-                );
-
-        assertThat(result).isTrue();
-
-        assertThat(firstSubscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-
-        assertThat(lastSubscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-
-        assertThat(firstSubscription.getConfirmedAt()).isNotNull();
-        assertThat(lastSubscription.getConfirmedAt()).isNotNull();
-
-        assertThat(firstSubscription.getConfirmedAt())
-                .isEqualTo(lastSubscription.getConfirmedAt());
-
-        assertThat(firstSubscription.getHoldingAllocationStatus())
-                .isEqualTo(
-                        com.moneykk.moneytown.offering.subscription
-                                .domain.entity.HoldingAllocationStatus.PENDING
-                );
-
-        assertThat(lastSubscription.getHoldingAllocationStatus())
-                .isEqualTo(
-                        com.moneykk.moneytown.offering.subscription
-                                .domain.entity.HoldingAllocationStatus.PENDING
-                );
-
-        verify(subscriptionEventPublisher)
-                .publishConfirmed(
-                        firstSubscription,
-                        assetId,
-                        CORRELATION_ID
-                );
-
-        verify(subscriptionEventPublisher)
-                .publishConfirmed(
-                        lastSubscription,
-                        assetId,
-                        CORRELATION_ID
-                );
-
-        verifyNoMoreInteractions(subscriptionEventPublisher);
-        verifyNoInteractions(subscriptionCompensationRepository);
-    }
-
-    @Test
-    @DisplayName("HOLD_SUCCEEDED 청약에 성공 이벤트가 다시 와도 수동 확인으로 변경하지 않는다")
-    void preservesHoldSucceededOnDuplicateSuccess() {
+    @DisplayName(
+            "HOLD_SUCCEEDED 청약에 성공 이벤트가 다시 오면 "
+                    + "상태를 유지하고 일괄 확정 조건을 다시 확인한다"
+    )
+    void preservesHoldSucceededAndRechecksBatchConfirmation() {
+        // given
         Subscription subscription = newSubscription();
         subscription.markHoldSucceeded();
 
@@ -253,72 +145,33 @@ class WalletHoldResultServiceTest {
         Offering offering =
                 stubSucceededEventLocks(subscription);
 
-        when(offering.getOfferingStatus())
-                .thenReturn(OfferingStatus.OPEN);
-
+        // when
         boolean result =
                 walletHoldResultService.handleSucceeded(
                         succeededEvent(subscription),
                         CONSUMER_GROUP
                 );
 
+        // then
         assertThat(result).isTrue();
 
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
 
+        assertThat(subscription.getConfirmedAt()).isNull();
         assertThat(subscription.getFailureCode()).isNull();
+
+        // 중복 성공 이벤트에서도 전체 확정 조건을 다시 확인한다.
+        verify(subscriptionBatchConfirmationService)
+                .confirmAllIfReady(
+                        offering,
+                        CORRELATION_ID
+                );
 
         verifyNoInteractions(
                 subscriptionEventPublisher,
                 subscriptionCompensationRepository
         );
-    }
-
-    @Test
-    @DisplayName("종료 스케줄러가 먼저 실행된 매진 공모도 모든 HOLD 성공 시 확정한다")
-    void confirmsSubscriptionsForClosedSoldOutOffering() {
-        Subscription subscription = newSubscription();
-
-        executeBusinessAction();
-
-        Offering offering =
-                stubSucceededEventLocks(subscription);
-
-        when(offering.getOfferingStatus())
-                .thenReturn(OfferingStatus.CLOSED);
-
-        when(offering.getRemainingQuantity())
-                .thenReturn(0L);
-
-        when(offering.getAssetId())
-                .thenReturn(assetId);
-
-        when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(offeringId)
-        ).thenReturn(List.of(subscription));
-
-        boolean result =
-                walletHoldResultService.handleSucceeded(
-                        succeededEvent(subscription),
-                        CONSUMER_GROUP
-                );
-
-        assertThat(result).isTrue();
-
-        assertThat(subscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-
-        assertThat(subscription.getConfirmedAt()).isNotNull();
-
-        verify(subscriptionEventPublisher)
-                .publishConfirmed(
-                        subscription,
-                        assetId,
-                        CORRELATION_ID
-                );
-
-        verifyNoInteractions(subscriptionCompensationRepository);
     }
 
     // =========================================================
