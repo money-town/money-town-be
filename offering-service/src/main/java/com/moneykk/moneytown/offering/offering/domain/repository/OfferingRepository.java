@@ -192,25 +192,26 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     );
 
     /**
-     * 모집 종료 후 잔여 수량이 있는 공모를 잠금 조회한다.
-     * CLOSED 이후 동결 실패로 수량이 복원된 경우도 포함한다.
+     * 모집 종료 후 잔여 수량이 있는 공모 ID를 조회한다.
+     *
+     * 실제 상태 변경과 잠금은
+     * OfferingUnderSubscribedTransactionService에서
+     * 공모 한 건마다 별도 트랜잭션으로 처리한다.
      */
-    @Transactional(propagation = Propagation.MANDATORY)
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-        SELECT o
-          FROM Offering o
-         WHERE o.isDeleted = false
-           AND o.offeringStatus IN (
-               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
-               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
-               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED
-           )
-           AND o.endAt <= :now
-           AND o.remainingQuantity > 0
-         ORDER BY o.endAt ASC, o.offeringId ASC
-        """)
-    List<Offering> findUnderSubscribedOfferingsForUpdate(
+            SELECT o.offeringId
+              FROM Offering o
+             WHERE o.isDeleted = false
+               AND o.offeringStatus IN (
+                   com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
+                   com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
+                   com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED
+               )
+               AND o.endAt <= :now
+               AND o.remainingQuantity > 0
+             ORDER BY o.endAt ASC, o.offeringId ASC
+            """)
+    List<UUID> findUnderSubscribedOfferingIds(
             @Param("now") Instant now,
             Pageable pageable
     );

@@ -1,35 +1,21 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
-import com.moneykk.moneytown.common.exception.BusinessException;
-import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
-import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
-import com.moneykk.moneytown.offering.subscription.domain.entity.CompensationStatus;
-import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
-import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -41,200 +27,152 @@ class SubscriptionTimeoutServiceTest {
     private SubscriptionRepository subscriptionRepository;
 
     @Mock
-    private OfferingRepository offeringRepository;
-
-    @Mock
-    private SubscriptionCompensationRepository
-            subscriptionCompensationRepository;
-
-    @Mock
-    private SubscriptionEventPublisher subscriptionEventPublisher;
+    private SubscriptionTimeoutTransactionService
+            subscriptionTimeoutTransactionService;
 
     @InjectMocks
     private SubscriptionTimeoutService subscriptionTimeoutService;
 
     @Test
-    @DisplayName("만료된 청약을 보상 상태로 전환하고 Wallet 보상 요청을 저장한다")
-    void processesExpiredReservations() {
+    @DisplayName("예약 만료 처리에 성공한 청약 수만 반환한다")
+    void returnsOnlySuccessfullyProcessedCount() {
         // given
-        UUID offeringId = UUID.randomUUID();
-        UUID assetId = UUID.randomUUID();
-        UUID subscriptionId1 = UUID.randomUUID();
-        UUID subscriptionId2 = UUID.randomUUID();
-
-        Subscription subscription1 = mockSubscription(
-                offeringId,
-                subscriptionId1
-        );
-        Subscription subscription2 = mockSubscription(
-                offeringId,
-                subscriptionId2
-        );
-
-        Offering offering = mock(Offering.class);
+        UUID firstSubscriptionId = UUID.randomUUID();
+        UUID secondSubscriptionId = UUID.randomUUID();
 
         when(subscriptionRepository
-                .findAllBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
-                        eq(SubscriptionStatus.PROCESSING),
+                .findExpiredProcessingSubscriptionIds(
                         any(Instant.class),
-                        any()
+                        any(Pageable.class)
                 ))
                 .thenReturn(List.of(
-                        subscription1,
-                        subscription2
+                        firstSubscriptionId,
+                        secondSubscriptionId
                 ));
 
-        when(offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId))
-                .thenReturn(Optional.of(offering));
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        eq(firstSubscriptionId),
+                        any(Instant.class)
+                ))
+                .thenReturn(true);
 
-        when(offering.getAssetId()).thenReturn(assetId);
+        /*
+         * ID 조회 후 다른 비동기 처리에서 상태가 변경된 상황을 표현한다.
+         * Transaction Service가 false를 반환하면 처리 건수에 포함하지 않는다.
+         */
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        eq(secondSubscriptionId),
+                        any(Instant.class)
+                ))
+                .thenReturn(false);
 
         // when
         int result =
-                subscriptionTimeoutService.processExpiredReservations();
+                subscriptionTimeoutService
+                        .processExpiredReservations();
 
         // then
-        assertThat(result).isEqualTo(2);
+        assertThat(result).isEqualTo(1);
 
-        verify(subscription1)
-                .startExpirationCompensation(any(Instant.class));
-        verify(subscription2)
-                .startExpirationCompensation(any(Instant.class));
-
-        ArgumentCaptor<SubscriptionCompensation>
-                compensationCaptor =
-                ArgumentCaptor.forClass(
-                        SubscriptionCompensation.class
+        verify(subscriptionTimeoutTransactionService)
+                .processExpiredReservation(
+                        eq(firstSubscriptionId),
+                        any(Instant.class)
                 );
 
-        verify(subscriptionCompensationRepository, times(2))
-                .save(compensationCaptor.capture());
-
-        List<SubscriptionCompensation> compensations =
-                compensationCaptor.getAllValues();
-
-        assertThat(compensations)
-                .extracting(
-                        SubscriptionCompensation::getSubscriptionId
-                )
-                .containsExactly(
-                        subscriptionId1,
-                        subscriptionId2
-                );
-
-        assertThat(compensations)
-                .allSatisfy(compensation -> {
-                    assertThat(compensation.getWalletStatus())
-                            .isEqualTo(CompensationStatus.PENDING);
-                    assertThat(compensation.getHoldingStatus())
-                            .isEqualTo(CompensationStatus.SUCCEEDED);
-                    assertThat(
-                            compensation
-                                    .isExternalCompensationCompleted()
-                    ).isFalse();
-                });
-
-        ArgumentCaptor<String> correlationIdCaptor =
-                ArgumentCaptor.forClass(String.class);
-
-        verify(subscriptionEventPublisher)
-                .publishCompensationRequested(
-                        eq(subscription1),
-                        eq(assetId),
-                        correlationIdCaptor.capture()
-                );
-
-        verify(subscriptionEventPublisher)
-                .publishCompensationRequested(
-                        eq(subscription2),
-                        eq(assetId),
-                        correlationIdCaptor.capture()
-                );
-
-        assertThat(correlationIdCaptor.getAllValues())
-                .hasSize(2)
-                .allSatisfy(correlationId ->
-                        assertThat(correlationId).isNotBlank()
+        verify(subscriptionTimeoutTransactionService)
+                .processExpiredReservation(
+                        eq(secondSubscriptionId),
+                        any(Instant.class)
                 );
     }
 
     @Test
-    @DisplayName("예약 유효시간이 만료된 청약이 없으면 처리 건수 0을 반환한다")
-    void returnsZeroWhenNoExpiredReservations() {
+    @DisplayName("한 청약의 만료 처리가 실패해도 다음 청약을 계속 처리한다")
+    void continuesAfterIndividualProcessingFailure() {
+        // given
+        UUID firstSubscriptionId = UUID.randomUUID();
+        UUID failedSubscriptionId = UUID.randomUUID();
+        UUID lastSubscriptionId = UUID.randomUUID();
+
+        when(subscriptionRepository
+                .findExpiredProcessingSubscriptionIds(
+                        any(Instant.class),
+                        any(Pageable.class)
+                ))
+                .thenReturn(List.of(
+                        firstSubscriptionId,
+                        failedSubscriptionId,
+                        lastSubscriptionId
+                ));
+
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        eq(firstSubscriptionId),
+                        any(Instant.class)
+                ))
+                .thenReturn(true);
+
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        eq(failedSubscriptionId),
+                        any(Instant.class)
+                ))
+                .thenThrow(
+                        new IllegalStateException(
+                                "예약 만료 보상 처리 실패"
+                        )
+                );
+
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        eq(lastSubscriptionId),
+                        any(Instant.class)
+                ))
+                .thenReturn(true);
+
+        // when
+        int result =
+                subscriptionTimeoutService
+                        .processExpiredReservations();
+
+        // then
+        assertThat(result).isEqualTo(2);
+
+        /*
+         * 중간 청약에서 예외가 발생했어도
+         * 마지막 청약까지 호출됐는지를 검증한다.
+         */
+        verify(subscriptionTimeoutTransactionService)
+                .processExpiredReservation(
+                        eq(lastSubscriptionId),
+                        any(Instant.class)
+                );
+    }
+
+    @Test
+    @DisplayName("예약 만료 대상이 없으면 개별 처리 서비스를 호출하지 않는다")
+    void doesNotProcessWhenNoExpiredReservationsExist() {
         // given
         when(subscriptionRepository
-                .findAllBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
-                        eq(SubscriptionStatus.PROCESSING),
+                .findExpiredProcessingSubscriptionIds(
                         any(Instant.class),
-                        any()
+                        any(Pageable.class)
                 ))
                 .thenReturn(List.of());
 
         // when
         int result =
-                subscriptionTimeoutService.processExpiredReservations();
+                subscriptionTimeoutService
+                        .processExpiredReservations();
 
         // then
         assertThat(result).isZero();
 
         verifyNoInteractions(
-                offeringRepository,
-                subscriptionCompensationRepository,
-                subscriptionEventPublisher
+                subscriptionTimeoutTransactionService
         );
-    }
-
-    @Test
-    @DisplayName("청약 대상 공모를 찾을 수 없으면 보상 처리를 시작하지 않는다")
-    void doesNotStartCompensationWhenOfferingDoesNotExist() {
-        // given
-        UUID offeringId = UUID.randomUUID();
-
-        Subscription subscription = mock(Subscription.class);
-
-        when(subscription.getOfferingId())
-                .thenReturn(offeringId);
-
-        when(subscriptionRepository
-                .findAllBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
-                        eq(SubscriptionStatus.PROCESSING),
-                        any(Instant.class),
-                        any()
-                ))
-                .thenReturn(List.of(subscription));
-
-        when(offeringRepository
-                .findByOfferingIdAndIsDeletedFalse(offeringId))
-                .thenReturn(Optional.empty());
-
-        // when & then
-        assertThatThrownBy(
-                () -> subscriptionTimeoutService
-                        .processExpiredReservations()
-        )
-                .isInstanceOf(BusinessException.class);
-
-        verify(subscription, never())
-                .startExpirationCompensation(any(Instant.class));
-
-        verifyNoInteractions(
-                subscriptionCompensationRepository,
-                subscriptionEventPublisher
-        );
-    }
-
-    private Subscription mockSubscription(
-            UUID offeringId,
-            UUID subscriptionId
-    ) {
-        Subscription subscription = mock(Subscription.class);
-
-        when(subscription.getOfferingId())
-                .thenReturn(offeringId);
-        when(subscription.getSubscriptionId())
-                .thenReturn(subscriptionId);
-
-        return subscription;
     }
 }
