@@ -98,12 +98,22 @@ public class Subscription extends BaseUpdatableEntity {
     private boolean quantityReserved;
 
     /**
-     * 청약 처리 실패 코드.
+     * Wallet HOLD 업무 실패 코드.
      *
-     * 시스템 처리 실패 및 운영 추적이 필요한 경우 사용한다.
+     * WalletHoldFailed.reason으로 전달받은
+     * WalletErrorCode Enum 이름을 저장한다.
      */
-    @Column(name = "failure_code", length = 50)
-    private String failureCode;
+    @Column(name = "wallet_hold_failure_code", length = 50)
+    private String walletHoldFailureCode;
+
+    /**
+     * Offering 내부 청약 처리 실패 코드.
+     *
+     * 예약 만료, 수동 검토 등 운영 및 복구에 필요한
+     * Offering 내부 실패 사유를 저장한다.
+     */
+    @Column(name = "subscription_failure_code", length = 50)
+    private String subscriptionFailureCode;
 
     /**
      * 청약 취소가 최종 완료된 시각.
@@ -326,7 +336,7 @@ public class Subscription extends BaseUpdatableEntity {
         }
 
         this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
-        this.failureCode = reason;
+        this.walletHoldFailureCode = reason;
     }
 
     /**
@@ -339,8 +349,8 @@ public class Subscription extends BaseUpdatableEntity {
         if (subscriptionStatus != SubscriptionStatus.COMPENSATING
                 || !quantityReserved
                 || cancellationType != null
-                || failureCode == null
-                || failureCode.isBlank()) {
+                || walletHoldFailureCode == null
+                || walletHoldFailureCode.isBlank()) {
             throw new BusinessException(
                     SubscriptionErrorCode.SUBSCRIPTION_HOLD_FAILURE_NOT_ALLOWED
             );
@@ -353,7 +363,8 @@ public class Subscription extends BaseUpdatableEntity {
     /**
      * 관리자의 보상 요청으로 수동 확인 상태의 청약 보상을 다시 시작한다.
      *
-     * 기존 failureCode, cancellationType, 수량 확보 여부 등
+     * 기존 Wallet HOLD 실패 코드, Offering 내부 실패 코드,
+     * cancellationType, 수량 확보 여부 등
      * 보상 원인을 판단하는 정보는 그대로 유지한다.
      *
      * MANUAL_REVIEW → COMPENSATING
@@ -415,10 +426,11 @@ public class Subscription extends BaseUpdatableEntity {
                 newReservationExpiresAt;
 
         /*
-         * MANUAL_REVIEW 진입 사유는 정상 흐름으로 복구되었으므로
-         * 현재 실패 코드에서 제거한다.
+         * MANUAL_REVIEW 진입 사유가 해소되었으므로
+         * Wallet HOLD 실패 코드와 Offering 내부 실패 코드를 초기화한다.
          */
-        this.failureCode = null;
+        this.walletHoldFailureCode = null;
+        this.subscriptionFailureCode = null;
     }
 
     /**
@@ -445,7 +457,8 @@ public class Subscription extends BaseUpdatableEntity {
         this.subscriptionStatus = SubscriptionStatus.HOLD_SUCCEEDED;
         // Wallet에서 HELD 상태를 확인했으므로 만료 시각 제거
         this.reservationExpiresAt = null;
-        this.failureCode = null;
+        this.walletHoldFailureCode = null;
+        this.subscriptionFailureCode = null;
     }
 
     /**
@@ -472,9 +485,9 @@ public class Subscription extends BaseUpdatableEntity {
             );
         }
 
-        this.subscriptionStatus =
-                SubscriptionStatus.CONFIRMED;
-        this.failureCode = null;
+        this.subscriptionStatus = SubscriptionStatus.CONFIRMED;
+        this.walletHoldFailureCode = null;
+        this.subscriptionFailureCode = null;
     }
 
     /**
@@ -545,7 +558,7 @@ public class Subscription extends BaseUpdatableEntity {
          * 되돌리지 않고 관리자 보상 API에서 처리한다.
          */
         if (RESERVATION_EXPIRED_FAILURE_CODE.equals(
-                failureCode
+                subscriptionFailureCode
         )) {
             throw new BusinessException(
                     SubscriptionErrorCode
@@ -650,7 +663,7 @@ public class Subscription extends BaseUpdatableEntity {
         }
 
         this.subscriptionStatus = SubscriptionStatus.COMPENSATING;
-        this.failureCode = RESERVATION_EXPIRED_FAILURE_CODE;
+        this.subscriptionFailureCode = RESERVATION_EXPIRED_FAILURE_CODE;
     }
 
     /**
@@ -659,7 +672,9 @@ public class Subscription extends BaseUpdatableEntity {
     public boolean isReservationExpirationCompensation() {
         return subscriptionStatus == SubscriptionStatus.COMPENSATING
                 && cancellationType == null
-                && RESERVATION_EXPIRED_FAILURE_CODE.equals(failureCode);
+                && RESERVATION_EXPIRED_FAILURE_CODE.equals(
+                        subscriptionFailureCode
+        );
     }
 
     /**
@@ -682,8 +697,14 @@ public class Subscription extends BaseUpdatableEntity {
     }
 
     /**
-     * 늦은 동결 성공 등 자동 처리하기 어려운 상황을 수동 확인 대상으로 기록한다.
-     * 기존 실패 사유, 취소 유형, 확정·취소 시각 및 수량 확보 여부는 보존한다.
+     * 늦은 동결 성공 등 자동 처리하기 어려운 상황을
+     * 수동 확인 대상으로 기록한다.
+     *
+     * 기존 Wallet HOLD 실패 코드, Offering 내부 실패 코드,
+     * 취소 유형, 확정·취소 시각 및 수량 확보 여부는 보존한다.
+     *
+     * 기존 Offering 내부 실패 코드가 없다면
+     * 수동 검토 진입 사유를 subscriptionFailureCode에 기록한다.
      */
     public void requireManualReview(String reason) {
         if (reason == null || reason.isBlank() || reason.length() > 50) {
@@ -694,8 +715,9 @@ public class Subscription extends BaseUpdatableEntity {
 
         this.subscriptionStatus = SubscriptionStatus.MANUAL_REVIEW;
 
-        if (this.failureCode == null || this.failureCode.isBlank()) {
-            this.failureCode = reason;
+        if (this.subscriptionFailureCode == null
+                || this.subscriptionFailureCode.isBlank()) {
+            this.subscriptionFailureCode = reason;
         }
     }
 

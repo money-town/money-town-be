@@ -306,8 +306,9 @@ class SubscriptionTest {
         // then
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
         assertThat(subscription.getCancellationType()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
         assertThat(
@@ -343,7 +344,8 @@ class SubscriptionTest {
 
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.PROCESSING);
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
     }
 
@@ -368,8 +370,9 @@ class SubscriptionTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.REJECTED);
         assertThat(subscription.isQuantityReserved()).isFalse();
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
         assertThat(subscription.getCancellationType()).isNull();
         assertThat(subscription.getCancelledAt()).isNull();
 
@@ -450,8 +453,9 @@ class SubscriptionTest {
                         CancellationType.OFFERING_ADMIN_CANCELLED
                 );
 
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("WALLET_COMPENSATION_FAILED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         assertThat(subscription.isQuantityReserved()).isTrue();
     }
@@ -498,11 +502,12 @@ class SubscriptionTest {
                 .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
 
         /*
-         * requireManualReview는 기존 failureCode가 있으면
-         * 새로운 사유로 덮어쓰지 않는다.
+         * requireManualReview는 기존 Offering 내부 실패 코드가 있으면
+         * 새로운 수동 검토 사유로 덮어쓰지 않는다.
          */
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         // when
         subscription.restartCompensation();
@@ -511,8 +516,9 @@ class SubscriptionTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
 
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         assertThat(subscription.getCancellationType()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
@@ -547,7 +553,8 @@ class SubscriptionTest {
         assertThat(subscription.getReservationExpiresAt())
                 .isEqualTo(newReservationExpiresAt);
 
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
     }
 
@@ -569,7 +576,8 @@ class SubscriptionTest {
                 .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
 
         assertThat(subscription.getReservationExpiresAt()).isNull();
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
     }
 
@@ -607,7 +615,8 @@ class SubscriptionTest {
         assertThat(subscription.getHoldingAllocationErrorCode())
                 .isEqualTo("HOLDING_ALLOCATION_FAILED");
 
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
     }
 
     @Test

@@ -226,8 +226,9 @@ class SubscriptionCompensationCompletionServiceTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.REJECTED);
         assertThat(subscription.isQuantityReserved()).isFalse();
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
         assertThat(subscription.getCancellationType()).isNull();
         assertThat(subscription.getCancelledAt()).isNull();
 
@@ -278,8 +279,9 @@ class SubscriptionCompensationCompletionServiceTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
         assertThat(subscription.isQuantityReserved()).isTrue();
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         verify(offeringRepository, never())
                 .restoreQuantity(

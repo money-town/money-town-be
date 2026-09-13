@@ -98,7 +98,8 @@ public class SubscriptionTimeoutTransactionService {
 
         /*
          * PROCESSING → COMPENSATING
-         * failureCode에는 RESERVATION_EXPIRED가 기록된다.
+         * subscriptionFailureCode에는
+         * RESERVATION_EXPIRED가 기록된다.
          */
         subscription.startExpirationCompensation(now);
 

@@ -106,8 +106,9 @@ class SubscriptionTimeoutTransactionServiceTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
 
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         /*
          * 공모 → 청약 순서로 잠금을 획득하는지 검증한다.
@@ -225,8 +226,8 @@ class SubscriptionTimeoutTransactionServiceTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
 
-        assertThat(subscription.getFailureCode())
-                .isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         verify(subscriptionCompensationRepository, never())
                 .save(org.mockito.ArgumentMatchers.any());

@@ -133,7 +133,8 @@ class SubscriptionRetryTransactionServiceTest {
         assertThat(subscription.getReservationExpiresAt())
                 .isAfter(previousExpiresAt);
 
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
         verify(subscriptionEventPublisher)
                 .publishReserved(
@@ -221,7 +222,8 @@ class SubscriptionRetryTransactionServiceTest {
                 .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
 
         assertThat(subscription.getReservationExpiresAt()).isNull();
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
         // 전체 HOLD 성공 여부 확인과 일괄 확정을 공통 서비스에 위임한다.
         verify(subscriptionBatchConfirmationService)

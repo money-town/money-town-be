@@ -161,7 +161,8 @@ class WalletHoldResultServiceTest {
                 .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
 
         assertThat(subscription.getConfirmedAt()).isNull();
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
         // 중복 성공 이벤트에서도 전체 확정 조건을 다시 확인한다.
         verify(subscriptionBatchConfirmationService)
@@ -330,8 +331,9 @@ class WalletHoldResultServiceTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
 
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         assertThat(subscription.getConfirmedAt()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
@@ -376,8 +378,9 @@ class WalletHoldResultServiceTest {
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
 
-        assertThat(subscription.getFailureCode())
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("LATE_WALLET_HOLD_SUCCEEDED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
 
         assertThat(subscription.getCancellationType())
                 .isEqualTo(
@@ -428,7 +431,8 @@ class WalletHoldResultServiceTest {
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
 
         assertThat(subscription.isQuantityReserved()).isTrue();
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
         verify(offeringRepository, never()).restoreQuantity(
                 any(),
@@ -482,8 +486,9 @@ class WalletHoldResultServiceTest {
 
         assertThat(subscription.isQuantityReserved()).isFalse();
 
-        assertThat(subscription.getFailureCode())
-                .isEqualTo("INSUFFICIENT_BALANCE");
+        assertThat(subscription.getWalletHoldFailureCode())
+                .isEqualTo("INSUFFICIENT_AVAILABLE_BALANCE");
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
         verify(offeringRepository, times(1))
                 .restoreQuantity(
@@ -720,7 +725,7 @@ class WalletHoldResultServiceTest {
                 new WalletHoldFailedPayload(
                         200L,
                         "FAILED",
-                        "INSUFFICIENT_BALANCE"
+                        "INSUFFICIENT_AVAILABLE_BALANCE"
                 )
         );
     }

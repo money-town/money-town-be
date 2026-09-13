@@ -296,7 +296,8 @@ class OutboxPublishSchedulerTest {
                     "userId": "%s",
                     "assetId": "%s",
                     "subscriptionId": "%s",
-                    "failureCode": "INSUFFICIENT_BALANCE"
+                    "failureSource": "WALLET_HOLD",
+                    "failureReasonCode": "INSUFFICIENT_AVAILABLE_BALANCE"
                   }
                 }
                 """.formatted(

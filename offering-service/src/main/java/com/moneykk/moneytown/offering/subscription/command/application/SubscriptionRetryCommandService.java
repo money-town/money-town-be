@@ -219,7 +219,7 @@ public class SubscriptionRetryCommandService {
          * 관리자 보상 API에서 처리한다.
          */
         if (RESERVATION_EXPIRED_FAILURE_CODE.equals(
-                subscription.getFailureCode()
+                subscription.getSubscriptionFailureCode()
         )) {
             throw new BusinessException(
                     SubscriptionErrorCode
