@@ -2,16 +2,17 @@ package com.moneykk.moneytown.wallet.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
-import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
+import com.moneykk.moneytown.wallet.dto.response.CursorPageResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletStatusResponse;
+import com.moneykk.moneytown.wallet.dto.support.TransactionCursor;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
@@ -22,12 +23,13 @@ import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -69,13 +71,21 @@ public class WalletService {
         return WalletStatusResponse.of(wallet, hasActiveHold);
     }
 
-    public PageResponse<TransactionListItemResponse> getTransactions(UUID userId, WalletTransactionType type, Pageable pageable) {
+    public CursorPageResponse<TransactionListItemResponse> getTransactions(UUID userId, WalletTransactionType type,
+                                                                             Instant from, Instant to,
+                                                                             String cursor, int size) {
         Wallet wallet = walletRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
-        Page<WalletTransaction> transactions = walletTransactionRepository.findByWalletId(wallet.getId(), type, pageable);
+        TransactionCursor.Decoded decoded = cursor != null ? TransactionCursor.decode(cursor) : null;
+        Instant cursorCreatedAt = decoded != null ? decoded.createdAt() : null;
+        Long cursorId = decoded != null ? decoded.id() : null;
 
-        return PageResponse.from(transactions, TransactionListItemResponse::from);
+        Slice<WalletTransaction> transactions = walletTransactionRepository.findByWalletId(
+                wallet.getId(), type, from, to, cursorCreatedAt, cursorId, PageRequest.of(0, size));
+
+        return CursorPageResponse.from(transactions, TransactionListItemResponse::from,
+                t -> TransactionCursor.encode(t.getCreatedAt(), t.getId()));
     }
 
     // 클래스 레벨 readOnly 트랜잭션에 합류하면 Feign 호출/UNIQUE 복구가 다시 트랜잭션에 묶인다.

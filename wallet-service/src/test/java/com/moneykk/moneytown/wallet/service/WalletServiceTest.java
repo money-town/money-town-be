@@ -5,9 +5,12 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
+import com.moneykk.moneytown.wallet.dto.response.CursorPageResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
+import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
+import com.moneykk.moneytown.wallet.dto.support.TransactionCursor;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
@@ -22,13 +25,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -259,6 +266,65 @@ class WalletServiceTest {
         TransactionResponse response = walletService.withdraw(investorId, "key-1", 500L);
 
         assertEquals(TransactionResponse.from(winner), response);
+    }
+
+    @Test
+    @DisplayName("거래 내역을 최신순으로 조회하고, 다음 페이지가 있으면 마지막 거래 기준 커서를 반환한다")
+    void getTransactions_hasNext_returnsNextCursor() {
+        Wallet wallet = walletWithId(1L);
+        WalletTransaction last = depositTransaction(1L, 1_000L);
+        Instant createdAt = Instant.parse("2026-09-13T00:00:00Z");
+        ReflectionTestUtils.setField(last, "createdAt", createdAt);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByWalletId(1L, null, null, null, null, null, PageRequest.of(0, 20)))
+                .thenReturn(new SliceImpl<>(List.of(last), PageRequest.of(0, 20), true));
+
+        CursorPageResponse<TransactionListItemResponse> response =
+                walletService.getTransactions(investorId, null, null, null, null, 20);
+
+        assertEquals(List.of(TransactionListItemResponse.from(last)), response.content());
+        assertEquals(TransactionCursor.encode(createdAt, last.getId()), response.nextCursor());
+        assertEquals(true, response.hasNext());
+    }
+
+    @Test
+    @DisplayName("더 조회할 거래가 없으면 nextCursor는 null이다")
+    void getTransactions_noMore_nextCursorIsNull() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByWalletId(1L, null, null, null, null, null, PageRequest.of(0, 20)))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
+
+        CursorPageResponse<TransactionListItemResponse> response =
+                walletService.getTransactions(investorId, null, null, null, null, 20);
+
+        assertNull(response.nextCursor());
+    }
+
+    @Test
+    @DisplayName("전달받은 커서를 디코딩해서 그 이전 거래만 조회한다")
+    void getTransactions_withCursor_decodesAndQueriesBeforeCursor() {
+        Wallet wallet = walletWithId(1L);
+        Instant cursorCreatedAt = Instant.parse("2026-09-13T00:00:00Z");
+        String cursor = TransactionCursor.encode(cursorCreatedAt, 99L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByWalletId(1L, null, null, null, cursorCreatedAt, 99L, PageRequest.of(0, 20)))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
+
+        walletService.getTransactions(investorId, null, null, null, cursor, 20);
+
+        verify(walletTransactionRepository).findByWalletId(1L, null, null, null, cursorCreatedAt, 99L, PageRequest.of(0, 20));
+    }
+
+    @Test
+    @DisplayName("지갑이 없으면 거래 내역 조회 시 404를 반환한다")
+    void getTransactions_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getTransactions(investorId, null, null, null, null, 20));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
     }
 
     @Test
