@@ -34,12 +34,10 @@ public class SubscriptionEventPublisher {
     private final OutboxEventStore outboxEventStore;
 
     /*
-     * TODO: Analysis 담당자 반영 확인
-     * - 외부 eventType은 SubscriptionFailed,
-     *   SubscriptionLimitExceeded 형식 사용
-     * - Analysis EventType.fromEventName() 매핑 추가
-     * - requestedQuantity, maxSubscriptionQuantity,
-     *   failureCode 수신 Payload 반영
+     * TODO PostFDS 청약 실패 이벤트 계약은 Analysis 담당자와 협의 중
+     *
+     * failureSource와 failureReasonCode 구조 및
+     * PostFDS 집계 대상 코드가 확정된 뒤 반영한다.
      */
 
     /**
