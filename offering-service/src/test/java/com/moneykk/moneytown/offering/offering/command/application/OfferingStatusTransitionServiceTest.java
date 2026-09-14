@@ -8,6 +8,7 @@ import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedul
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.offering.domain.repository.projection.UnderSubscribedOfferingTarget;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
@@ -124,13 +125,23 @@ class OfferingStatusTransitionServiceTest {
         UUID firstOfferingId = UUID.randomUUID();
         UUID secondOfferingId = UUID.randomUUID();
 
-        when(offeringRepository.findUnderSubscribedOfferingIds(
-                any(Instant.class),
-                any(Pageable.class)
-        ))
+        Instant endAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
+        when(offeringRepository
+                .findUnderSubscribedOfferingTargets(
+                        any(Instant.class),
+                        any(Pageable.class)
+                ))
                 .thenReturn(List.of(
-                        firstOfferingId,
-                        secondOfferingId
+                        new UnderSubscribedOfferingTarget(
+                                firstOfferingId,
+                                endAt
+                        ),
+                        new UnderSubscribedOfferingTarget(
+                                secondOfferingId,
+                                endAt
+                        )
                 ));
 
         when(offeringUnderSubscribedTransactionService
@@ -141,7 +152,7 @@ class OfferingStatusTransitionServiceTest {
                 .thenReturn(true);
 
         /*
-         * ID 조회 후 다른 작업이 먼저 상태를 변경하여
+         * 대상 조회 후 다른 작업이 먼저 상태를 변경하여
          * 모집 미달 처리 대상이 아니게 된 상황이다.
          */
         when(offeringUnderSubscribedTransactionService
@@ -180,14 +191,27 @@ class OfferingStatusTransitionServiceTest {
         UUID failedOfferingId = UUID.randomUUID();
         UUID lastOfferingId = UUID.randomUUID();
 
-        when(offeringRepository.findUnderSubscribedOfferingIds(
-                any(Instant.class),
-                any(Pageable.class)
-        ))
+        Instant endAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
+        when(offeringRepository
+                .findUnderSubscribedOfferingTargets(
+                        any(Instant.class),
+                        any(Pageable.class)
+                ))
                 .thenReturn(List.of(
-                        firstOfferingId,
-                        failedOfferingId,
-                        lastOfferingId
+                        new UnderSubscribedOfferingTarget(
+                                firstOfferingId,
+                                endAt
+                        ),
+                        new UnderSubscribedOfferingTarget(
+                                failedOfferingId,
+                                endAt
+                        ),
+                        new UnderSubscribedOfferingTarget(
+                                lastOfferingId,
+                                endAt
+                        )
                 ));
 
         when(offeringUnderSubscribedTransactionService
@@ -224,8 +248,8 @@ class OfferingStatusTransitionServiceTest {
         assertThat(result).isEqualTo(2);
 
         /*
-         * 중간 공모 처리에서 예외가 발생했어도
-         * 마지막 공모까지 호출됐는지 검증한다.
+         * 중간 공모 처리에서 예외가 발생해도
+         * 마지막 공모까지 처리했는지 검증한다.
          */
         verify(offeringUnderSubscribedTransactionService)
                 .startUnderSubscribedCancellation(
@@ -401,5 +425,88 @@ class OfferingStatusTransitionServiceTest {
                 subscriptionEventPublisher,
                 offeringCompensationCompletionService
         );
+    }
+
+    @Test
+    @DisplayName("첫 배치가 처리되지 않아도 다음 키셋 배치를 계속 처리한다")
+    void continuesWithNextKeysetBatchWhenFirstBatchIsNotProcessed() {
+        // given
+        Instant firstEndAt = Instant.parse("2026-09-01T00:00:00Z");
+        Instant nextEndAt = Instant.parse("2026-09-02T00:00:00Z");
+
+        List<UnderSubscribedOfferingTarget> firstBatch =
+                java.util.stream.IntStream.range(0, 100)
+                        .mapToObj(index ->
+                                new UnderSubscribedOfferingTarget(
+                                        UUID.randomUUID(),
+                                        firstEndAt
+                                )
+                        )
+                        .sorted(
+                                java.util.Comparator.comparing(
+                                        UnderSubscribedOfferingTarget::offeringId
+                                )
+                        )
+                        .toList();
+
+        UnderSubscribedOfferingTarget lastTarget =
+                firstBatch.get(firstBatch.size() - 1);
+
+        UUID nextOfferingId = UUID.randomUUID();
+
+        when(offeringRepository.findUnderSubscribedOfferingTargets(
+                any(Instant.class),
+                any(Pageable.class)
+        )).thenReturn(firstBatch);
+
+        when(offeringRepository
+                .findUnderSubscribedOfferingTargetsAfter(
+                        any(Instant.class),
+                        eq(lastTarget.endAt()),
+                        eq(lastTarget.offeringId()),
+                        any(Pageable.class)
+                ))
+                .thenReturn(List.of(
+                        new UnderSubscribedOfferingTarget(
+                                nextOfferingId,
+                                nextEndAt
+                        )
+                ));
+
+        when(offeringUnderSubscribedTransactionService
+                .startUnderSubscribedCancellation(
+                        any(UUID.class),
+                        any(Instant.class)
+                ))
+                .thenReturn(false);
+
+        when(offeringUnderSubscribedTransactionService
+                .startUnderSubscribedCancellation(
+                        eq(nextOfferingId),
+                        any(Instant.class)
+                ))
+                .thenReturn(true);
+
+        // when
+        int result =
+                offeringStatusTransitionService
+                        .startUnderSubscribedCancellations();
+
+        // then
+        assertThat(result).isEqualTo(1);
+
+        verify(offeringRepository)
+                .findUnderSubscribedOfferingTargetsAfter(
+                        any(Instant.class),
+                        eq(lastTarget.endAt()),
+                        eq(lastTarget.offeringId()),
+                        any(Pageable.class)
+                );
+
+        verify(offeringUnderSubscribedTransactionService)
+                .startUnderSubscribedCancellation(
+                        eq(nextOfferingId),
+                        any(Instant.class)
+                );
     }
 }

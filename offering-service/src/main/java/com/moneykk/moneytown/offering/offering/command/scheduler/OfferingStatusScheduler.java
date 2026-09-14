@@ -52,10 +52,12 @@ public class OfferingStatusScheduler {
     }
 
     /**
-     * 모집 종료 시간이 도래했지만 잔여 수량이 남아 있는 OPEN 공모를
+     * 모집 종료 시간이 도래했지만 잔여 수량이 남아 있는
+     * OPEN, SOLD_OUT, CLOSED 공모를 조회하여
      * 모집 미달에 따른 CANCELLING 상태로 전환하고 청약 보상을 시작한다.
      * <p>
-     * 한 번에 최대 100건씩 처리한다.
+     * 대상 공모를 키셋 방식으로 100건씩 조회한다.
+     * 개별 공모 처리 실패가 발생해도 후속 배치를 계속 처리한다.
      */
     @Scheduled(cron = "0 * * * * *")
     public void startUnderSubscribedCancellations() {

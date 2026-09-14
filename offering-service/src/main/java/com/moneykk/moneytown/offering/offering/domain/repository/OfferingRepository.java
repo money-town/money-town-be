@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.offering.offering.domain.repository;
 
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.repository.projection.UnderSubscribedOfferingTarget;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Modifying;
@@ -184,27 +185,67 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     );
 
     /**
-     * 모집 종료 후 잔여 수량이 있는 공모 ID를 조회한다.
+     * 모집 종료 후 잔여 수량이 있는 첫 번째 공모 배치를 조회한다.
      *
      * 실제 상태 변경과 잠금은
      * OfferingUnderSubscribedTransactionService에서
      * 공모 한 건마다 별도 트랜잭션으로 처리한다.
      */
     @Query("""
-            SELECT o.offeringId
-              FROM Offering o
-             WHERE o.isDeleted = false
-               AND o.offeringStatus IN (
-                   com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
-                   com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
-                   com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED
+        SELECT new com.moneykk.moneytown.offering.offering.domain.repository.projection.UnderSubscribedOfferingTarget(
+                   o.offeringId,
+                   o.endAt
                )
-               AND o.endAt <= :now
-               AND o.remainingQuantity > 0
-             ORDER BY o.endAt ASC, o.offeringId ASC
-            """)
-    List<UUID> findUnderSubscribedOfferingIds(
+          FROM Offering o
+         WHERE o.isDeleted = false
+           AND o.offeringStatus IN (
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED
+           )
+           AND o.endAt <= :now
+           AND o.remainingQuantity > 0
+         ORDER BY o.endAt ASC, o.offeringId ASC
+        """)
+    List<UnderSubscribedOfferingTarget> findUnderSubscribedOfferingTargets(
             @Param("now") Instant now,
+            Pageable pageable
+    );
+
+    /**
+     * 주어진 커서 이후의 모집 미달 공모 배치를 조회한다.
+     *
+     * 이전 배치에서 처리에 실패한 공모가 조회 조건에 남아 있어도
+     * 같은 실행에서는 해당 공모 이후의 대상을 계속 조회한다.
+     */
+    @Query("""
+        SELECT new com.moneykk.moneytown.offering.offering.domain.repository.projection.UnderSubscribedOfferingTarget(
+                   o.offeringId,
+                   o.endAt
+               )
+          FROM Offering o
+         WHERE o.isDeleted = false
+           AND o.offeringStatus IN (
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.SOLD_OUT,
+               com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.CLOSED
+           )
+           AND o.endAt <= :now
+           AND o.remainingQuantity > 0
+           AND (
+               o.endAt > :lastEndAt
+               OR (
+                   o.endAt = :lastEndAt
+                   AND o.offeringId > :lastOfferingId
+               )
+           )
+         ORDER BY o.endAt ASC, o.offeringId ASC
+        """)
+    List<UnderSubscribedOfferingTarget>
+    findUnderSubscribedOfferingTargetsAfter(
+            @Param("now") Instant now,
+            @Param("lastEndAt") Instant lastEndAt,
+            @Param("lastOfferingId") UUID lastOfferingId,
             Pageable pageable
     );
 }

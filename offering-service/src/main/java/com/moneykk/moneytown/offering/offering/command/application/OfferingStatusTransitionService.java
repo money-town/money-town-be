@@ -7,6 +7,7 @@ import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCanc
 import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.offering.domain.repository.projection.UnderSubscribedOfferingTarget;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
@@ -114,8 +115,11 @@ public class OfferingStatusTransitionService {
     }
 
     /**
-     * 모집 종료 시간이 도래했지만 잔여 수량이 남은 공모를 조회하여
-     * 공모별 독립 트랜잭션에서 모집 미달 취소를 시작한다.
+     * 모집 종료 시간이 도래했지만 잔여 수량이 남은 공모를
+     * 키셋 방식으로 100건씩 조회하여 모집 미달 취소를 시작한다.
+     *
+     * 공모별 처리는 독립 트랜잭션에서 수행한다. 특정 공모가 실패해
+     * 조회 조건에 남더라도 같은 실행에서 후속 공모 처리를 계속한다.
      *
      * @return 실제로 모집 미달 취소 처리를 시작한 공모 수
      */
@@ -123,47 +127,78 @@ public class OfferingStatusTransitionService {
 
         Instant now = Instant.now();
 
-        /*
-         * 공모 엔티티 전체를 잠금 조회하지 않고 대상 ID만 조회한다.
-         */
-        List<UUID> offeringIds =
-                offeringRepository.findUnderSubscribedOfferingIds(
-                        now,
-                        PageRequest.of(
-                                0,
-                                TRANSITION_BATCH_SIZE
-                        )
-                );
+        Instant lastEndAt = null;
+        UUID lastOfferingId = null;
 
         int processedCount = 0;
 
-        /*
-         * 각 공모를 REQUIRES_NEW 트랜잭션에서 처리한다.
-         */
-        for (UUID offeringId : offeringIds) {
-            try {
-                boolean processed =
-                        offeringUnderSubscribedTransactionService
-                                .startUnderSubscribedCancellation(
-                                        offeringId,
-                                        now
+        while (true) {
+            List<UnderSubscribedOfferingTarget> targets;
+
+            if (lastEndAt == null) {
+                targets =
+                        offeringRepository
+                                .findUnderSubscribedOfferingTargets(
+                                        now,
+                                        PageRequest.of(
+                                                0,
+                                                TRANSITION_BATCH_SIZE
+                                        )
                                 );
+            } else {
+                targets =
+                        offeringRepository
+                                .findUnderSubscribedOfferingTargetsAfter(
+                                        now,
+                                        lastEndAt,
+                                        lastOfferingId,
+                                        PageRequest.of(
+                                                0,
+                                                TRANSITION_BATCH_SIZE
+                                        )
+                                );
+            }
 
-                if (processed) {
-                    processedCount++;
+            if (targets.isEmpty()) {
+                break;
+            }
+
+            for (UnderSubscribedOfferingTarget target : targets) {
+                try {
+                    boolean processed =
+                            offeringUnderSubscribedTransactionService
+                                    .startUnderSubscribedCancellation(
+                                            target.offeringId(),
+                                            now
+                                    );
+
+                    if (processed) {
+                        processedCount++;
+                    }
+                } catch (Exception e) {
+                    offeringSchedulerMetrics
+                            .recordUnderSubscribedItemFailure();
+
+                    /*
+                     * 현재 대상이 실패해도 키셋 커서를 전진시켜
+                     * 같은 실행에서 후속 공모 처리를 계속한다.
+                     */
+                    log.error(
+                            "모집 미달 공모 취소 처리 실패. offeringId={}",
+                            target.offeringId(),
+                            e
+                    );
                 }
+            }
 
-            } catch (Exception e) {
+            UnderSubscribedOfferingTarget lastTarget =
+                    targets.get(targets.size() - 1);
 
-                offeringSchedulerMetrics.recordUnderSubscribedItemFailure();
-                /*
-                 * 한 공모가 실패해도 다음 공모 처리를 계속한다.
-                 */
-                log.error(
-                        "모집 미달 공모 취소 처리 실패. offeringId={}",
-                        offeringId,
-                        e
-                );
+            lastEndAt = lastTarget.endAt();
+            lastOfferingId = lastTarget.offeringId();
+
+            if (targets.size() < TRANSITION_BATCH_SIZE) {
+                break;
             }
         }
 
