@@ -8,6 +8,7 @@ import com.moneykk.moneytown.analysis.fds.domain.RuleCode;
 import com.moneykk.moneytown.analysis.fds.domain.UserStatus;
 import com.moneykk.moneytown.analysis.fds.domain.repository.FdsDetectionLogRepository;
 import com.moneykk.moneytown.analysis.fds.domain.repository.FdsUserStateRepository;
+import com.moneykk.moneytown.analysis.fds.infrastructure.kafka.event.FailureSource;
 import com.moneykk.moneytown.analysis.fds.infrastructure.kafka.event.SubscriptionEventPayload;
 import com.moneykk.moneytown.analysis.global.config.PostFdsRuleProperties;
 import com.moneykk.moneytown.analysis.notification.command.application.NotificationCommandService;
@@ -40,8 +41,18 @@ public class PostFdsService {
         EventType eventType = EventType.fromEventName(envelope.eventType()).orElse(null);
 
         if(eventType == null){
-            log.info("Post-FDS 대상이 아닌 이벤트 skip eventId={}, eventType={}", eventId, envelope.eventType());
+            log.info("Post-FDS 대상이 아닌 이벤트 skip eventId={}, eventType={}",
+                    eventId, envelope.eventType());
             return;
+        }else if(EventType.SUBSCRIPTION_FAILED.equals(eventType)){
+            if(payload.failureSource() == null || payload.failureReasonCode() == null){
+                log.info("Post-FDS 대상이 아닌 이벤트 skip eventId={}, eventType={}, failureSource={}, failureReason={}"
+                ,eventId,envelope.eventType(), payload.failureSource(), payload.failureReasonCode());
+                return;
+            }else if(!ruleProperties.isAggregationTarget(payload.failureSource(), payload.failureReasonCode())){
+                log.info("해당 이벤트는 Post-Fds 대상이 아닙니다. eventId = {}", eventId);
+                return;
+            }
         }
 
 
@@ -96,6 +107,7 @@ public class PostFdsService {
             notifyBlocked(userId, eventId, payload, violated, observed, threshold);
         }
     }
+
 
     private void notifyBlocked(UUID userId, UUID eventId, SubscriptionEventPayload payload, RuleCode rule, int observed, int threshold) {
         try {

@@ -74,6 +74,14 @@ fds:
       HIGH_CANCEL_RATE:
         sample-size: 10
         threshold: 4
+
+    aggregation: # 새로 추가
+      wallet-hold:
+        - INSUFFICIENT_AVAILABLE_BALANCE
+        - BALANCE_OVERFLOW
+        - INVALID_AMOUNT             # 재확인 필요한 항목
+      subscription: []
+
   kafka:
     subscription-topic: subscription-events
 
