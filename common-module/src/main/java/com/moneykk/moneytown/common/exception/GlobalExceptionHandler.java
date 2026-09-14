@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.common.exception;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -20,8 +21,35 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
-        return response(exception.getErrorCode());
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(
+            BusinessException exception,
+            HttpServletRequest request
+    ) {
+        ErrorCode errorCode = exception.getErrorCode();
+        HttpStatus status = errorCode.getStatus();
+
+        if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
+            log.error(
+                    "서버 내부 비즈니스 예외. "
+                            + "method={}, uri={}, status={}, code={}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    status.value(),
+                    errorCode.getCode(),
+                    exception
+            );
+        } else if (status.is5xxServerError()) {
+            log.warn(
+                    "서버 오류 응답. "
+                            + "method={}, uri={}, status={}, code={}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    status.value(),
+                    errorCode.getCode()
+            );
+        }
+
+        return response(errorCode);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
