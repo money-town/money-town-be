@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.subscription.domain.repository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.HoldingAllocationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 
@@ -146,26 +147,66 @@ public interface SubscriptionRepository
     );
 
     /**
-     * 예약 유효시간이 만료된 PROCESSING 청약 ID를 조회한다.
+     * 예약 유효시간이 만료된 PROCESSING 청약의
+     * 첫 번째 배치를 조회한다.
      *
-     * 이 메서드는 처리 대상만 조회하며 청약 행을 잠그지 않는다.
+     * 이 메서드는 처리 대상과 키셋 커서만 조회하며
+     * 청약 행을 잠그지 않는다.
      *
      * 실제 상태 검증, 잠금, 보상 정보 생성 및 Outbox 저장은
      * SubscriptionTimeoutTransactionService에서
      * 청약 한 건마다 별도 트랜잭션으로 처리한다.
      */
     @Query("""
-        SELECT s.subscriptionId
-          FROM Subscription s
-         WHERE s.subscriptionStatus =
-               com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
-           AND s.reservationExpiresAt <= :now
-           AND s.isDeleted = false
-         ORDER BY s.reservationExpiresAt ASC,
-                  s.subscriptionId ASC
-        """)
-    List<UUID> findExpiredProcessingSubscriptionIds(
+    SELECT new com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget(
+               s.subscriptionId,
+               s.reservationExpiresAt
+           )
+      FROM Subscription s
+     WHERE s.subscriptionStatus =
+           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
+       AND s.reservationExpiresAt <= :now
+       AND s.isDeleted = false
+     ORDER BY s.reservationExpiresAt ASC,
+              s.subscriptionId ASC
+    """)
+    List<ExpiredProcessingSubscriptionTarget>
+    findExpiredProcessingSubscriptionTargets(
             @Param("now") Instant now,
+            Pageable pageable
+    );
+
+    /**
+     * 주어진 키셋 커서 이후의 만료된 PROCESSING 청약을 조회한다.
+     *
+     * 이전 배치에서 처리에 실패한 청약이 PROCESSING 상태로
+     * 남아 있어도 같은 실행에서는 후속 청약을 계속 조회한다.
+     */
+    @Query("""
+    SELECT new com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget(
+               s.subscriptionId,
+               s.reservationExpiresAt
+           )
+      FROM Subscription s
+     WHERE s.subscriptionStatus =
+           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
+       AND s.reservationExpiresAt <= :now
+       AND s.isDeleted = false
+       AND (
+           s.reservationExpiresAt > :lastReservationExpiresAt
+           OR (
+               s.reservationExpiresAt = :lastReservationExpiresAt
+               AND s.subscriptionId > :lastSubscriptionId
+           )
+       )
+     ORDER BY s.reservationExpiresAt ASC,
+              s.subscriptionId ASC
+    """)
+    List<ExpiredProcessingSubscriptionTarget>
+    findExpiredProcessingSubscriptionTargetsAfter(
+            @Param("now") Instant now,
+            @Param("lastReservationExpiresAt") Instant lastReservationExpiresAt,
+            @Param("lastSubscriptionId") UUID lastSubscriptionId,
             Pageable pageable
     );
 

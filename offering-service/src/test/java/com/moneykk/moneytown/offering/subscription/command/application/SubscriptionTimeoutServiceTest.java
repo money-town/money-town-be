@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,8 +12,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,7 +31,8 @@ class SubscriptionTimeoutServiceTest {
     private SubscriptionRepository subscriptionRepository;
 
     @Mock
-    private SubscriptionTimeoutTransactionService subscriptionTimeoutTransactionService;
+    private SubscriptionTimeoutTransactionService
+            subscriptionTimeoutTransactionService;
 
     @Mock
     private OfferingSchedulerMetrics offeringSchedulerMetrics;
@@ -43,14 +47,23 @@ class SubscriptionTimeoutServiceTest {
         UUID firstSubscriptionId = UUID.randomUUID();
         UUID secondSubscriptionId = UUID.randomUUID();
 
+        Instant reservationExpiresAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
         when(subscriptionRepository
-                .findExpiredProcessingSubscriptionIds(
+                .findExpiredProcessingSubscriptionTargets(
                         any(Instant.class),
                         any(Pageable.class)
                 ))
                 .thenReturn(List.of(
-                        firstSubscriptionId,
-                        secondSubscriptionId
+                        new ExpiredProcessingSubscriptionTarget(
+                                firstSubscriptionId,
+                                reservationExpiresAt
+                        ),
+                        new ExpiredProcessingSubscriptionTarget(
+                                secondSubscriptionId,
+                                reservationExpiresAt
+                        )
                 ));
 
         when(subscriptionTimeoutTransactionService
@@ -61,7 +74,7 @@ class SubscriptionTimeoutServiceTest {
                 .thenReturn(true);
 
         /*
-         * ID 조회 후 다른 비동기 처리에서 상태가 변경된 상황을 표현한다.
+         * 대상 조회 후 다른 비동기 처리에서 상태가 변경된 상황이다.
          * Transaction Service가 false를 반환하면 처리 건수에 포함하지 않는다.
          */
         when(subscriptionTimeoutTransactionService
@@ -100,15 +113,27 @@ class SubscriptionTimeoutServiceTest {
         UUID failedSubscriptionId = UUID.randomUUID();
         UUID lastSubscriptionId = UUID.randomUUID();
 
+        Instant reservationExpiresAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
         when(subscriptionRepository
-                .findExpiredProcessingSubscriptionIds(
+                .findExpiredProcessingSubscriptionTargets(
                         any(Instant.class),
                         any(Pageable.class)
                 ))
                 .thenReturn(List.of(
-                        firstSubscriptionId,
-                        failedSubscriptionId,
-                        lastSubscriptionId
+                        new ExpiredProcessingSubscriptionTarget(
+                                firstSubscriptionId,
+                                reservationExpiresAt
+                        ),
+                        new ExpiredProcessingSubscriptionTarget(
+                                failedSubscriptionId,
+                                reservationExpiresAt
+                        ),
+                        new ExpiredProcessingSubscriptionTarget(
+                                lastSubscriptionId,
+                                reservationExpiresAt
+                        )
                 ));
 
         when(subscriptionTimeoutTransactionService
@@ -145,8 +170,8 @@ class SubscriptionTimeoutServiceTest {
         assertThat(result).isEqualTo(2);
 
         /*
-         * 중간 청약에서 예외가 발생했어도
-         * 마지막 청약까지 호출됐는지를 검증한다.
+         * 중간 청약에서 예외가 발생해도
+         * 마지막 청약까지 처리했는지 검증한다.
          */
         verify(subscriptionTimeoutTransactionService)
                 .processExpiredReservation(
@@ -163,7 +188,7 @@ class SubscriptionTimeoutServiceTest {
     void doesNotProcessWhenNoExpiredReservationsExist() {
         // given
         when(subscriptionRepository
-                .findExpiredProcessingSubscriptionIds(
+                .findExpiredProcessingSubscriptionTargets(
                         any(Instant.class),
                         any(Pageable.class)
                 ))
@@ -180,5 +205,98 @@ class SubscriptionTimeoutServiceTest {
         verifyNoInteractions(
                 subscriptionTimeoutTransactionService
         );
+    }
+
+    @Test
+    @DisplayName("첫 배치가 처리되지 않아도 다음 키셋 배치를 계속 처리한다")
+    void continuesWithNextKeysetBatchWhenFirstBatchIsNotProcessed() {
+        // given
+        Instant firstReservationExpiresAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
+        Instant nextReservationExpiresAt =
+                Instant.parse("2026-09-02T00:00:00Z");
+
+        List<ExpiredProcessingSubscriptionTarget> firstBatch =
+                IntStream.range(0, 100)
+                        .mapToObj(index ->
+                                new ExpiredProcessingSubscriptionTarget(
+                                        UUID.randomUUID(),
+                                        firstReservationExpiresAt
+                                )
+                        )
+                        .sorted(
+                                Comparator.comparing(
+                                        ExpiredProcessingSubscriptionTarget
+                                                ::subscriptionId
+                                )
+                        )
+                        .toList();
+
+        ExpiredProcessingSubscriptionTarget lastTarget =
+                firstBatch.get(firstBatch.size() - 1);
+
+        UUID nextSubscriptionId = UUID.randomUUID();
+
+        when(subscriptionRepository
+                .findExpiredProcessingSubscriptionTargets(
+                        any(Instant.class),
+                        any(Pageable.class)
+                ))
+                .thenReturn(firstBatch);
+
+        when(subscriptionRepository
+                .findExpiredProcessingSubscriptionTargetsAfter(
+                        any(Instant.class),
+                        eq(lastTarget.reservationExpiresAt()),
+                        eq(lastTarget.subscriptionId()),
+                        any(Pageable.class)
+                ))
+                .thenReturn(List.of(
+                        new ExpiredProcessingSubscriptionTarget(
+                                nextSubscriptionId,
+                                nextReservationExpiresAt
+                        )
+                ));
+
+        /*
+         * 첫 배치의 대상들은 조회 이후 상태가 변경됐거나
+         * 처리 조건이 맞지 않아 처리되지 않은 상황이다.
+         */
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        any(UUID.class),
+                        any(Instant.class)
+                ))
+                .thenReturn(false);
+
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        eq(nextSubscriptionId),
+                        any(Instant.class)
+                ))
+                .thenReturn(true);
+
+        // when
+        int result =
+                subscriptionTimeoutService
+                        .processExpiredReservations();
+
+        // then
+        assertThat(result).isEqualTo(1);
+
+        verify(subscriptionRepository)
+                .findExpiredProcessingSubscriptionTargetsAfter(
+                        any(Instant.class),
+                        eq(lastTarget.reservationExpiresAt()),
+                        eq(lastTarget.subscriptionId()),
+                        any(Pageable.class)
+                );
+
+        verify(subscriptionTimeoutTransactionService)
+                .processExpiredReservation(
+                        eq(nextSubscriptionId),
+                        any(Instant.class)
+                );
     }
 }
