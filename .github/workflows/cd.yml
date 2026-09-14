@@ -31,9 +31,8 @@ jobs:
     needs: resolve-tag
     runs-on: ubuntu-latest
     environment: ecr-push
-    # 같은 커밋을 중복으로 두 번 빌드하지 않는다. 다른 커밋끼리는 서로 막지 않는다.
     concurrency:
-      group: publish-ecr-${{ needs.resolve-tag.outputs.image_tag }}
+      group: publish-ecr-${{ needs.resolve-tag.outputs.image_tag }}-${{ matrix.service }}
       cancel-in-progress: false
 
     env:
