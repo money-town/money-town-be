@@ -32,7 +32,9 @@ public class WalletTransactionService {
         meterRegistry.counter("wallet.transaction.count", "type", type.name()).increment();
     }
 
-    @Transactional
+    // 게이트웨이 응답 타임아웃(10초)보다 확실히 짧게 잡아서, 커넥션 획득 이후 실제 처리가
+    // 예상 못 하게 늘어지는 경우에도 클라이언트가 이미 포기한 뒤까지 커넥션을 붙잡지 않게 한다.
+    @Transactional(timeout = 5)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -49,7 +51,7 @@ public class WalletTransactionService {
         return TransactionResponse.from(transaction);
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -66,7 +68,7 @@ public class WalletTransactionService {
         return TransactionResponse.from(transaction);
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public DividendDepositResponse depositDividend(UUID userId, String idempotencyKey, UUID settlementBatchId, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -83,7 +85,7 @@ public class WalletTransactionService {
         return DividendDepositResponse.from(transaction);
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public SettlementDepositResponse depositSettlement(UUID userId, String idempotencyKey, UUID finalSettlementBatchId, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
