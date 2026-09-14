@@ -27,7 +27,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -62,40 +61,31 @@ public class SettlementCommandService {
         // 배당 기준일은 정산 회차가 자체적으로 관리하는 값(ADMIN이 명시하면 그 값을 쓰고, 미지정 시에만 수익 발생 기간 종료일로 대체)
         LocalDate recordDate = recordDateOverride != null ? recordDateOverride : revenue.periodEnd();
 
-        long distributableAmount = calculateDistributableAmount(revenue);
-        Optional<SettlementBatch> carryInSourceBatch = findCarryInSourceBatch(assetId);
-        long carriedInAmount = carryInSourceBatch.map(SettlementBatch::getRemainderAmount).orElse(0L);
-        long totalAmount = distributableAmount + carriedInAmount;
+        long totalAmount = calculateDistributableAmount(revenue);
         if (totalAmount <= 0) {
             throw new BusinessException(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
         }
 
         AssetHoldingsSnapshotFetcher.Aggregated holdingsSnapshot = fetchAndValidateHoldingsSnapshot(assetId, recordDate);
 
-        SettlementBatch batch = SettlementBatch.open(assetId, revenueId, recordDate, distributableAmount, carriedInAmount);
+        SettlementBatch batch = SettlementBatch.open(assetId, revenueId, recordDate, totalAmount);
         batch.markSnapshotTaken();
 
         HoldingSnapshot snapshot = captureHoldingSnapshot(batch, holdingsSnapshot);
 
         DividendDistributionCalculator.Distribution distribution = DividendDistributionCalculator.distribute(
                 totalAmount, holdingsSnapshot.totalHoldingQuantity(), holdingsSnapshot.items());
-        batch.markCalculated(distribution.remainderAmount());
+        batch.markCalculated();
 
         List<DividendPayout> payouts = distribution.allocations().stream()
                 .map(allocation -> DividendPayout.queue(batch.getId(), allocation.investorId(), allocation.shareRatio(), allocation.amount()))
                 .toList();
 
         saveNewBatch(batch);
-        carryInSourceBatch.ifPresent(sourceBatch -> markCarriedOut(sourceBatch, batch.getId()));
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
 
         return SettlementBatchResponse.of(batch, payouts.size());
-    }
-
-    private void markCarriedOut(SettlementBatch sourceBatch, UUID targetBatchId) {
-        sourceBatch.markCarriedOut(targetBatchId);
-        settlementBatchRepository.save(sourceBatch);
     }
 
     private void saveNewBatch(SettlementBatch batch) {
@@ -188,12 +178,6 @@ public class SettlementCommandService {
                 .subtract(revenue.expenseAmount())
                 .subtract(revenue.feeAmount());
         return distributable.setScale(0, RoundingMode.FLOOR).longValueExact();
-    }
-
-    private Optional<SettlementBatch> findCarryInSourceBatch(UUID assetId) {
-        return settlementBatchRepository
-                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndRemainderAmountGreaterThanAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
-                        assetId, SettlementStatus.COMPLETED, 0L);
     }
 
     private AssetHoldingsSnapshotFetcher.Aggregated fetchAndValidateHoldingsSnapshot(UUID assetId, LocalDate recordDate) {

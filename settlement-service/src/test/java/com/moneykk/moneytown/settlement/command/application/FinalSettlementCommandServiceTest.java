@@ -72,7 +72,7 @@ class FinalSettlementCommandServiceTest {
         stubNoExistingBatch();
         UUID investorId = UUID.randomUUID();
         when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
-                .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), investorId, 900L))));
+                .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), investorId, 900L, null))));
 
         FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
 
@@ -149,7 +149,7 @@ class FinalSettlementCommandServiceTest {
         void returnsWinnerBatchWithNewlyCreatedFalseOnUniqueViolation() {
             stubNoExistingBatch();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
-                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 900L))));
+                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 900L, null))));
             doThrow(constraintViolation("uk_final_settlement_batches_asset_id"))
                     .when(finalSettlementPayoutWriter).saveNewBatch(any(), any());
 
@@ -170,7 +170,7 @@ class FinalSettlementCommandServiceTest {
         void propagatesUnrecognizedConstraintViolation() {
             stubNoExistingBatch();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
-                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 900L))));
+                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 900L, null))));
             DataIntegrityViolationException unrecognized = constraintViolation("some_other_constraint");
             doThrow(unrecognized).when(finalSettlementPayoutWriter).saveNewBatch(any(), any());
 
@@ -196,8 +196,8 @@ class FinalSettlementCommandServiceTest {
             UUID investor1 = UUID.randomUUID();
             UUID investor2 = UUID.randomUUID();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE)).thenReturn(aggregated(List.of(
-                    new HoldingItem(UUID.randomUUID(), investor1, 100L),
-                    new HoldingItem(UUID.randomUUID(), investor2, 200L))));
+                    new HoldingItem(UUID.randomUUID(), investor1, 100L, null),
+                    new HoldingItem(UUID.randomUUID(), investor2, 200L, null))));
 
             FinalSettlementBatchResponse response = finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
 
@@ -218,8 +218,8 @@ class FinalSettlementCommandServiceTest {
             UUID investorWithHolding = UUID.randomUUID();
             UUID investorWithZeroHolding = UUID.randomUUID();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE)).thenReturn(aggregated(List.of(
-                    new HoldingItem(UUID.randomUUID(), investorWithHolding, 900L),
-                    new HoldingItem(UUID.randomUUID(), investorWithZeroHolding, 0L)
+                    new HoldingItem(UUID.randomUUID(), investorWithHolding, 900L, null),
+                    new HoldingItem(UUID.randomUUID(), investorWithZeroHolding, 0L, null)
             )));
 
             finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request());
@@ -257,7 +257,7 @@ class FinalSettlementCommandServiceTest {
         void rejectsWhenAllHoldingsAreZero() {
             stubNoExistingBatch();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, TERMINATED_DATE))
-                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 0L))));
+                    .thenReturn(aggregated(List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 0L, null))));
 
             assertThatThrownBy(() -> finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, request()))
                     .isInstanceOf(BusinessException.class)

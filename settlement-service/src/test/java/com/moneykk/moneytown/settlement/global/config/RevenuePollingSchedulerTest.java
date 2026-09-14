@@ -137,6 +137,6 @@ class RevenuePollingSchedulerTest {
 
     private SettlementBatchResponse batchResponse(RevenueResponse revenue) {
         return new SettlementBatchResponse(UUID.randomUUID(), revenue.assetId(), revenue.revenueId(),
-                LocalDate.of(2026, 9, 1), 1_000_000L, 0L, 0L, SettlementStatus.CALCULATED, 1, Instant.now());
+                LocalDate.of(2026, 9, 1), 1_000_000L, SettlementStatus.CALCULATED, 1, Instant.now());
     }
 }
