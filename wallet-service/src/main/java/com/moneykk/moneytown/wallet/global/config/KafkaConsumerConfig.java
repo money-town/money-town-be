@@ -17,6 +17,7 @@ import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 
 // 이벤트는 전부 EventEnvelope<T>로 오므로 payload 타입별 JavaType으로 바인딩한다.
@@ -97,9 +98,12 @@ public class KafkaConsumerConfig {
 
     private <T> ConsumerFactory<String, EventEnvelope<T>> envelopeConsumerFactory(KafkaProperties kafkaProperties, Class<T> payloadType) {
         JavaType javaType = TypeFactory.defaultInstance().constructParametricType(EventEnvelope.class, payloadType);
-        JsonDeserializer<EventEnvelope<T>> deserializer = new JsonDeserializer<>(javaType);
-        deserializer.addTrustedPackages(CONSUMER_DTO_PACKAGE, COMMON_EVENT_PACKAGE);
-        deserializer.setUseTypeHeaders(false);
+        JsonDeserializer<EventEnvelope<T>> jsonDeserializer = new JsonDeserializer<>(javaType);
+        jsonDeserializer.addTrustedPackages(CONSUMER_DTO_PACKAGE, COMMON_EVENT_PACKAGE);
+        jsonDeserializer.setUseTypeHeaders(false);
+
+        // 역직렬화 실패는 poll() 중 바로 터져서 DefaultErrorHandler/DLQ를 못 타므로 감싸서 넘긴다.
+        ErrorHandlingDeserializer<EventEnvelope<T>> deserializer = new ErrorHandlingDeserializer<>(jsonDeserializer);
 
         return new DefaultKafkaConsumerFactory<>(
                 kafkaProperties.buildConsumerProperties(null),

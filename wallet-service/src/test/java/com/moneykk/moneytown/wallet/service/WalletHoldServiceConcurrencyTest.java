@@ -91,29 +91,7 @@ class WalletHoldServiceConcurrencyTest {
                 new SubscriptionCompensationRequestedPayload("ADMIN_FORCE_CANCEL"));
 
         // 같은 보상 요청이 두 번 동시에 들어온 상황(예: 컨슈머 재시도로 인한 중복 수신)을 재현
-        int threadCount = 2;
-        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch ready = new CountDownLatch(threadCount);
-        CountDownLatch go = new CountDownLatch(1);
-
-        List<Future<?>> futures = new ArrayList<>();
-        for (int i = 0; i < threadCount; i++) {
-            futures.add(pool.submit(() -> {
-                ready.countDown();
-                await(go);
-                walletHoldService.compensateHold(event);
-            }));
-        }
-
-        ready.await(5, TimeUnit.SECONDS);
-        go.countDown();
-        pool.shutdown();
-        assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-
-        // 스레드 안 예외는 Future로 받지 않으면 조용히 삼켜지므로, 여기서 명시적으로 드러낸다.
-        for (Future<?> future : futures) {
-            future.get();
-        }
+        runConcurrently(2, () -> walletHoldService.compensateHold(event));
 
         WalletHold resultHold = walletHoldRepository.findBySubscriptionId(subscriptionId).orElseThrow();
         assertThat(resultHold.getStatus()).isEqualTo(WalletHoldStatus.REFUNDED);
@@ -126,6 +104,64 @@ class WalletHoldServiceConcurrencyTest {
                         .filter(t -> t.getType() == WalletTransactionType.REFUND)
                         .toList();
         assertThat(refundTransactions).hasSize(1);
+    }
+
+    @Test
+    void confirmHold_concurrentDeductRequests_appliesDeductOnlyOnce() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        long holdAmount = 10_000L;
+
+        Wallet wallet = walletRepository.save(new Wallet(userId));
+        wallet.deposit(holdAmount);
+        wallet.hold(holdAmount);
+        walletRepository.saveAndFlush(wallet);
+
+        walletHoldRepository.saveAndFlush(new WalletHold(wallet.getId(), subscriptionId, holdAmount));
+
+        EventEnvelope<Object> event = EventEnvelope.of(
+                "SubscriptionConfirmed", subscriptionId.toString(), userId, "corr-1", null);
+
+        // 같은 확정 이벤트가 두 번 동시에 들어온 상황(예: 컨슈머 재시도로 인한 중복 수신)을 재현
+        runConcurrently(2, () -> walletHoldService.confirmHold(event));
+
+        WalletHold resultHold = walletHoldRepository.findBySubscriptionId(subscriptionId).orElseThrow();
+        assertThat(resultHold.getStatus()).isEqualTo(WalletHoldStatus.COMMITTED);
+
+        Wallet resultWallet = walletRepository.findByUserId(userId).orElseThrow();
+        assertThat(resultWallet.getBalance()).isEqualTo(0L); // DEDUCT가 두 번 적용됐다면 마이너스가 됐을 것
+
+        List<WalletTransaction> deductTransactions =
+                walletTransactionRepository.findAll().stream()
+                        .filter(t -> t.getType() == WalletTransactionType.DEDUCT)
+                        .toList();
+        assertThat(deductTransactions).hasSize(1);
+    }
+
+    // threadCount개 스레드가 action을 동시에 실행하게 하고, 완전히 끝날 때까지 기다린다.
+    // Future.get()으로 안 받으면 스레드 안 예외가 조용히 삼켜지므로 여기서 명시적으로 드러낸다.
+    private void runConcurrently(int threadCount, Runnable action) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch ready = new CountDownLatch(threadCount);
+        CountDownLatch go = new CountDownLatch(1);
+
+        List<Future<?>> futures = new ArrayList<>();
+        for (int i = 0; i < threadCount; i++) {
+            futures.add(pool.submit(() -> {
+                ready.countDown();
+                await(go);
+                action.run();
+            }));
+        }
+
+        assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+        go.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+        for (Future<?> future : futures) {
+            future.get();
+        }
     }
 
     private static void await(CountDownLatch latch) {
