@@ -17,6 +17,7 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Subscriptio
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldFailedPayload;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldSucceededPayload;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,11 @@ public class WalletHoldResultService {
     private final OfferingRepository offeringRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final SubscriptionCompensationRepository subscriptionCompensationRepository;
+
+    // 매진 공모의 전체 Wallet HOLD 성공 여부 확인과 청약 일괄 확정을 담당한다.
+    private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
+
+    private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     /**
      * 동결 성공 이벤트를 처리한다.
@@ -63,63 +69,110 @@ public class WalletHoldResultService {
         );
     }
 
+    /**
+     * Wallet HOLD 성공을 기록하고,
+     * 공모 전체 확정 조건을 만족하면 유효한 모든 청약을 확정한다.
+     *
+     * 잠금 순서:
+     * Offering → 현재 Subscription → 공모의 전체 유효 Subscription
+     */
     private void confirmSubscription(
             UUID subscriptionId,
             EventEnvelope<WalletHoldSucceededPayload> envelope
     ) {
+        /*
+         * 공모 중단·모집 미달 처리와 잠금 순서를 통일하기 위해
+         * 청약을 잠그기 전에 offeringId만 먼저 조회한다.
+         */
+        UUID offeringId = subscriptionRepository
+                .findOfferingIdBySubscriptionId(subscriptionId)
+                .orElseThrow(
+                        () -> new BusinessException(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_NOT_FOUND
+                        )
+                );
+
+        /*
+         * 동일 공모의 다른 WalletHoldSucceeded 처리 및
+         * 공모 취소 처리와 충돌하지 않도록 공모를 먼저 잠근다.
+         */
+        Offering offering = offeringRepository
+                .findByIdForUpdate(offeringId)
+                .orElseThrow(
+                        () -> new BusinessException(
+                                OfferingErrorCode.OFFERING_NOT_FOUND
+                        )
+                );
+
         Subscription subscription = subscriptionRepository
                 .findByIdForUpdate(subscriptionId)
-                .orElseThrow(() -> new BusinessException(
-                        SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
-                ));
+                .orElseThrow(
+                        () -> new BusinessException(
+                                SubscriptionErrorCode
+                                        .SUBSCRIPTION_NOT_FOUND
+                        )
+                );
 
-        // 수신 이벤트가 실제 청약자의 지갑 처리 결과인지 확인한다.
         if (!subscription.getUserId().equals(envelope.userId())) {
             throw new IllegalArgumentException(
                     "동결 성공 이벤트의 userId가 청약자와 일치하지 않습니다."
             );
         }
 
+        SubscriptionStatus currentStatus =
+                subscription.getSubscriptionStatus();
+
         /*
-         * 서로 다른 eventId로 같은 청약의 성공 결과가 도착하더라도
-         * 이미 확정된 청약은 다시 확정하거나 이벤트를 다시 생성하지 않는다.
+         * 최초 성공 이벤트라면
+         * PROCESSING → HOLD_SUCCEEDED로 변경한다.
          */
-        if (subscription.getSubscriptionStatus()
-                == SubscriptionStatus.CONFIRMED) {
+        if (currentStatus == SubscriptionStatus.PROCESSING) {
+            subscription.markHoldSucceeded();
+
+            /*
+             * 서로 다른 eventId로 같은 성공 결과가 다시 수신될 수 있다.
+             *
+             * HOLD_SUCCEEDED는 이미 성공 결과가 반영된 상태이므로
+             * 상태를 다시 변경하지 않고 전체 확정 조건을 재확인한다.
+             *
+             * CONFIRMED도 Wallet HOLD 성공을 거친 상태이므로
+             * 전체 확정 조건을 다시 확인할 수 있다.
+             */
+        } else if (
+                currentStatus == SubscriptionStatus.HOLD_SUCCEEDED
+                        || currentStatus
+                        == SubscriptionStatus.CONFIRMED
+        ) {
             log.info(
-                    "이미 확정된 청약의 동결 성공 이벤트. "
-                            + "subscriptionId={}, eventId={}",
+                    "이미 Wallet HOLD 성공이 반영된 청약. "
+                            + "전체 확정 조건 재확인. "
+                            + "subscriptionId={}, eventId={}, status={}",
                     subscriptionId,
-                    envelope.eventId()
+                    envelope.eventId(),
+                    currentStatus
+            );
+
+            /*
+             * COMPENSATING, REJECTED, CANCELLED, MANUAL_REVIEW 상태에
+             * 성공 이벤트가 늦게 도착하면 기존 예외 처리 흐름을 사용한다.
+             */
+        } else {
+            handleLateHoldSucceeded(
+                    subscription,
+                    envelope
             );
             return;
         }
 
         /*
-         * 보상 중이거나 종료된 청약을 다시 확정하지 않는다.
-         * 현재 보상 상태에 따라 재요청 또는 수동 확인으로 연결한다.
+         * 공모 상태 확인, 전체 확보 청약 잠금, HOLD 성공 여부 확인,
+         * 청약 일괄 확정 및 Outbox 저장을 공통 서비스에 위임한다.
+         *
+         * 현재 ProcessedEventService가 시작한 트랜잭션 안에서 호출된다.
          */
-        if (subscription.getSubscriptionStatus()
-                != SubscriptionStatus.PROCESSING) {
-            handleLateHoldSucceeded(subscription, envelope);
-            return;
-        }
-
-        /*
-         * 청약이 참조하는 공모에서 assetId를 가져온다.
-         * 수신 Payload나 클라이언트 입력을 assetId로 사용하지 않는다.
-         */
-        Offering offering = offeringRepository
-                .findById(subscription.getOfferingId())
-                .orElseThrow(() -> new BusinessException(
-                        OfferingErrorCode.OFFERING_NOT_FOUND
-                ));
-
-        subscription.confirm(Instant.now());
-
-        subscriptionEventPublisher.publishConfirmed(
-                subscription,
-                offering.getAssetId(),
+        subscriptionBatchConfirmationService.confirmAllIfReady(
+                offering,
                 envelope.correlationId()
         );
     }
@@ -278,6 +331,12 @@ public class WalletHoldResultService {
                 offering.getAssetId(),
                 envelope.correlationId()
         );
+
+        subscriptionLifecycleMetrics.publishOutcome(
+                subscription,
+                SubscriptionLifecycleMetrics.Result.REJECTED,
+                Instant.now()
+        );
     }
 
     private void validateFailedEvent(
@@ -414,6 +473,14 @@ public class WalletHoldResultService {
         subscription.requireManualReview(
                 "LATE_WALLET_HOLD_SUCCEEDED"
         );
+
+        if (previousStatus != SubscriptionStatus.MANUAL_REVIEW) {
+            subscriptionLifecycleMetrics.publishOutcome(
+                    subscription,
+                    SubscriptionLifecycleMetrics.Result.MANUAL_REVIEW,
+                    Instant.now()
+            );
+        }
 
         log.error(
                 "늦은 동결 성공으로 수동 확인 필요. "

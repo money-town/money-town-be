@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CompensationStatus;
@@ -15,6 +16,7 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Subscriptio
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldFailedPayload;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.WalletHoldSucceededPayload;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -67,45 +70,116 @@ class WalletHoldResultServiceTest {
     @Mock
     private SubscriptionCompensationRepository subscriptionCompensationRepository;
 
+    @Mock
+    private SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
+
+    @Mock
+    private SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
+
     @InjectMocks
     private WalletHoldResultService walletHoldResultService;
 
+    // =========================================================
+    // Wallet HOLD 성공 처리
+    // =========================================================
+
+
     @Test
-    @DisplayName("PROCESSING 청약을 확정하고 다른 eventId의 성공 재수신은 중복 발행하지 않는다")
-    void confirmsSubscriptionOnlyOnce() {
+    @DisplayName(
+            "Wallet HOLD 성공을 기록하고 "
+                    + "청약 일괄 확정 서비스에 처리를 위임한다"
+    )
+    void recordsHoldSucceededAndDelegatesBatchConfirmation() {
+        // given
         Subscription subscription = newSubscription();
+
         executeBusinessAction();
-        stubSubscription(subscription);
-        stubOfferingForPublish();
 
-        boolean firstResult = walletHoldResultService.handleSucceeded(
-                succeededEvent(subscription),
-                CONSUMER_GROUP
-        );
+        Offering offering =
+                stubSucceededEventLocks(subscription);
 
-        Instant confirmedAt = subscription.getConfirmedAt();
+        // when
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
-        boolean secondResult = walletHoldResultService.handleSucceeded(
-                succeededEvent(subscription),
-                CONSUMER_GROUP
-        );
+        // then
+        assertThat(result).isTrue();
 
-        assertThat(firstResult).isTrue();
-        assertThat(secondResult).isTrue();
         assertThat(subscription.getSubscriptionStatus())
-                .isEqualTo(SubscriptionStatus.CONFIRMED);
-        assertThat(confirmedAt).isNotNull();
-        assertThat(subscription.getConfirmedAt()).isEqualTo(confirmedAt);
+                .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
+
+        assertThat(subscription.getConfirmedAt()).isNull();
+        assertThat(subscription.getHoldingAllocationStatus()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
 
-        verify(subscriptionEventPublisher, times(1)).publishConfirmed(
-                subscription,
-                assetId,
-                CORRELATION_ID
+        // 공모 상태와 전체 청약 검증은 공통 서비스에 위임한다.
+        verify(subscriptionBatchConfirmationService)
+                .confirmAllIfReady(
+                        offering,
+                        CORRELATION_ID
+                );
+
+        /*
+         * WalletHoldResultService가 직접 확정 이벤트를 발행하지 않는다.
+         * 실제 확정 이벤트는 SubscriptionBatchConfirmationService가 담당한다.
+         */
+        verifyNoInteractions(
+                subscriptionEventPublisher,
+                subscriptionCompensationRepository
         );
-        verifyNoMoreInteractions(subscriptionEventPublisher);
-        verifyNoInteractions(subscriptionCompensationRepository);
     }
+
+    @Test
+    @DisplayName(
+            "HOLD_SUCCEEDED 청약에 성공 이벤트가 다시 오면 "
+                    + "상태를 유지하고 일괄 확정 조건을 다시 확인한다"
+    )
+    void preservesHoldSucceededAndRechecksBatchConfirmation() {
+        // given
+        Subscription subscription = newSubscription();
+        subscription.markHoldSucceeded();
+
+        executeBusinessAction();
+
+        Offering offering =
+                stubSucceededEventLocks(subscription);
+
+        // when
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                );
+
+        // then
+        assertThat(result).isTrue();
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.HOLD_SUCCEEDED);
+
+        assertThat(subscription.getConfirmedAt()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
+
+        // 중복 성공 이벤트에서도 전체 확정 조건을 다시 확인한다.
+        verify(subscriptionBatchConfirmationService)
+                .confirmAllIfReady(
+                        offering,
+                        CORRELATION_ID
+                );
+
+        verifyNoInteractions(
+                subscriptionEventPublisher,
+                subscriptionCompensationRepository
+        );
+    }
+
+    // =========================================================
+    // 늦은 Wallet HOLD 성공 처리
+    // =========================================================
 
     @ParameterizedTest
     @EnumSource(
@@ -117,6 +191,7 @@ class WalletHoldResultServiceTest {
             CompensationStatus walletStatus
     ) {
         Subscription subscription = newSubscription();
+
         subscription.startCompensation(
                 CancellationType.OFFERING_UNDER_SUBSCRIBED
         );
@@ -131,29 +206,40 @@ class WalletHoldResultServiceTest {
         }
 
         executeBusinessAction();
-        stubSubscription(subscription);
-        stubCompensation(subscription, compensation);
-        stubOfferingForPublish();
 
-        boolean result = walletHoldResultService.handleSucceeded(
-                succeededEvent(subscription),
-                CONSUMER_GROUP
-        );
+        Offering offering =
+                stubSucceededEventLocks(subscription);
+
+        stubCompensation(subscription, compensation);
+        stubOfferingForPublish(offering);
+
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
         assertThat(result).isTrue();
+
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
+
         assertThat(subscription.getConfirmedAt()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
-        assertThat(compensation.getWalletStatus()).isEqualTo(walletStatus);
+
+        assertThat(compensation.getWalletStatus())
+                .isEqualTo(walletStatus);
+
         assertThat(compensation.getHoldingStatus())
                 .isEqualTo(CompensationStatus.PENDING);
 
-        verify(subscriptionEventPublisher).publishCompensationRequested(
-                subscription,
-                assetId,
-                CORRELATION_ID
-        );
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        subscription,
+                        assetId,
+                        CORRELATION_ID
+                );
+
         verifyNoMoreInteractions(subscriptionEventPublisher);
     }
 
@@ -161,6 +247,7 @@ class WalletHoldResultServiceTest {
     @DisplayName("Wallet 보상 완료 후 늦은 동결 성공은 보상을 재요청하지 않는다")
     void ignoresLateSuccessAfterWalletCompensation() {
         Subscription subscription = newSubscription();
+
         subscription.startCompensation(
                 CancellationType.OFFERING_UNDER_SUBSCRIBED
         );
@@ -169,28 +256,33 @@ class WalletHoldResultServiceTest {
                 SubscriptionCompensation.create(
                         subscription.getSubscriptionId()
                 );
+
         compensation.markWalletSucceeded();
 
         executeBusinessAction();
-        stubSubscription(subscription);
+        stubSucceededEventLocks(subscription);
         stubCompensation(subscription, compensation);
 
-        boolean result = walletHoldResultService.handleSucceeded(
-                succeededEvent(subscription),
-                CONSUMER_GROUP
-        );
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
         assertThat(result).isTrue();
+
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
+
         assertThat(subscription.isQuantityReserved()).isTrue();
+
         assertThat(compensation.getWalletStatus())
                 .isEqualTo(CompensationStatus.SUCCEEDED);
 
-        verifyNoInteractions(
-                subscriptionEventPublisher,
-                offeringRepository
-        );
+        verify(offeringRepository, never())
+                .findById(offeringId);
+
+        verifyNoInteractions(subscriptionEventPublisher);
     }
 
     @ParameterizedTest
@@ -202,7 +294,6 @@ class WalletHoldResultServiceTest {
     void requestsExpirationCompensationForLateHoldSuccess(
             CompensationStatus walletStatus
     ) {
-        // given
         Subscription subscription = newSubscription();
 
         subscription.startExpirationCompensation(
@@ -222,29 +313,34 @@ class WalletHoldResultServiceTest {
         }
 
         executeBusinessAction();
-        stubSubscription(subscription);
-        stubCompensation(subscription, compensation);
-        stubOfferingForPublish();
 
-        // when
+        Offering offering =
+                stubSucceededEventLocks(subscription);
+
+        stubCompensation(subscription, compensation);
+        stubOfferingForPublish(offering);
+
         boolean result =
                 walletHoldResultService.handleSucceeded(
                         succeededEvent(subscription),
                         CONSUMER_GROUP
                 );
 
-        // then
         assertThat(result).isTrue();
 
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
-        assertThat(subscription.getFailureCode())
+
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("RESERVATION_EXPIRED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+
         assertThat(subscription.getConfirmedAt()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
 
         assertThat(compensation.getWalletStatus())
                 .isEqualTo(walletStatus);
+
         assertThat(compensation.getHoldingStatus())
                 .isEqualTo(CompensationStatus.SUCCEEDED);
 
@@ -255,47 +351,66 @@ class WalletHoldResultServiceTest {
                         CORRELATION_ID
                 );
 
-        verifyNoMoreInteractions(
-                subscriptionEventPublisher
-        );
+        verifyNoMoreInteractions(subscriptionEventPublisher);
     }
 
     @Test
     @DisplayName("공모 취소 보상 정보가 없으면 늦은 동결 성공을 수동 확인 대상으로 남긴다")
     void marksMissingCompensationForManualReview() {
         Subscription subscription = newSubscription();
+
         subscription.startCompensation(
                 CancellationType.OFFERING_UNDER_SUBSCRIBED
         );
 
         executeBusinessAction();
-        stubSubscription(subscription);
+        stubSucceededEventLocks(subscription);
         stubCompensation(subscription, null);
 
-        boolean result = walletHoldResultService.handleSucceeded(
-                succeededEvent(subscription),
-                CONSUMER_GROUP
-        );
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
         assertThat(result).isTrue();
+
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.MANUAL_REVIEW);
-        assertThat(subscription.getFailureCode())
+
+        assertThat(subscription.getSubscriptionFailureCode())
                 .isEqualTo("LATE_WALLET_HOLD_SUCCEEDED");
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+
         assertThat(subscription.getCancellationType())
-                .isEqualTo(CancellationType.OFFERING_UNDER_SUBSCRIBED);
+                .isEqualTo(
+                        CancellationType.OFFERING_UNDER_SUBSCRIBED
+                );
+
         assertThat(subscription.isQuantityReserved()).isTrue();
 
-        verifyNoInteractions(
-                subscriptionEventPublisher,
-                offeringRepository
-        );
+        verify(offeringRepository, never())
+                .findById(offeringId);
+
+        verifyNoInteractions(subscriptionEventPublisher);
+
+        verify(subscriptionLifecycleMetrics)
+                .publishOutcome(
+                        eq(subscription),
+                        eq(SubscriptionLifecycleMetrics.Result.MANUAL_REVIEW),
+                        any(Instant.class)
+                );
     }
+
+    // =========================================================
+    // Wallet HOLD 실패 처리
+    // =========================================================
 
     @Test
     @DisplayName("보상 중 늦은 동결 실패는 청약 상태와 확보 수량을 유지한다")
     void preservesCompensatingSubscriptionOnLateFailure() {
         Subscription subscription = newSubscription();
+
         subscription.startCompensation(
                 CancellationType.OFFERING_UNDER_SUBSCRIBED
         );
@@ -304,22 +419,27 @@ class WalletHoldResultServiceTest {
         stubSubscription(subscription);
         stubOfferingForFailure(subscription);
 
-        boolean result = walletHoldResultService.handleFailed(
-                failedEvent(subscription),
-                CONSUMER_GROUP
-        );
+        boolean result =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
         assertThat(result).isTrue();
+
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
+
         assertThat(subscription.isQuantityReserved()).isTrue();
-        assertThat(subscription.getFailureCode()).isNull();
+        assertThat(subscription.getWalletHoldFailureCode()).isNull();
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
         verify(offeringRepository, never()).restoreQuantity(
                 any(),
                 any(),
                 any()
         );
+
         verifyNoInteractions(
                 subscriptionEventPublisher,
                 subscriptionCompensationRepository
@@ -333,9 +453,12 @@ class WalletHoldResultServiceTest {
 
         executeBusinessAction();
         stubSubscription(subscription);
-        Offering offering = stubOfferingForFailure(subscription);
 
-        when(offering.getAssetId()).thenReturn(assetId);
+        Offering offering =
+                stubOfferingForFailure(subscription);
+
+        when(offering.getAssetId())
+                .thenReturn(assetId);
 
         when(offeringRepository.restoreQuantity(
                 offeringId,
@@ -343,43 +466,54 @@ class WalletHoldResultServiceTest {
                 JpaAuditingConfig.SYSTEM_USER_ID
         )).thenReturn(1);
 
-        boolean firstResult = walletHoldResultService.handleFailed(
-                failedEvent(subscription),
-                CONSUMER_GROUP
-        );
+        boolean firstResult =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
-        boolean secondResult = walletHoldResultService.handleFailed(
-                failedEvent(subscription),
-                CONSUMER_GROUP
-        );
+        boolean secondResult =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
 
         assertThat(firstResult).isTrue();
         assertThat(secondResult).isTrue();
+
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.REJECTED);
+
         assertThat(subscription.isQuantityReserved()).isFalse();
-        assertThat(subscription.getFailureCode())
-                .isEqualTo("INSUFFICIENT_BALANCE");
 
-        verify(offeringRepository, times(1)).restoreQuantity(
-                offeringId,
-                subscription.getQuantity(),
-                JpaAuditingConfig.SYSTEM_USER_ID
-        );
-        verify(subscriptionEventPublisher, times(1)).publishFailed(
-                subscription,
-                assetId,
-                CORRELATION_ID
-        );
+        assertThat(subscription.getWalletHoldFailureCode())
+                .isEqualTo("INSUFFICIENT_AVAILABLE_BALANCE");
+        assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
-        /*
-         * 다른 eventId로 실패 이벤트가 다시 도착해도
-         * 이미 REJECTED 상태이므로 PostFDS 이벤트를 다시 발행하지 않는다.
-         */
+        verify(offeringRepository, times(1))
+                .restoreQuantity(
+                        offeringId,
+                        subscription.getQuantity(),
+                        JpaAuditingConfig.SYSTEM_USER_ID
+                );
+
+        verify(subscriptionEventPublisher, times(1))
+                .publishFailed(
+                        subscription,
+                        assetId,
+                        CORRELATION_ID
+                );
+
         verifyNoMoreInteractions(subscriptionEventPublisher);
         verifyNoInteractions(subscriptionCompensationRepository);
-    }
 
+        verify(subscriptionLifecycleMetrics, times(1))
+                .publishOutcome(
+                        eq(subscription),
+                        eq(SubscriptionLifecycleMetrics.Result.REJECTED),
+                        any(Instant.class)
+                );
+    }
 
     @Test
     @DisplayName("동결 실패 수량 복원에 실패하면 청약 실패 이벤트를 발행하지 않는다")
@@ -401,26 +535,41 @@ class WalletHoldResultServiceTest {
                         failedEvent(subscription),
                         CONSUMER_GROUP
                 )
-        ).isInstanceOf(IllegalStateException.class)
+        )
+                .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("공모 수량 복원에 실패");
 
-        verify(offeringRepository).restoreQuantity(
-                offeringId,
-                subscription.getQuantity(),
-                JpaAuditingConfig.SYSTEM_USER_ID
-        );
+        verify(offeringRepository)
+                .restoreQuantity(
+                        offeringId,
+                        subscription.getQuantity(),
+                        JpaAuditingConfig.SYSTEM_USER_ID
+                );
 
-        verify(subscriptionEventPublisher, never()).publishFailed(
-                any(),
-                any(),
-                any()
-        );
+        verify(subscriptionEventPublisher, never())
+                .publishFailed(
+                        any(),
+                        any(),
+                        any()
+                );
+
+        verify(subscriptionLifecycleMetrics, never())
+                .publishOutcome(
+                        any(),
+                        any(),
+                        any()
+                );
     }
+
+    // =========================================================
+    // 공통 이벤트 처리
+    // =========================================================
 
     @Test
     @DisplayName("이미 처리된 이벤트이면 업무 처리를 실행하지 않는다")
     void skipsBusinessActionWhenEventAlreadyProcessed() {
         Subscription subscription = newSubscription();
+
         EventEnvelope<WalletHoldSucceededPayload> event =
                 succeededEvent(subscription);
 
@@ -430,12 +579,14 @@ class WalletHoldResultServiceTest {
                 any(Runnable.class)
         )).thenReturn(false);
 
-        boolean result = walletHoldResultService.handleSucceeded(
-                event,
-                CONSUMER_GROUP
-        );
+        boolean result =
+                walletHoldResultService.handleSucceeded(
+                        event,
+                        CONSUMER_GROUP
+                );
 
         assertThat(result).isFalse();
+
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.PROCESSING);
 
@@ -466,21 +617,21 @@ class WalletHoldResultServiceTest {
                 );
 
         executeBusinessAction();
-        stubSubscription(subscription);
+        stubSucceededEventLocks(subscription);
 
         assertThatThrownBy(() ->
                 walletHoldResultService.handleSucceeded(
                         event,
                         CONSUMER_GROUP
                 )
-        ).isInstanceOf(IllegalArgumentException.class)
+        )
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("userId");
 
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.PROCESSING);
 
         verifyNoInteractions(
-                offeringRepository,
                 subscriptionCompensationRepository,
                 subscriptionEventPublisher
         );
@@ -490,6 +641,7 @@ class WalletHoldResultServiceTest {
     @DisplayName("보상 재요청 저장에 실패하면 예외를 삼키지 않는다")
     void propagatesCompensationPublishFailure() {
         Subscription subscription = newSubscription();
+
         subscription.startCompensation(
                 CancellationType.OFFERING_UNDER_SUBSCRIBED
         );
@@ -500,9 +652,12 @@ class WalletHoldResultServiceTest {
                 );
 
         executeBusinessAction();
-        stubSubscription(subscription);
+
+        Offering offering =
+                stubSucceededEventLocks(subscription);
+
         stubCompensation(subscription, compensation);
-        stubOfferingForPublish();
+        stubOfferingForPublish(offering);
 
         IllegalStateException failure =
                 new IllegalStateException("Outbox 저장 실패");
@@ -524,9 +679,14 @@ class WalletHoldResultServiceTest {
 
         assertThat(subscription.getSubscriptionStatus())
                 .isEqualTo(SubscriptionStatus.COMPENSATING);
+
         assertThat(compensation.getWalletStatus())
                 .isEqualTo(CompensationStatus.PENDING);
     }
+
+    // =========================================================
+    // 테스트 데이터와 Mock 설정
+    // =========================================================
 
     private Subscription newSubscription() {
         return Subscription.create(
@@ -565,12 +725,11 @@ class WalletHoldResultServiceTest {
                 new WalletHoldFailedPayload(
                         200L,
                         "FAILED",
-                        "INSUFFICIENT_BALANCE"
+                        "INSUFFICIENT_AVAILABLE_BALANCE"
                 )
         );
     }
 
-    // 단위 테스트에서는 트랜잭션 대신 업무 콜백만 실행한다.
     private void executeBusinessAction() {
         doAnswer(invocation -> {
             Runnable action = invocation.getArgument(2);
@@ -583,10 +742,36 @@ class WalletHoldResultServiceTest {
         );
     }
 
-    private void stubSubscription(Subscription subscription) {
+    private void stubSubscription(
+            Subscription subscription
+    ) {
         when(subscriptionRepository.findByIdForUpdate(
                 subscription.getSubscriptionId()
         )).thenReturn(Optional.of(subscription));
+    }
+
+    /**
+     *
+     * WalletHoldSucceeded 처리에서 사용하는
+     * Offering → Subscription 잠금 순서를 설정한다.
+     */
+    private Offering stubSucceededEventLocks(
+            Subscription subscription
+    ) {
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        Offering offering = mock(Offering.class);
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(subscriptionRepository.findByIdForUpdate(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(subscription));
+
+        return offering;
     }
 
     private void stubCompensation(
@@ -600,10 +785,15 @@ class WalletHoldResultServiceTest {
         ).thenReturn(Optional.ofNullable(compensation));
     }
 
-    private void stubOfferingForPublish() {
-        Offering offering = mock(Offering.class);
-
+    /**
+     * 늦은 Hold 성공의 보상 재요청에서
+     * 잠금 조회한 공모의 assetId를 사용한다.
+     */
+    private void stubOfferingForPublish(
+            Offering offering
+    ) {
         when(offering.getAssetId()).thenReturn(assetId);
+
         when(offeringRepository.findById(offeringId))
                 .thenReturn(Optional.of(offering));
     }

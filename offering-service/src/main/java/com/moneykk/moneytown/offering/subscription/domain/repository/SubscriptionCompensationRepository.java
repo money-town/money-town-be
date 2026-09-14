@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,5 +40,29 @@ public interface SubscriptionCompensationRepository
         """)
     Optional<SubscriptionCompensation> findBySubscriptionIdForUpdate(
             @Param("subscriptionId") UUID subscriptionId
+    );
+
+    /**
+     * Wallet 또는 Holding 보상이 완료되지 않은 채
+     * 일정 시간 이상 COMPENSATING에 머문 청약 수를 조회한다.
+     */
+    @Query(
+            value = """
+                SELECT COUNT(*)
+                  FROM p_subscription_compensations c
+                  JOIN p_subscriptions s
+                    ON s.subscription_id = c.subscription_id
+                 WHERE s.subscription_status = 'COMPENSATING'
+                   AND s.is_deleted = false
+                   AND c.updated_at <= :stuckBefore
+                   AND (
+                       c.wallet_status <> 'SUCCEEDED'
+                       OR c.holding_status <> 'SUCCEEDED'
+                   )
+                """,
+            nativeQuery = true
+    )
+    long countStuckCompensations(
+            @Param("stuckBefore") Instant stuckBefore
     );
 }

@@ -187,6 +187,12 @@ public class SecurityConfig {
                                         "/api/v1/offerings/{offeringId}/cancellation"
                                 ).hasRole("ADMIN")
 
+                                // Offering Outbox 실패 이벤트 재처리
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/offerings/outbox-events/{eventId}/retry"
+                                ).hasRole("ADMIN")
+
                                 // 공모 수정·삭제
                                 .pathMatchers(
                                         HttpMethod.PATCH,
@@ -203,6 +209,13 @@ public class SecurityConfig {
                                         HttpMethod.POST,
                                         "/api/v1/offerings/{offeringId}/subscriptions"
                                 ).hasRole("INVESTOR")
+
+                                // 관리자 청약 재처리·보상
+                                .pathMatchers(
+                                        HttpMethod.POST,
+                                        "/api/v1/subscriptions/{subscriptionId}/retry",
+                                        "/api/v1/subscriptions/{subscriptionId}/compensation"
+                                ).hasRole("ADMIN")
 
                                 // 내 청약 목록을 상세 조회보다 먼저 선언
                                 .pathMatchers(

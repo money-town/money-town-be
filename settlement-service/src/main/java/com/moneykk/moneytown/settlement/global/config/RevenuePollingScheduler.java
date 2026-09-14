@@ -9,6 +9,7 @@ import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient
 import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,6 +38,7 @@ public class RevenuePollingScheduler {
     private final SettlementCommandService settlementCommandService;
     private final RevenueTransferStatusNotifier revenueTransferStatusNotifier;
     private final DividendDisbursementService dividendDisbursementService;
+    private final MeterRegistry meterRegistry;
 
     @Scheduled(fixedDelay = POLL_INTERVAL_MS)
     public void pollReadyRevenues() {
@@ -73,8 +75,10 @@ public class RevenuePollingScheduler {
             dividendDisbursementService.disburseAsync(response.settlementBatchId());
         } catch (BusinessException e) {
             if (EXPECTED_SKIP_REASONS.contains(e.getErrorCode())) {
+                meterRegistry.counter("settlement.batch.auto_open", "result", "skipped").increment();
                 log.debug("정산 회차 자동 개시 건너뜀 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             } else {
+                meterRegistry.counter("settlement.batch.auto_open", "result", "failed").increment();
                 log.warn("정산 회차 자동 개시 실패 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             }
         }

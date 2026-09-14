@@ -15,12 +15,15 @@ import com.moneykk.moneytown.offering.subscription.domain.repository.Subscriptio
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -44,23 +47,29 @@ class OfferingTransactionServiceTest {
     private OfferingTransactionService offeringTransactionService;
 
     @Test
-    @DisplayName("공모를 DRAFT 상태로 생성하고 저장한다")
+    @DisplayName("자동 생성된 제목으로 공모를 DRAFT 상태로 생성하고 저장한다")
     void createsOffering() {
         // given
         UUID issuerId = UUID.randomUUID();
         UUID assetId = UUID.randomUUID();
         UUID offeringId = UUID.randomUUID();
 
+        LocalDateTime now = LocalDateTime.now();
+
+        // OfferingCreateRequest에서 title 인자 제거
         OfferingCreateRequest request =
                 new OfferingCreateRequest(
                         assetId,
-                        "테스트 공모",
                         100L,
                         1L,
                         10L,
-                        Instant.now().plusSeconds(3_600),
-                        Instant.now().plusSeconds(7_200)
+                        now.plusHours(1),
+                        now.plusHours(2)
                 );
+
+        // OfferingCommandService에서 생성되어 전달되는 제목
+        String generatedTitle =
+                "테스트 자산 공모";
 
         when(offeringRepository.save(any(Offering.class)))
                 .thenAnswer(invocation -> {
@@ -81,19 +90,48 @@ class OfferingTransactionServiceTest {
                 offeringTransactionService.createOffering(
                         issuerId,
                         request,
+                        generatedTitle,
+
                         10_000L
                 );
 
         // then
         assertThat(response.offeringId()).isEqualTo(offeringId);
         assertThat(response.assetId()).isEqualTo(assetId);
-        assertThat(response.title()).isEqualTo("테스트 공모");
+
+        assertThat(response.title()).isEqualTo(generatedTitle);
+
         assertThat(response.offeringStatus())
                 .isEqualTo(OfferingStatus.DRAFT);
         assertThat(response.totalQuantity()).isEqualTo(100L);
         assertThat(response.remainingQuantity()).isEqualTo(100L);
 
-        verify(offeringRepository).save(any(Offering.class));
+        ArgumentCaptor<Offering> offeringCaptor =
+                ArgumentCaptor.forClass(Offering.class);
+
+        verify(offeringRepository)
+                .save(offeringCaptor.capture());
+
+        Offering savedOffering = offeringCaptor.getValue();
+
+        // 응답뿐 아니라 실제 저장 Entity에도 제목이 들어갔는지 검증
+        assertThat(savedOffering.getTitle())
+                .isEqualTo(generatedTitle);
+
+        assertThat(savedOffering.getStartAt())
+                .isEqualTo(
+                        request.startAt()
+                                .atZone(ZoneId.of("Asia/Seoul"))
+                                .toInstant()
+                );
+
+        assertThat(savedOffering.getEndAt())
+                .isEqualTo(
+                        request.endAt()
+                                .atZone(ZoneId.of("Asia/Seoul"))
+                                .toInstant()
+                );
+
         verifyNoInteractions(subscriptionRepository);
     }
 
@@ -467,15 +505,15 @@ class OfferingTransactionServiceTest {
     }
 
     private OfferingUpdateRequest updateRequest() {
-        Instant now = Instant.now();
+        LocalDateTime now = LocalDateTime.now();
 
         return new OfferingUpdateRequest(
                 "수정된 공모",
                 200L,
                 2L,
                 20L,
-                now.plusSeconds(7_200),
-                now.plusSeconds(10_800)
+                now.plusHours(2),
+                now.plusHours(3)
         );
     }
 }

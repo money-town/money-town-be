@@ -40,8 +40,7 @@ public class CommonOpenApiAutoConfiguration {
 
     private static boolean isGatewayHeader(String parameterName) {
         return AuthHeaderConstants.USER_ID.equalsIgnoreCase(parameterName)
-                || AuthHeaderConstants.USER_ROLE.equalsIgnoreCase(
-                parameterName
-        );
+                || AuthHeaderConstants.USER_ROLE.equalsIgnoreCase(parameterName)
+                || AuthHeaderConstants.CORRELATION_ID.equalsIgnoreCase(parameterName);
     }
 }
