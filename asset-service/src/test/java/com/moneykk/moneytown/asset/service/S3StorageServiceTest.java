@@ -104,7 +104,7 @@ class S3StorageServiceTest {
                         TransactionSynchronization.STATUS_ROLLED_BACK
                 );
 
-        verify(s3Client).deleteObject(argThat(request ->
+        verify(s3Client).deleteObject(argThat((DeleteObjectRequest request) ->
                 "test-bucket".equals(request.bucket())
                         && "assets/test.png".equals(request.key())
         ));
