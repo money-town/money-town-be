@@ -8,7 +8,6 @@ import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
-import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
@@ -22,7 +21,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -68,9 +66,6 @@ class WalletHoldServiceConcurrencyTest {
     private WalletTransactionRepository walletTransactionRepository;
     @Autowired
     private WalletHoldService walletHoldService;
-
-    @MockitoBean
-    private WalletEventPublisher walletEventPublisher;
 
     @Test
     void compensateHold_concurrentRefundRequests_appliesRefundOnlyOnce() throws Exception {
