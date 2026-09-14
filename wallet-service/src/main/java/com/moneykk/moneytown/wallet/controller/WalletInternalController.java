@@ -3,6 +3,7 @@ package com.moneykk.moneytown.wallet.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletStatusResponse;
 import com.moneykk.moneytown.wallet.service.WalletService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,6 +18,7 @@ import java.util.UUID;
 
 // User 서비스가 회원 탈퇴 처리 전 호출하는 내부 전용 API.
 // 탈퇴 차단 여부 판단은 User가 하고, Wallet은 판단에 필요한 사실(잔액/동결 상태)만 제공한다.
+@Hidden
 @Tag(name = "Wallet Internal", description = "다른 서비스가 서비스 간 호출로만 사용하는 내부 전용 API. 인증/인가 미구현 (TODO)")
 @RestController
 @RequiredArgsConstructor
