@@ -99,8 +99,15 @@ public class Revenue extends BaseEntity {
                    BigDecimal grossAmount, BigDecimal expenseAmount, BigDecimal feeAmount,
                    String currency, LocalDate periodStart, LocalDate periodEnd,
                    Map<String, Object> rawPayload) {
-        if (!isValidAmount(grossAmount) || !isValidAmount(expenseAmount) || !isValidAmount(feeAmount)
-                || grossAmount.signum() <= 0 || expenseAmount.signum() < 0 || feeAmount.signum() < 0) {
+        if (!isValidAmount(grossAmount)
+                || !isValidAmount(expenseAmount)
+                || !isValidAmount(feeAmount)
+                || grossAmount.signum() <= 0
+                || expenseAmount.signum() < 0
+                || feeAmount.signum() < 0
+                || grossAmount.compareTo(
+                    expenseAmount.add(feeAmount)
+                ) < 0) {
             throw new BusinessException(AssetErrorCode.INVALID_REVENUE_AMOUNT);
         }
         if (periodStart == null || periodEnd == null || periodStart.isAfter(periodEnd)) {
