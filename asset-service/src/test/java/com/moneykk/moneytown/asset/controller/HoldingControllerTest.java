@@ -122,9 +122,10 @@ class HoldingControllerTest {
         UUID cursor = UUID.randomUUID();
         UUID holdingId = UUID.randomUUID();
         LocalDate asOf = LocalDate.of(2026, 8, 31);
+        Instant firstAcquiredAt = Instant.parse("2026-08-01T00:00:00Z");
         HoldingSnapshotResponse snapshot = new HoldingSnapshotResponse(
                 assetId, asOf, 10L,
-                List.of(new HoldingSnapshotItemResponse(holdingId, UUID.randomUUID(), 10L)),
+                List.of(new HoldingSnapshotItemResponse(holdingId, UUID.randomUUID(), 10L, firstAcquiredAt)),
                 holdingId, true
         );
         when(holdingQueryService.getSnapshot(assetId, asOf, cursor, 1, direction)).thenReturn(snapshot);

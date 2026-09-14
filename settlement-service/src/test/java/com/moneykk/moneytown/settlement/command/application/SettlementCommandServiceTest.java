@@ -524,7 +524,7 @@ class SettlementCommandServiceTest {
     }
 
     private void stubRevenue(RevenueResponse revenue) {
-        when(assetServiceClient.getRevenue(ASSET_ID, REVENUE_ID)).thenReturn(ApiResponse.success(revenue, null));
+        when(assetServiceClient.getRevenue(ASSET_ID, REVENUE_ID, "SYSTEM")).thenReturn(ApiResponse.success(revenue, null));
     }
 
     private RevenueResponse revenue(BigDecimal gross, BigDecimal expense, BigDecimal fee,

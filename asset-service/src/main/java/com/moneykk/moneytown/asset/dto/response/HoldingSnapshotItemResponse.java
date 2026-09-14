@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.asset.dto.response;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /** 배당 기준일의 투자자별 보유지분 */
@@ -12,6 +13,9 @@ public record HoldingSnapshotItemResponse(
         UUID userId,
 
         // 기준일 보유 수량
-        long quantity
+        long quantity,
+
+        // 해당 자산을 최초로 취득한 시각
+        Instant firstAcquiredAt
 ) {
 }

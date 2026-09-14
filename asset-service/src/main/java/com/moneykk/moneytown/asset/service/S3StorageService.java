@@ -53,6 +53,12 @@ public class S3StorageService {
                     RequestBody.fromBytes(content)
             );
         } catch (SdkException exception) {
+            log.error(
+                    "S3 파일 업로드에 실패했습니다. bucket={}, objectKey={}",
+                    bucket,
+                    objectKey,
+                    exception
+            );
             throw new BusinessException(
                     AssetErrorCode.ASSET_DOCUMENT_STORAGE_FAILED
             );
@@ -80,6 +86,12 @@ public class S3StorageService {
                     .url()
                     .toString();
         } catch (SdkException exception) {
+            log.error(
+                    "S3 다운로드 URL 발급에 실패했습니다. bucket={}, objectKey={}",
+                    bucket,
+                    objectKey,
+                    exception
+            );
             throw new BusinessException(
                     AssetErrorCode.ASSET_DOCUMENT_STORAGE_FAILED
             );
@@ -99,6 +111,12 @@ public class S3StorageService {
 
             s3Client.deleteObject(request);
         } catch (SdkException exception) {
+            log.error(
+                    "S3 파일 삭제에 실패했습니다. bucket={}, objectKey={}",
+                    bucket,
+                    objectKey,
+                    exception
+            );
             throw new BusinessException(
                     AssetErrorCode.ASSET_DOCUMENT_STORAGE_FAILED
             );
@@ -113,34 +131,35 @@ public class S3StorageService {
             byte[] content,
             String contentType
     ) {
-        // 현재 DB 트랜잭션이 있으면 롤백 처리 등록
-        if (TransactionSynchronizationManager
-                .isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCompletion(int status) {
-                            if (status != TransactionSynchronization
-                                    .STATUS_ROLLED_BACK) {
-                                return;
-                            }
+        // 업로드가 성공한 경우에만 롤백 정리를 등록
+        upload(objectKey, content, contentType);
 
-                            try {
-                                delete(objectKey);
-                            } catch (RuntimeException exception) {
-                                log.error(
-                                        "롤백된 S3 파일 정리에 실패했습니다. objectKey={}",
-                                        objectKey,
-                                        exception
-                                );
-                            }
-                        }
-                    }
-            );
+        // 트랜잭션이 없으면 롤백 정리가 필요 없음
+        if (!TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            return;
         }
 
-        // 실제 파일 업로드
-        upload(objectKey, content, contentType);
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status != STATUS_ROLLED_BACK) {
+                            return;
+                        }
+
+                        try {
+                            delete(objectKey);
+                        } catch (RuntimeException exception) {
+                            log.error(
+                                    "DB 롤백 후 S3 파일 삭제에 실패했습니다. objectKey={}",
+                                    objectKey,
+                                    exception
+                            );
+                        }
+                    }
+                }
+        );
     }
 
     /**

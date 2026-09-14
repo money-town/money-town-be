@@ -22,7 +22,8 @@ public interface AssetServiceClient {
 
     @GetMapping("/api/v1/assets/{assetId}/revenues/{revenueId}")
     ApiResponse<RevenueResponse> getRevenue(@PathVariable("assetId") UUID assetId,
-                                            @PathVariable("revenueId") UUID revenueId);
+                                            @PathVariable("revenueId") UUID revenueId,
+                                            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role);
 
     @GetMapping("/api/v1/assets/{assetId}/holdings")
     ApiResponse<HoldingsSnapshotResponse> getHoldingsSnapshot(@RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
