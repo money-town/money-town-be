@@ -1,9 +1,9 @@
 package com.moneykk.moneytown.wallet.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
-import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.wallet.dto.request.TransactionRequest;
+import com.moneykk.moneytown.wallet.dto.response.CursorPageResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
@@ -14,7 +14,6 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Tag(name = "Wallet", description = "내 지갑 조회 및 입출금 API")
@@ -52,16 +52,20 @@ public class WalletController {
 
     @Operation(
             summary = "거래 내역 조회",
-            description = "내 지갑의 거래 내역을 최신순으로 페이지 조회한다. type을 생략하면 전체 타입을 조회한다."
+            description = "내 지갑의 거래 내역을 최신순으로 커서 기반 조회한다. type/from/to는 생략 가능하고, "
+                    + "cursor를 생략하면 최신 거래부터 조회한다. 응답의 nextCursor를 다음 요청의 cursor로 그대로 넘기면 이어서 조회된다."
     )
     @GetMapping("/me/transactions")
-    public ResponseEntity<ApiResponse<PageResponse<TransactionListItemResponse>>> getTransactions(
+    public ResponseEntity<ApiResponse<CursorPageResponse<TransactionListItemResponse>>> getTransactions(
             @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @Parameter(description = "거래 타입 필터 (생략 시 전체 조회)") @RequestParam(required = false) WalletTransactionType type,
-            @Parameter(description = "페이지 번호 (0부터 시작)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "조회 시작 시각, 이 시각 이후 거래만 조회 (생략 가능)") @RequestParam(required = false) Instant from,
+            @Parameter(description = "조회 종료 시각, 이 시각 이전 거래만 조회 (생략 가능)") @RequestParam(required = false) Instant to,
+            @Parameter(description = "이전 응답의 nextCursor (생략하면 최신 거래부터 조회)") @RequestParam(required = false) String cursor,
             @Parameter(description = "페이지 크기") @RequestParam(defaultValue = "20") int size
     ) {
-        PageResponse<TransactionListItemResponse> response = walletService.getTransactions(userId, type, PageRequest.of(page, size));
+        CursorPageResponse<TransactionListItemResponse> response =
+                walletService.getTransactions(userId, type, from, to, cursor, size);
 
         return ResponseEntity.ok(
                 ApiResponse.success(response, "거래 내역 조회가 완료되었습니다.")
