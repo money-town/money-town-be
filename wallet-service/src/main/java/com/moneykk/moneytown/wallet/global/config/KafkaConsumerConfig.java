@@ -93,7 +93,11 @@ public class KafkaConsumerConfig {
         backOff.setMultiplier(2.0);
         backOff.setMaxInterval(10_000L);
 
-        return new DefaultErrorHandler(recoverer, backOff);
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
+        // UUID.fromString(aggregateId) 실패처럼 같은 메시지를 다시 처리해도 결과가 바뀌지 않는 예외는 재시도 없이 바로 DLT로 보낸다.
+        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
+
+        return errorHandler;
     }
 
     private <T> ConsumerFactory<String, EventEnvelope<T>> envelopeConsumerFactory(KafkaProperties kafkaProperties, Class<T> payloadType) {
