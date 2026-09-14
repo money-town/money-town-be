@@ -45,6 +45,7 @@ public class RevenuePollingScheduler {
         UUID cursor = null;
         boolean hasNext = true;
         int pageCount = 0;
+        int processedCount = 0;
 
         while (hasNext) {
             if (++pageCount > MAX_PAGES) {
@@ -55,6 +56,7 @@ public class RevenuePollingScheduler {
             UUID requestCursor = cursor;
             ReadyRevenueListResponse page = assetServiceClient.getReadyRevenues(SYSTEM_ROLE, requestCursor).data();
 
+            processedCount += page.revenues().size();
             page.revenues().forEach(this::tryOpenBatch);
 
             hasNext = page.hasNext();
@@ -64,6 +66,11 @@ public class RevenuePollingScheduler {
                 return;
             }
             cursor = nextCursor;
+        }
+
+        // 매 3분 도는 스케줄러라, 처리한 게 없는 조용한 주기까지 매번 남기면 로그만 쌓인다 — 처리 건이 있을 때만 남긴다.
+        if (processedCount > 0) {
+            log.info("정산 대기 수익 폴링 완료 (처리 시도 건수={})", processedCount);
         }
     }
 

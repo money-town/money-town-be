@@ -18,6 +18,7 @@ import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SettlementCommandService {
 
     private static final String ADMIN_ROLE = "ADMIN";
@@ -51,7 +53,12 @@ public class SettlementCommandService {
     @Transactional
     public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
         validateAdmin(role);
-        return openBatchInternal(assetId, revenueId, recordDateOverride);
+        try {
+            return openBatchInternal(assetId, revenueId, recordDateOverride);
+        } catch (BusinessException e) {
+            log.warn("정산 회차 개시 실패 (assetId={}, revenueId={}, reason={})", assetId, revenueId, e.getErrorCode());
+            throw e;
+        }
     }
 
     private SettlementBatchResponse openBatchInternal(UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
@@ -85,6 +92,8 @@ public class SettlementCommandService {
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
 
+        log.info("정산 회차 개시 완료 (assetId={}, revenueId={}, settlementBatchId={}, recordDate={}, totalAmount={}, payoutCount={})",
+                assetId, revenueId, batch.getId(), recordDate, totalAmount, payouts.size());
         return SettlementBatchResponse.of(batch, payouts.size());
     }
 
@@ -112,23 +121,29 @@ public class SettlementCommandService {
     @Transactional
     public SettlementBatchResponse retryBatch(String role, UUID settlementBatchId) {
         validateAdmin(role);
-        SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
-                .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
+        try {
+            SettlementBatch batch = settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
+                    .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND));
 
-        if (!isRetryable(batch.getStatus())) {
-            throw new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_RETRYABLE);
+            if (!isRetryable(batch.getStatus())) {
+                throw new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_RETRYABLE);
+            }
+
+            List<DividendPayout> deadLetterPayouts = dividendPayoutRepository
+                    .findBySettlementBatchIdAndStatusAndIsDeletedFalse(settlementBatchId, PayoutStatus.DEAD_LETTER);
+            deadLetterPayouts.forEach(DividendPayout::requeue);
+
+            batch.markDisbursing();
+
+            settlementBatchRepository.save(batch);
+            dividendPayoutRepository.saveAll(deadLetterPayouts);
+
+            log.info("정산 회차 재시도 개시 (settlementBatchId={}, 재처리 건수={})", settlementBatchId, deadLetterPayouts.size());
+            return SettlementBatchResponse.of(batch, deadLetterPayouts.size());
+        } catch (BusinessException e) {
+            log.warn("정산 회차 재시도 실패 (settlementBatchId={}, reason={})", settlementBatchId, e.getErrorCode());
+            throw e;
         }
-
-        List<DividendPayout> deadLetterPayouts = dividendPayoutRepository
-                .findBySettlementBatchIdAndStatusAndIsDeletedFalse(settlementBatchId, PayoutStatus.DEAD_LETTER);
-        deadLetterPayouts.forEach(DividendPayout::requeue);
-
-        batch.markDisbursing();
-
-        settlementBatchRepository.save(batch);
-        dividendPayoutRepository.saveAll(deadLetterPayouts);
-
-        return SettlementBatchResponse.of(batch, deadLetterPayouts.size());
     }
 
     private boolean isRetryable(SettlementStatus status) {
