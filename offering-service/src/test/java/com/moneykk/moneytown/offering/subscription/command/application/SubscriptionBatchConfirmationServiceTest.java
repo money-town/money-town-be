@@ -126,30 +126,14 @@ class SubscriptionBatchConfirmationServiceTest {
     void doesNotConfirmWhenProcessingSubscriptionRemains() {
         // given
         UUID offeringId = UUID.randomUUID();
-        UUID assetId = UUID.randomUUID();
         String correlationId = "correlation-id";
 
         Offering offering =
                 mockFinalizableOffering(offeringId);
 
-        Subscription holdSucceededSubscription =
-                mock(Subscription.class);
-
-        Subscription processingSubscription =
-                mock(Subscription.class);
-
-        when(holdSucceededSubscription.getSubscriptionStatus())
-                .thenReturn(SubscriptionStatus.HOLD_SUCCEEDED);
-
-        when(processingSubscription.getSubscriptionStatus())
-                .thenReturn(SubscriptionStatus.PROCESSING);
-
         when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(offeringId))
-                .thenReturn(List.of(
-                        holdSucceededSubscription,
-                        processingSubscription
-                ));
+                .existsReservedSubscriptionAwaitingHold(offeringId))
+                .thenReturn(true);
 
         // when
         int confirmedCount = service.confirmAllIfReady(
@@ -160,11 +144,8 @@ class SubscriptionBatchConfirmationServiceTest {
         // then
         assertThat(confirmedCount).isZero();
 
-        verify(holdSucceededSubscription, never())
-                .confirm(any(Instant.class));
-
-        verify(processingSubscription, never())
-                .confirm(any(Instant.class));
+        verify(subscriptionRepository, never())
+                .findAllReservedByOfferingIdForUpdate(any(UUID.class));
 
         verifyNoInteractions(subscriptionEventPublisher);
     }
