@@ -25,6 +25,17 @@ class TransactionCursorTest {
     }
 
     @Test
+    @DisplayName("마이크로초 단위 정밀도도 잘리지 않고 그대로 보존된다")
+    void encodeThenDecode_preservesMicrosecondPrecision() {
+        Instant createdAt = Instant.parse("2026-09-13T09:54:59.066394Z");
+
+        String cursor = TransactionCursor.encode(createdAt, 1L);
+        TransactionCursor.Decoded decoded = TransactionCursor.decode(cursor);
+
+        assertThat(decoded.createdAt()).isEqualTo(createdAt);
+    }
+
+    @Test
     @DisplayName("깨진 커서 문자열을 디코딩하면 INVALID_CURSOR 예외를 던진다")
     void decode_invalidCursor_throwsBusinessException() {
         BusinessException exception = assertThrows(BusinessException.class,
