@@ -10,9 +10,11 @@ import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletHoldStatusResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletStatusResponse;
 import com.moneykk.moneytown.wallet.entity.Wallet;
+import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
@@ -76,6 +78,14 @@ public class WalletService {
         Page<WalletTransaction> transactions = walletTransactionRepository.findByWalletId(wallet.getId(), type, pageable);
 
         return PageResponse.from(transactions, TransactionListItemResponse::from);
+    }
+
+    // Offering이 관리자 재처리/보상 시 subscriptionId 기준으로 실제 Wallet 처리 상태를 확인하는 내부 조회용
+    public WalletHoldStatusResponse getWalletHoldStatus(UUID subscriptionId) {
+        WalletHold hold = walletHoldRepository.findBySubscriptionId(subscriptionId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_HOLD_NOT_FOUND));
+
+        return WalletHoldStatusResponse.from(hold);
     }
 
     // 클래스 레벨 readOnly 트랜잭션에 합류하면 Feign 호출/UNIQUE 복구가 다시 트랜잭션에 묶인다.

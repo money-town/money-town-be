@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 
 public enum WalletErrorCode implements ErrorCode {
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "WALLET_404_01", "존재하지 않는 지갑입니다."),
+    WALLET_HOLD_NOT_FOUND(HttpStatus.NOT_FOUND, "WALLET_404_02", "해당 청약에 대한 동결 처리 이력이 없습니다."),
     INSUFFICIENT_AVAILABLE_BALANCE(HttpStatus.BAD_REQUEST, "WALLET_400_01", "가용잔액이 부족합니다."),
     INVALID_HOLD_STATUS_TRANSITION(HttpStatus.CONFLICT, "WALLET_409_02", "허용되지 않는 동결 상태 전이입니다."),
     INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "WALLET_400_02", "금액은 0보다 커야 합니다."),
