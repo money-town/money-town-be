@@ -7,6 +7,7 @@ import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCommandService;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
+import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -19,7 +20,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import io.swagger.v3.oas.annotations.Parameter;
 
 import java.util.UUID;
 
@@ -47,7 +47,6 @@ public class SubscriptionCommandController {
             @PathVariable UUID offeringId,
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
-            @Parameter(hidden = true)
             @RequestHeader(AuthHeaderConstants.CORRELATION_ID) String correlationId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubscriptionCreateRequest request
@@ -58,7 +57,7 @@ public class SubscriptionCommandController {
             );
         }
 
-        SubscriptionCreateResponse response =
+        SubscriptionCreateResult result =
                 subscriptionCommandService.create(
                         offeringId,
                         userId,
@@ -67,12 +66,16 @@ public class SubscriptionCommandController {
                         correlationId
                 );
 
+        String message = result.replayed()
+                ? "이미 접수된 청약 요청입니다."
+                : "청약 요청이 접수되었습니다.";
+
         return ResponseEntity
                 .status(HttpStatus.ACCEPTED)
                 .body(
                         ApiResponse.success(
-                                response,
-                                "청약 요청이 접수되었습니다."
+                                result.response(),
+                                message
                         )
                 );
     }

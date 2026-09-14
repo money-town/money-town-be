@@ -139,4 +139,11 @@ public interface OutboxEventRepository
             @Param("batchSize") int batchSize
     );
 
+    /**
+     * 현재 DB에 남아 있는 특정 상태의 Outbox 이벤트 수를 조회한다.
+     *
+     * PROCESSING 이벤트 적체 상태를 Micrometer Gauge로 제공할 때 사용한다.
+     */
+    long countByEventStatus(OutboxEventStatus eventStatus);
+
 }

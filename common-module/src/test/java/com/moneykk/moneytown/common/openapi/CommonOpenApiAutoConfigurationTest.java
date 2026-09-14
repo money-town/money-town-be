@@ -22,6 +22,7 @@ class CommonOpenApiAutoConfigurationTest {
                 List.of(
                         new Parameter().name("X-User-Id").in("header"),
                         new Parameter().name("X-User-Role").in("header"),
+                        new Parameter().name("X-Correlation-Id").in("header"),
                         new Parameter().name("assetId").in("path")
                 )
         ));

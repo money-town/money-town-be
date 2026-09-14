@@ -111,7 +111,10 @@ public class SubscriptionQueryService {
                 userId != null
                         && subscription.getUserId().equals(userId);
 
-        if (!admin && !owner) {
+        boolean canAccess =
+                admin || (investor && owner);
+
+        if (!canAccess) {
             throw new BusinessException(
                     SubscriptionErrorCode.SUBSCRIPTION_ACCESS_DENIED
             );
