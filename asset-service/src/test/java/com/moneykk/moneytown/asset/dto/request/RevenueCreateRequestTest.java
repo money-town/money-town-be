@@ -53,10 +53,13 @@ class RevenueCreateRequestTest {
         try (var factory = Validation.buildDefaultValidatorFactory()) {
             assertTrue(factory.getValidator().validate(request(amount)).isEmpty());
         }
-        Revenue revenue = revenue(amount, amount, amount);
-        assertEquals(amount, revenue.getGrossAmount());
-        assertEquals(amount, revenue.getExpenseAmount());
-        assertEquals(amount, revenue.getFeeAmount());
+        Revenue grossRevenue = revenue(amount, BigDecimal.ZERO, BigDecimal.ZERO);
+        Revenue expenseRevenue = revenue(amount, amount, BigDecimal.ZERO);
+        Revenue feeRevenue = revenue(amount, BigDecimal.ZERO, amount);
+
+        assertEquals(amount, grossRevenue.getGrossAmount());
+        assertEquals(amount, expenseRevenue.getExpenseAmount());
+        assertEquals(amount, feeRevenue.getFeeAmount());
     }
 
     private RevenueCreateRequest request(BigDecimal amount) {
