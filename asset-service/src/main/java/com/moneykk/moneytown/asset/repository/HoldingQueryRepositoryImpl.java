@@ -77,7 +77,8 @@ public class HoldingQueryRepositoryImpl
                         HoldingSnapshotItemResponse.class,
                         holding.id,
                         holding.userId,
-                        balanceExpression
+                        balanceExpression,
+                        holding.createdAt
                 ))
                 .from(history)
                 .join(holding)
