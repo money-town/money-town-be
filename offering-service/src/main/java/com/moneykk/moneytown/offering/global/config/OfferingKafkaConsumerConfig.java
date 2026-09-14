@@ -1,6 +1,9 @@
 package com.moneykk.moneytown.offering.global.config;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.kafka.listener.RetryListener;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -9,6 +12,7 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
+@Slf4j
 @Configuration
 public class OfferingKafkaConsumerConfig {
 
@@ -55,6 +59,62 @@ public class OfferingKafkaConsumerConfig {
                 JsonProcessingException.class,
                 IllegalArgumentException.class
         );
+
+        errorHandler.setRetryListeners(new RetryListener() {
+
+            @Override
+            public void failedDelivery(
+                    ConsumerRecord<?, ?> record,
+                    Exception exception,
+                    int deliveryAttempt
+            ) {
+                log.warn(
+                        "Kafka Consumer 처리 실패. "
+                                + "topic={}, partition={}, offset={}, "
+                                + "deliveryAttempt={}, exception={}",
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        deliveryAttempt,
+                        exception.getClass().getSimpleName()
+                );
+            }
+
+            @Override
+            public void recovered(
+                    ConsumerRecord<?, ?> record,
+                    Exception exception
+            ) {
+                log.error(
+                        "Kafka Consumer 실패 레코드 DLT 전송 완료. "
+                                + "topic={}, partition={}, offset={}, "
+                                + "dltTopic={}, exception={}",
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        record.topic() + ".DLT",
+                        exception.getClass().getSimpleName()
+                );
+            }
+
+            @Override
+            public void recoveryFailed(
+                    ConsumerRecord<?, ?> record,
+                    Exception original,
+                    Exception failure
+            ) {
+                log.error(
+                        "Kafka Consumer DLT 전송 실패. "
+                                + "topic={}, partition={}, offset={}, "
+                                + "originalException={}",
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        original.getClass().getSimpleName(),
+                        failure
+                );
+            }
+        });
 
         return errorHandler;
     }
