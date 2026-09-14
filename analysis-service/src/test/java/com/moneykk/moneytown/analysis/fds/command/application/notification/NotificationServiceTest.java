@@ -2,14 +2,13 @@ package com.moneykk.moneytown.analysis.fds.command.application.notification;
 
 import com.moneykk.moneytown.analysis.global.exception.AnalysisErrorCode;
 import com.moneykk.moneytown.analysis.notification.command.application.NotificationCommandService;
+import com.moneykk.moneytown.analysis.notification.command.application.NotificationDispatcher;
 import com.moneykk.moneytown.analysis.notification.command.application.NotificationStore;
 import com.moneykk.moneytown.analysis.notification.command.dto.request.NotificationRequest;
 import com.moneykk.moneytown.analysis.notification.command.dto.response.NotificationResponse;
 import com.moneykk.moneytown.analysis.notification.domain.Notification;
 import com.moneykk.moneytown.analysis.notification.domain.NotificationStatus;
 import com.moneykk.moneytown.analysis.notification.domain.NotificationType;
-import com.moneykk.moneytown.analysis.notification.infrastructure.slack.SlackNotificationSender;
-import com.moneykk.moneytown.analysis.notification.infrastructure.slack.SlackSendResult;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,10 +21,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,7 +40,7 @@ public class NotificationServiceTest {
     @Mock
     private NotificationStore notificationStore;
     @Mock
-    private SlackNotificationSender notificationSender;
+    private NotificationDispatcher notificationDispatcher;
 
 
     @InjectMocks
@@ -51,17 +54,12 @@ public class NotificationServiceTest {
 
 
     @Test
-    @DisplayName("새 멱등키면 알림을 선점·발송 하고 완료 결과를 반환한다.")
+    @DisplayName("새 멱등키면 알림을 선점하고 발송을 비동기로 위임한 뒤 PENDING 스냅샷을 반환한다.")
     void send_newIdempotencyKey_delegatesAndReturnResponse(){
         Notification claimed = pendingNotification();
-        Notification finished = pendingNotification();
-        finished.markSent();
-        SlackSendResult ok = SlackSendResult.ok();
 
         when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
         when(notificationStore.claim(any(Notification.class))).thenReturn(claimed);
-        when(notificationSender.send(TITLE, MESSAGE)).thenReturn(ok);
-        when(notificationStore.complete(notificationId, ok)).thenReturn(finished);
 
         NotificationResponse response = notificationCommandService.send(
                 idempotencyKey,
@@ -70,13 +68,13 @@ public class NotificationServiceTest {
 
         assertThat(response.notificationId()).isEqualTo(notificationId);
         assertThat(response.notificationType()).isEqualTo(NotificationType.SLACK_TEST);
-        assertThat(response.status()).isEqualTo(NotificationStatus.SENT);
-        verify(notificationSender).send(TITLE, MESSAGE);
+        assertThat(response.status()).isEqualTo(NotificationStatus.PENDING);
+        verify(notificationDispatcher).dispatch(notificationId, TITLE, MESSAGE);
     }
 
 
     @Test
-    @DisplayName("이미 처리된 명등키면 Slack 호출 없이 기존 결과를 반환한다.")
+    @DisplayName("이미 처리된 멱등키면 발송 위임 없이 기존 결과를 반환한다.")
     void send_duplicateIdempotencyKey_returnsExistingWithoutSending(){
         Notification existing = pendingNotification();
         existing.markSent();
@@ -89,32 +87,27 @@ public class NotificationServiceTest {
 
         assertThat(response.notificationId()).isEqualTo(notificationId);
         verify(notificationStore, never()).claim(any());
-        verify(notificationSender, never()).send(any(), any());
+        verify(notificationDispatcher, never()).dispatch(any(), any(), any());
     }
 
     @Test
-    @DisplayName("Slack 발송에 실패해도 예외 없이 FAILED로 기록된 결과를 반환한다.")
-    void send_slackSendFails_recordFailedAnyReturnsNormally(){
+    @DisplayName("발송 스레드풀이 포화되어 비동기 위임이 거부되면 FAILED로 마감한다.")
+    void send_dispatchRejected_marksFailed(){
         Notification claimed = pendingNotification();
-        Notification failed = pendingNotification();
-        failed.markFail("timeout");
-        SlackSendResult fail = SlackSendResult.fail("timeout");
 
-        when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+        when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty(), Optional.of(claimed));
         when(notificationStore.claim(any(Notification.class))).thenReturn(claimed);
-        when(notificationSender.send(TITLE, MESSAGE)).thenReturn(fail);
-        when(notificationStore.complete(failed.getId(), fail)).thenReturn(failed);
+        doThrow(new RejectedExecutionException("queue full"))
+                .when(notificationDispatcher).dispatch(any(), any(), any());
 
-        NotificationResponse response = notificationCommandService.send(
-                idempotencyKey, request()
-        );
+        NotificationResponse response = notificationCommandService.send(idempotencyKey, request());
 
-        assertThat(response.status()).isEqualTo(NotificationStatus.FAILED);
-        verify(notificationSender).send(TITLE, MESSAGE);
+        assertThat(response.notificationId()).isEqualTo(notificationId);
+        verify(notificationStore).complete(eq(notificationId), argThat(r -> !r.success()));
     }
 
     @Test
-    @DisplayName("동시요청으로 claim이 제약 위반이면 제조회한 기존 결과를 반환한다 (멱등)")
+    @DisplayName("동시요청으로 claim이 제약 위반이면 재조회한 기존 결과를 반환한다 (멱등)")
     void send_claimConflict_returnsExistingFromRelookup(){
         Notification existing = pendingNotification();
         existing.markSent();
@@ -126,7 +119,7 @@ public class NotificationServiceTest {
         NotificationResponse response = notificationCommandService.send(idempotencyKey, request());
 
         assertThat(response.notificationId()).isEqualTo(notificationId);
-        verify(notificationSender, never()).send(any(), any());
+        verify(notificationDispatcher, never()).dispatch(any(), any(), any());
     }
 
     @Test

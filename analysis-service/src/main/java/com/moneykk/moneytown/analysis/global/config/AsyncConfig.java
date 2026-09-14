@@ -27,4 +27,18 @@ public class AsyncConfig {
         ex.initialize();
         return ex;
     }
+
+    @Bean(name = "slackSender")
+    public Executor slackSender(){
+        ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+        ex.setCorePoolSize(2);
+        ex.setMaxPoolSize(4);
+        ex.setQueueCapacity(20);
+        ex.setThreadNamePrefix("notification-slack-");
+        ex.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        ex.setWaitForTasksToCompleteOnShutdown(true);
+        ex.setAwaitTerminationSeconds(30);
+        ex.initialize();
+        return ex;
+    }
 }
