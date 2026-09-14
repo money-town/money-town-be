@@ -48,10 +48,16 @@ public record SubscriptionListItemResponse(
         SubscriptionStatus subscriptionStatus,
 
         @Schema(
-                description = "청약 처리 실패 사유 코드. Wallet HOLD 실패 시 WalletHoldFailed.reason을 저장하며, 타임아웃 등 Offering 내부 실패에서는 해당 도메인 코드를 저장합니다.",
+                description = "Wallet HOLD 실패 원인 코드",
                 example = "INSUFFICIENT_AVAILABLE_BALANCE"
         )
-        String failureCode,
+        String walletHoldFailureCode,
+
+        @Schema(
+                description = "Offering 내부 청약 처리 실패 원인 코드",
+                example = "RESERVATION_EXPIRED"
+        )
+        String subscriptionFailureCode,
 
         @Schema(
                 description = "확정된 청약이 공모 측 사유로 취소된 경우의 취소 유형. CANCELLED 상태에서 사용됩니다.",
@@ -83,7 +89,8 @@ public record SubscriptionListItemResponse(
                 subscription.getPricePerUnit(),
                 subscription.getAmount(),
                 subscription.getSubscriptionStatus(),
-                subscription.getFailureCode(),
+                subscription.getWalletHoldFailureCode(),
+                subscription.getSubscriptionFailureCode(),
                 subscription.getCancellationType(),
                 subscription.getCreatedAt(),
                 subscription.getUpdatedAt()

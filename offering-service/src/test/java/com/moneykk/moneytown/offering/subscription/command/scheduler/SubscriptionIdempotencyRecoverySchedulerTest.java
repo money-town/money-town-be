@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.command.scheduler;
 
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionIdempotencyRecoveryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,12 +21,13 @@ class SubscriptionIdempotencyRecoverySchedulerTest {
     private static final int RECOVERY_BATCH_SIZE = 100;
 
     @Mock
-    private SubscriptionIdempotencyRecoveryService
-            subscriptionIdempotencyRecoveryService;
+    private SubscriptionIdempotencyRecoveryService subscriptionIdempotencyRecoveryService;
+
+    @Mock
+    private OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     @InjectMocks
-    private SubscriptionIdempotencyRecoveryScheduler
-            subscriptionIdempotencyRecoveryScheduler;
+    private SubscriptionIdempotencyRecoveryScheduler subscriptionIdempotencyRecoveryScheduler;
 
     @BeforeEach
     void setUp() {
@@ -69,5 +71,8 @@ class SubscriptionIdempotencyRecoverySchedulerTest {
 
         verify(subscriptionIdempotencyRecoveryService)
                 .recoverExpiredProcessing(RECOVERY_BATCH_SIZE);
+
+        verify(offeringSchedulerMetrics)
+                .recordIdempotencyRecoveryFailure();
     }
 }

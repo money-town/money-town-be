@@ -17,7 +17,7 @@ public interface OutboxEventRepository
 
     /**
      * 발행 가능한 PENDING 이벤트를 생성 순서대로 조회하고 잠근다.
-     * <p>
+     *
      * 다른 발행기가 잠근 이벤트는 건너뛴다.
      * 호출한 트랜잭션 안에서 PROCESSING으로 변경해야 한다.
      */
@@ -139,10 +139,41 @@ public interface OutboxEventRepository
             @Param("batchSize") int batchSize
     );
 
+    /*
+     *
+     * 영구 실패 상태인 이벤트 한 건을 다시 발행 대기 상태로 전환한다.
+     *
+     * retry_count를 0으로 초기화하여 관리자가 재처리를 요청한 이후
+     * 설정된 최대 재시도 횟수만큼 다시 시도할 수 있도록 한다.
+     *
+     * 기존 last_error는 운영자가 이전 실패 원인을 확인할 수 있도록
+     * 재발행에 성공하거나 새로운 실패가 발생할 때까지 유지한다.
+     *
+     * @return 상태가 변경된 행 수
+     *         1: FAILED 이벤트를 PENDING으로 변경
+     *         0: 이벤트가 없거나 현재 상태가 FAILED가 아님
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+        UPDATE p_outbox_events
+           SET event_status = 'PENDING',
+               retry_count = 0,
+               processing_started_at = NULL,
+               next_retry_at = CURRENT_TIMESTAMP,
+               published_at = NULL
+         WHERE event_id = :eventId
+           AND event_status = 'FAILED'
+        """, nativeQuery = true)
+    int requeueFailedEvent(
+            @Param("eventId") UUID eventId
+    );
+
     /**
      * 현재 DB에 남아 있는 특정 상태의 Outbox 이벤트 수를 조회한다.
      *
-     * PROCESSING 이벤트 적체 상태를 Micrometer Gauge로 제공할 때 사용한다.
+     * PROCESSING 및 FAILED 이벤트 적체 상태를
+     * Micrometer Gauge로 제공할 때 사용한다.
      */
     long countByEventStatus(OutboxEventStatus eventStatus);
 

@@ -124,6 +124,16 @@ public class SubscriptionCompensation extends BaseEntity {
     }
 
     /**
+     * Wallet 보상 이벤트 재발행을 위해 상태를 다시 대기 상태로 전환한다.
+     *
+     * Wallet 실제 상태가 HELD 또는 COMMITTED인 경우 사용한다.
+     */
+    public void prepareWalletRetry() {
+        this.walletStatus = CompensationStatus.PENDING;
+        this.walletErrorCode = null;
+    }
+
+    /**
      * 검증된 Holding 회수 성공 결과를 반영한다.
      *
      * REVOKED / NO_ACTION 성공 결과에 사용한다.
@@ -148,6 +158,16 @@ public class SubscriptionCompensation extends BaseEntity {
 
         this.holdingStatus = CompensationStatus.FAILED;
         this.holdingErrorCode = validatedErrorCode;
+    }
+
+    /**
+     * Holding 회수 이벤트 재발행을 위해 상태를 다시 대기 상태로 전환한다.
+     *
+     * Holding이 배정됐지만 아직 회수되지 않은 경우 사용한다.
+     */
+    public void prepareHoldingRetry() {
+        this.holdingStatus = CompensationStatus.PENDING;
+        this.holdingErrorCode = null;
     }
 
     /**
