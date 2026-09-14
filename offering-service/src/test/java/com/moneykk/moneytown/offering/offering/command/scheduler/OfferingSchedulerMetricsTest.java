@@ -30,6 +30,12 @@ class OfferingSchedulerMetricsTest {
         metrics.recordOpenScheduledFailure();
         metrics.recordCloseSoldOutFailure();
         metrics.recordUnderSubscribedCancellationFailure();
+        metrics.recordUnderSubscribedItemFailure();
+        metrics.recordSubscriptionTimeoutBatchFailure();
+        metrics.recordSubscriptionTimeoutItemFailure();
+        metrics.recordIdempotencyRecoveryFailure();
+        metrics.recordOutboxPublishBatchFailure();
+        metrics.recordOutboxRecoveryFailure();
 
         assertThat(failureCount("open_scheduled"))
                 .isEqualTo(1.0);
@@ -38,6 +44,24 @@ class OfferingSchedulerMetricsTest {
                 .isEqualTo(1.0);
 
         assertThat(failureCount("under_subscribed_cancellation"))
+                .isEqualTo(1.0);
+
+        assertThat(failureCount("under_subscribed_item"))
+                .isEqualTo(1.0);
+
+        assertThat(failureCount("subscription_timeout_batch"))
+                .isEqualTo(1.0);
+
+        assertThat(failureCount("subscription_timeout_item"))
+                .isEqualTo(1.0);
+
+        assertThat(failureCount("idempotency_recovery"))
+                .isEqualTo(1.0);
+
+        assertThat(failureCount("outbox_publish_batch"))
+                .isEqualTo(1.0);
+
+        assertThat(failureCount("outbox_recovery"))
                 .isEqualTo(1.0);
     }
 

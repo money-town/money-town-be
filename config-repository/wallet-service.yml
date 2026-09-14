@@ -4,6 +4,17 @@ server:
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/wallet_db}
+    hikari:
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:8000}
+  cloud:
+    openfeign:
+      client:
+        config:
+          user-service:
+            connect-timeout: ${USER_SERVICE_CONNECT_TIMEOUT:1000}
+            read-timeout: ${USER_SERVICE_READ_TIMEOUT:2000}
+      circuitbreaker:
+        enabled: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
@@ -13,3 +24,12 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         spring.json.add.type.headers: false
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5

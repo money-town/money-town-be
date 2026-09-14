@@ -30,6 +30,8 @@ class SubscriptionEventPublisherTest {
     private static final String COMPENSATION_REQUESTED_TOPIC =
             "subscription-compensation-requested";
 
+    String failureReasonCode = "INSUFFICIENT_AVAILABLE_BALANCE";
+
     @Mock
     private OutboxEventStore outboxEventStore;
 
@@ -99,7 +101,7 @@ class SubscriptionEventPublisherTest {
     }
 
     @Test
-    @DisplayName("최종 거절된 청약 실패 이벤트를 subscriptionId와 함께 Outbox에 저장한다")
+    @DisplayName("Wallet HOLD 실패 이벤트에 실패 출처와 사유 코드를 포함해 Outbox에 저장한다")
     @SuppressWarnings({"rawtypes", "unchecked"})
     void storesSubscriptionFailedEvent() {
         UUID offeringId = UUID.randomUUID();
@@ -107,7 +109,6 @@ class SubscriptionEventPublisherTest {
         UUID userId = UUID.randomUUID();
 
         String correlationId = UUID.randomUUID().toString();
-        String failureCode = "INSUFFICIENT_BALANCE";
 
         Subscription subscription = Subscription.create(
                 offeringId,
@@ -118,7 +119,7 @@ class SubscriptionEventPublisherTest {
         );
 
         subscription.startHoldFailureCompensation(
-                failureCode
+                failureReasonCode
         );
         subscription.completeHoldFailureRejection();
 
@@ -166,8 +167,10 @@ class SubscriptionEventPublisherTest {
         assertThat(payload.assetId()).isEqualTo(assetId);
         assertThat(payload.subscriptionId())
                 .isEqualTo(subscription.getSubscriptionId());
-        assertThat(payload.failureCode())
-                .isEqualTo(failureCode);
+        assertThat(payload.failureSource())
+                .isEqualTo("WALLET_HOLD");
+        assertThat(payload.failureReasonCode())
+                .isEqualTo(failureReasonCode);
     }
 
     @Test

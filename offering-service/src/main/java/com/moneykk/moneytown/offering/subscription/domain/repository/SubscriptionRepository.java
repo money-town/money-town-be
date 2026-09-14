@@ -1,7 +1,9 @@
 package com.moneykk.moneytown.offering.subscription.domain.repository;
 
+import com.moneykk.moneytown.offering.subscription.domain.entity.HoldingAllocationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 
@@ -20,13 +22,15 @@ import java.util.UUID;
 public interface SubscriptionRepository
         extends JpaRepository<Subscription, UUID> {
 
-    // 1. 청약 상세 조회용
+    // 청약 상세 조회용
     Optional<Subscription> findBySubscriptionIdAndIsDeletedFalse(
             UUID subscriptionId
     );
 
-    // 2. 존재 여부 확인
-    // 동일 사용자의 동일 공모 중복 청약 방지용
+    /**
+     * 존재 여부 확인
+     * 동일 사용자의 동일 공모 중복 청약 방지에 사용한다.
+     */
     boolean existsByOfferingIdAndUserIdAndIsDeletedFalse(
             UUID offeringId,
             UUID userId
@@ -36,11 +40,8 @@ public interface SubscriptionRepository
     boolean existsByOfferingId(UUID offeringId);
 
     /**
-     * CANCELLED 공모 상세 조회 시
-     * 해당 투자자가 실제 공모 취소 보상 대상이었는지 확인한다.
-     *
-     * 보상 완료 후 Subscription이 CANCELLED 상태로 전환되고,
-     * 공모 취소 사유가 기록된 청약만 관련 투자자로 판단한다.
+     * CANCELLED 공모 상세 조회 시 해당 투자자가
+     * 실제 공모 취소 보상 대상이었는지 확인한다.
      */
     boolean existsByOfferingIdAndUserIdAndSubscriptionStatusAndCancellationTypeIsNotNullAndIsDeletedFalse(
             UUID offeringId,
@@ -72,8 +73,9 @@ public interface SubscriptionRepository
             @Param("offeringId") UUID offeringId
     );
 
-    // 3. 단일 청약 상태 변경을 위한 조회
     /**
+     * 단일 청약 상태 변경을 위한 조회
+     *
      * 공모를 먼저 잠그기 위해 청약의 공모 ID만 조회한다.
      * 청약 엔티티 자체는 이후 잠금 조회로 가져온다.
      */
@@ -105,12 +107,11 @@ public interface SubscriptionRepository
     );
 
 
-    // 4. 여러 청약 상태 변경을 위한 잠금 조회
     /**
      * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
      *
-     * PROCESSING, CONFIRMED 상태이면서
-     * 삭제되지 않은 청약만 조회한다.
+     * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 등 전달받은 상태에
+     * 해당하면서 삭제되지 않은 청약만 잠금 조회한다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -120,17 +121,116 @@ public interface SubscriptionRepository
     );
 
     /**
-     * 예약 유효시간이 만료된 PROCESSING 청약을 조회한다.
+     * SOLD_OUT 공모의 최종 확정을 위해
+     * 현재 수량이 확보되어 있는 모든 청약을 잠금 조회한다.
      *
-     * 장시간 처리 중인 청약의 timeout 처리를 위해
-     * Pageable을 사용하여 배치 단위로 조회한다.
+     * Hold 실패 후 수량이 복원된 REJECTED 청약은
+     * quantityReserved=false이므로 조회 대상에서 제외한다.
+     *
+     * 공모 취소 처리와 잠금 순서를 통일하기 위해
+     * 호출하는 서비스에서 공모를 먼저 잠근 후 이 메서드를 호출해야 한다.
+     *
+     * subscriptionId 순서로 잠가 동시 처리 시 교착 가능성을 줄인다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    List<Subscription> findAllBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
-            SubscriptionStatus subscriptionStatus,
-            Instant reservationExpiresAt,
+    @Query("""
+        SELECT s
+          FROM Subscription s
+         WHERE s.offeringId = :offeringId
+           AND s.quantityReserved = true
+           AND s.isDeleted = false
+         ORDER BY s.subscriptionId
+        """)
+    List<Subscription> findAllReservedByOfferingIdForUpdate(
+            @Param("offeringId") UUID offeringId
+    );
+
+    /**
+     * 예약 유효시간이 만료된 PROCESSING 청약의
+     * 첫 번째 배치를 조회한다.
+     *
+     * 이 메서드는 처리 대상과 키셋 커서만 조회하며
+     * 청약 행을 잠그지 않는다.
+     *
+     * 실제 상태 검증, 잠금, 보상 정보 생성 및 Outbox 저장은
+     * SubscriptionTimeoutTransactionService에서
+     * 청약 한 건마다 별도 트랜잭션으로 처리한다.
+     */
+    @Query("""
+    SELECT new com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget(
+               s.subscriptionId,
+               s.reservationExpiresAt
+           )
+      FROM Subscription s
+     WHERE s.subscriptionStatus =
+           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
+       AND s.reservationExpiresAt <= :now
+       AND s.isDeleted = false
+     ORDER BY s.reservationExpiresAt ASC,
+              s.subscriptionId ASC
+    """)
+    List<ExpiredProcessingSubscriptionTarget>
+    findExpiredProcessingSubscriptionTargets(
+            @Param("now") Instant now,
             Pageable pageable
     );
 
+    /**
+     * 주어진 키셋 커서 이후의 만료된 PROCESSING 청약을 조회한다.
+     *
+     * 이전 배치에서 처리에 실패한 청약이 PROCESSING 상태로
+     * 남아 있어도 같은 실행에서는 후속 청약을 계속 조회한다.
+     */
+    @Query("""
+    SELECT new com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget(
+               s.subscriptionId,
+               s.reservationExpiresAt
+           )
+      FROM Subscription s
+     WHERE s.subscriptionStatus =
+           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
+       AND s.reservationExpiresAt <= :now
+       AND s.isDeleted = false
+       AND (
+           s.reservationExpiresAt > :lastReservationExpiresAt
+           OR (
+               s.reservationExpiresAt = :lastReservationExpiresAt
+               AND s.subscriptionId > :lastSubscriptionId
+           )
+       )
+     ORDER BY s.reservationExpiresAt ASC,
+              s.subscriptionId ASC
+    """)
+    List<ExpiredProcessingSubscriptionTarget>
+    findExpiredProcessingSubscriptionTargetsAfter(
+            @Param("now") Instant now,
+            @Param("lastReservationExpiresAt") Instant lastReservationExpiresAt,
+            @Param("lastSubscriptionId") UUID lastSubscriptionId,
+            Pageable pageable
+    );
+
+    /**
+     * 예약 시간이 지났지만 PROCESSING에 남은 청약 수를 조회한다.
+     */
+    long countBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
+            SubscriptionStatus subscriptionStatus,
+            Instant now
+    );
+
+    /**
+     * Holding 배정 결과를 일정 시간 이상 기다리는 청약 수를 조회한다.
+     */
+    long countBySubscriptionStatusAndHoldingAllocationStatusAndUpdatedAtLessThanEqualAndIsDeletedFalse(
+            SubscriptionStatus subscriptionStatus,
+            HoldingAllocationStatus holdingAllocationStatus,
+            Instant updatedBefore
+    );
+
+    /**
+     * 특정 상태의 삭제되지 않은 청약 수를 조회한다.
+     */
+    long countBySubscriptionStatusAndIsDeletedFalse(
+            SubscriptionStatus subscriptionStatus
+    );
 }

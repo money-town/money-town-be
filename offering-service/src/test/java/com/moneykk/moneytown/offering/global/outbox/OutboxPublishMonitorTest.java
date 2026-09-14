@@ -106,7 +106,6 @@ class OutboxPublishMonitorTest {
         assertThat(failureTimer.count())
                 .isZero();
 
-        // 슬롯이 반환되어 다시 최대 개수만큼 확보할 수 있다.
         int reservedAgain =
                 monitor.reserveSlots(2);
 
@@ -160,8 +159,6 @@ class OutboxPublishMonitorTest {
                 monitor.startAttempt();
 
         monitor.completeSuccess(attempt);
-
-        // 같은 콜백의 예외 처리 경로가 다시 호출된 상황을 가정한다.
         monitor.completeFailure(attempt);
 
         assertThat(inFlightGaugeValue())
@@ -183,7 +180,6 @@ class OutboxPublishMonitorTest {
         assertThat(failureTimer.count())
                 .isZero();
 
-        // 중복 반환이 없었으므로 최대 두 개만 다시 확보할 수 있다.
         int reservedAgain =
                 monitor.reserveSlots(3);
 
@@ -219,42 +215,155 @@ class OutboxPublishMonitorTest {
                 .isZero();
     }
 
+    /*
+     * PENDING, PROCESSING, FAILED 건수가 각각의 Gauge에 반영되는지 확인한다.
+     */
     @Test
-    @DisplayName("DB의 PROCESSING 이벤트 건수를 Gauge에 반영한다")
-    void refreshesProcessingEventCount() {
+    @DisplayName("DB의 PENDING, PROCESSING, FAILED 이벤트 건수를 Gauge에 반영한다")
+    void refreshesOutboxEventCounts() {
+        // given
+        when(outboxPublishService.countPendingEvents())
+                .thenReturn(11L);
+
         when(outboxPublishService.countProcessingEvents())
                 .thenReturn(7L);
 
-        monitor.refreshProcessingEventCount();
+        when(outboxPublishService.countFailedEvents())
+                .thenReturn(3L);
+
+        // when
+        monitor.refreshEventCounts();
+
+        // then
+        assertThat(pendingGaugeValue())
+                .isEqualTo(11.0);
 
         assertThat(processingGaugeValue())
                 .isEqualTo(7.0);
 
+        assertThat(failedGaugeValue())
+                .isEqualTo(3.0);
+
+        verify(outboxPublishService)
+                .countPendingEvents();
+
         verify(outboxPublishService)
                 .countProcessingEvents();
+
+        verify(outboxPublishService)
+                .countFailedEvents();
     }
 
+    /*
+     * PROCESSING 조회 실패가 FAILED Gauge 갱신을 막지 않는지 확인한다.
+     */
     @Test
-    @DisplayName("PROCESSING 건수 조회가 실패하면 기존 Gauge 값을 유지한다")
-    void keepsPreviousProcessingCountWhenRefreshFails() {
+    @DisplayName("PROCESSING 조회가 실패해도 FAILED 건수는 계속 갱신한다")
+    void refreshesFailedCountWhenProcessingRefreshFails() {
+        // given
         when(outboxPublishService.countProcessingEvents())
                 .thenReturn(4L)
-                .thenThrow(new IllegalStateException("DB unavailable"));
+                .thenThrow(
+                        new IllegalStateException(
+                                "PROCESSING 조회 실패"
+                        )
+                );
 
-        monitor.refreshProcessingEventCount();
+        when(outboxPublishService.countFailedEvents())
+                .thenReturn(2L)
+                .thenReturn(5L);
+
+        monitor.refreshEventCounts();
 
         assertThat(processingGaugeValue())
                 .isEqualTo(4.0);
 
+        assertThat(failedGaugeValue())
+                .isEqualTo(2.0);
+
+        // when
         assertThatCode(
-                () -> monitor.refreshProcessingEventCount()
+                () -> monitor.refreshEventCounts()
         ).doesNotThrowAnyException();
 
+        // then
+        /*
+         * PROCESSING은 직전 값 4를 유지하고,
+         * FAILED는 새로운 값 5로 갱신돼야 한다.
+         */
         assertThat(processingGaugeValue())
-                . isEqualTo(4.0);
+                .isEqualTo(4.0);
+
+        assertThat(failedGaugeValue())
+                .isEqualTo(5.0);
 
         verify(outboxPublishService, times(2))
                 .countProcessingEvents();
+
+        verify(outboxPublishService, times(2))
+                .countFailedEvents();
+    }
+
+    /*
+     * FAILED 조회 실패가 PROCESSING Gauge 갱신을 막지 않는지 확인한다.
+     */
+    @Test
+    @DisplayName("FAILED 조회가 실패해도 PROCESSING 건수는 계속 갱신한다")
+    void refreshesProcessingCountWhenFailedRefreshFails() {
+        // given
+        when(outboxPublishService.countProcessingEvents())
+                .thenReturn(4L)
+                .thenReturn(8L);
+
+        when(outboxPublishService.countFailedEvents())
+                .thenReturn(3L)
+                .thenThrow(
+                        new IllegalStateException(
+                                "FAILED 조회 실패"
+                        )
+                );
+
+        monitor.refreshEventCounts();
+
+        assertThat(processingGaugeValue())
+                .isEqualTo(4.0);
+
+        assertThat(failedGaugeValue())
+                .isEqualTo(3.0);
+
+        // when
+        assertThatCode(
+                () -> monitor.refreshEventCounts()
+        ).doesNotThrowAnyException();
+
+        // then
+        /*
+         * PROCESSING은 새로운 값 8로 갱신되고,
+         * FAILED는 직전 값 3을 유지해야 한다.
+         */
+        assertThat(processingGaugeValue())
+                .isEqualTo(8.0);
+
+        assertThat(failedGaugeValue())
+                .isEqualTo(3.0);
+
+        verify(outboxPublishService, times(2))
+                .countProcessingEvents();
+
+        verify(outboxPublishService, times(2))
+                .countFailedEvents();
+    }
+
+    @Test
+    @DisplayName("복구된 Outbox 이벤트 수를 누적 기록한다")
+    void recordsRecoveredEventCount() {
+        // when
+        monitor.recordRecoveredEvents(3);
+        monitor.recordRecoveredEvents(2);
+
+        // then
+        assertThat(recoveredEventCount())
+                .isEqualTo(5.0);
     }
 
     @Test
@@ -268,7 +377,9 @@ class OutboxPublishMonitorTest {
                 )
         )
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("maxInFlight는 1 이상이어야 합니다.");
+                .hasMessage(
+                        "maxInFlight는 1 이상이어야 합니다."
+                );
     }
 
     @Test
@@ -278,7 +389,9 @@ class OutboxPublishMonitorTest {
                 () -> monitor.reserveSlots(0)
         )
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("requestedCount는 1 이상이어야 합니다.");
+                .hasMessage(
+                        "requestedCount는 1 이상이어야 합니다."
+                );
     }
 
     @Test
@@ -288,7 +401,9 @@ class OutboxPublishMonitorTest {
                 () -> monitor.releaseUnusedSlots(-1)
         )
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("반환할 슬롯 수는 음수일 수 없습니다.");
+                .hasMessage(
+                        "반환할 슬롯 수는 음수일 수 없습니다."
+                );
     }
 
     private double inFlightGaugeValue() {
@@ -298,10 +413,34 @@ class OutboxPublishMonitorTest {
                 .value();
     }
 
+    private double pendingGaugeValue() {
+        return meterRegistry
+                .get("outbox.events.pending")
+                .gauge()
+                .value();
+    }
+
     private double processingGaugeValue() {
         return meterRegistry
                 .get("outbox.events.processing")
                 .gauge()
                 .value();
+    }
+
+    /*
+     * FAILED Gauge 값을 테스트에서 조회한다.
+     */
+    private double failedGaugeValue() {
+        return meterRegistry
+                .get("outbox.events.failed")
+                .gauge()
+                .value();
+    }
+
+    private double recoveredEventCount() {
+        return meterRegistry
+                .get("outbox.events.recovered")
+                .counter()
+                .count();
     }
 }

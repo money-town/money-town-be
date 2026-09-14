@@ -58,7 +58,7 @@ public class RevenueQueryRepositoryImpl implements RevenueQueryRepository {
                 .selectFrom(revenue)
                 .where(
                         revenue.transferStatus.eq(RevenueTransferStatus.READY),
-                        cursorCondition(cursor, direction)
+                        cursorCondition(cursor, direction, revenue.transferStatus.eq(RevenueTransferStatus.READY))
                 )
                 // 등록일과 ID를 같은 방향으로 정렬
                 .orderBy(
@@ -81,7 +81,7 @@ public class RevenueQueryRepositoryImpl implements RevenueQueryRepository {
                 .selectFrom(revenue)
                 .where(
                         revenue.assetId.eq(assetId),
-                        cursorCondition(cursor, direction)
+                        cursorCondition(cursor, direction, revenue.assetId.eq(assetId))
                 )
                 // 등록일과 ID를 같은 방향으로 정렬
                 .orderBy(
@@ -95,16 +95,23 @@ public class RevenueQueryRepositoryImpl implements RevenueQueryRepository {
     /**
      * 등록일 정렬 방향에 맞는 커서 조건
      */
-    private BooleanExpression cursorCondition(UUID cursor, Sort.Direction direction) {
+    private BooleanExpression cursorCondition(
+            UUID cursor,
+            Sort.Direction direction,
+            BooleanExpression scopeCondition
+    ) {
         if (cursor == null) {
             return null;
         }
 
-        // 커서 수익의 등록 시간 조회
+        // 현재 조회 범위에 속하는 커서의 등록 시간 조회
         Instant createdAt = queryFactory
                 .select(revenue.createdAt)
                 .from(revenue)
-                .where(revenue.id.eq(cursor))
+                .where(
+                        revenue.id.eq(cursor),
+                        scopeCondition
+                )
                 .fetchOne();
 
         if (createdAt == null) {
@@ -114,12 +121,13 @@ public class RevenueQueryRepositoryImpl implements RevenueQueryRepository {
         }
 
         if (direction.isAscending()) {
-            // 더 나중에 등록된 수익, 같은 시간이면 큰 ID
             return revenue.createdAt.gt(createdAt)
-                    .or(revenue.createdAt.eq(createdAt).and(revenue.id.gt(cursor)));
+                    .or(
+                            revenue.createdAt.eq(createdAt)
+                                    .and(revenue.id.gt(cursor))
+                    );
         }
 
-        // 더 오래된 수익, 같은 시간이면 작은 ID
         return revenue.createdAt.lt(createdAt)
                 .or(
                         revenue.createdAt.eq(createdAt)

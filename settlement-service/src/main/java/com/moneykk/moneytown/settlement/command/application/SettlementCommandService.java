@@ -162,7 +162,7 @@ public class SettlementCommandService {
 
     private RevenueResponse fetchAndValidateRevenue(UUID assetId, UUID revenueId) {
         RevenueResponse revenue = FeignExceptionTranslator.call(
-                () -> assetServiceClient.getRevenue(assetId, revenueId).data(),
+                () -> assetServiceClient.getRevenue(assetId, revenueId, "SYSTEM").data(),
                 SettlementErrorCode.ASSET_REVENUE_NOT_FOUND);
 
         if (!assetId.equals(revenue.assetId())) {

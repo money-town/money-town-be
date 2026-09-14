@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.global.outbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.support.SendResult;
@@ -27,6 +28,7 @@ public class OutboxPublishScheduler {
 
     private final Executor outboxPublishCallbackExecutor;
     private final OutboxPublishMonitor outboxPublishMonitor;
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     @Value("${outbox.publish.batch-size:10}")
     private int batchSize;
@@ -41,18 +43,16 @@ public class OutboxPublishScheduler {
 
             @Qualifier("outboxPublishCallbackExecutor")
             Executor outboxPublishCallbackExecutor,
-            OutboxPublishMonitor outboxPublishMonitor
+            OutboxPublishMonitor outboxPublishMonitor,
+            OfferingSchedulerMetrics offeringSchedulerMetrics
     ) {
         this.outboxPublishService = outboxPublishService;
         this.outboxKafkaPublisher = outboxKafkaPublisher;
         this.objectMapper = objectMapper;
-
         this.outboxPublishExecutor = outboxPublishExecutor;
-
-        this.outboxPublishCallbackExecutor =
-                outboxPublishCallbackExecutor;
-
+        this.outboxPublishCallbackExecutor = outboxPublishCallbackExecutor;
         this.outboxPublishMonitor = outboxPublishMonitor;
+        this.offeringSchedulerMetrics = offeringSchedulerMetrics;
     }
 
     @Scheduled(fixedDelayString = "${outbox.publish.fixed-delay-ms:1000}")
@@ -65,6 +65,7 @@ public class OutboxPublishScheduler {
             reservedSlots =
                     outboxPublishMonitor.reserveSlots(batchSize);
         } catch (Exception e) {
+            offeringSchedulerMetrics.recordOutboxPublishBatchFailure();
             log.error("Outbox 발행 슬롯 확보 실패", e);
             return;
         }
@@ -82,10 +83,10 @@ public class OutboxPublishScheduler {
                     reservedSlots
             );
         } catch (Exception e) {
+            offeringSchedulerMetrics.recordOutboxPublishBatchFailure();
+
             // DB 선점 실패 시 미리 확보한 슬롯을 모두 반환한다.
-            outboxPublishMonitor.releaseUnusedSlots(
-                    reservedSlots
-            );
+            outboxPublishMonitor.releaseUnusedSlots(reservedSlots);
 
             log.error("Outbox 이벤트 선점 실패", e);
             return;
@@ -290,11 +291,14 @@ public class OutboxPublishScheduler {
             int recovered =
                     outboxPublishService.recoverExpiredProcessing(100);
 
+            outboxPublishMonitor.recordRecoveredEvents(recovered);
+
             if (recovered > 0) {
                 log.warn("처리 기한을 초과한 Outbox 이벤트 복구. count={}",
                         recovered);
             }
         } catch (Exception e) {
+            offeringSchedulerMetrics.recordOutboxRecoveryFailure();
             log.error("Outbox PROCESSING 복구 실패", e);
         }
     }

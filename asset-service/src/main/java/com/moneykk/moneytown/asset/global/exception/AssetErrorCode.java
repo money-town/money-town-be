@@ -34,6 +34,7 @@ public enum AssetErrorCode implements ErrorCode {
     HOLDING_READ_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_10", "내 보유지분을 조회할 권한이 없습니다."),
     HOLDING_ADJUSTMENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_11", "보유지분을 조정할 권한이 없습니다."),
     INTERNAL_API_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_12", "내부 API는 SYSTEM 권한으로만 호출할 수 있습니다."),
+    REVENUE_READ_ACCESS_DENIED(HttpStatus.FORBIDDEN, "ASSET_403_13", "수익 단건 조회는 SYSTEM 권한으로만 호출할 수 있습니다."),
 
     ASSET_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_01", "존재하지 않는 자산입니다."),
     REVENUE_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSET_404_02", "존재하지 않는 수익입니다."),
@@ -51,6 +52,7 @@ public enum AssetErrorCode implements ErrorCode {
     INVALID_ASSET_STATUS_TRANSITION(HttpStatus.CONFLICT, "ASSET_409_09", "허용되지 않은 자산 상태 변경입니다."),
     ASSET_DELETE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_10", "작성 중이거나 반려된 자산만 삭제할 수 있습니다."),
     HOLDING_ALLOCATION_BLOCKED(HttpStatus.CONFLICT, "ASSET_409_11", "회수 또는 보상 처리된 청약에는 지분을 배정할 수 없습니다."),
+    REVENUE_REGISTRATION_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_12", "승인되어 운영 중인 자산에만 수익을 등록할 수 있습니다."),
 
     ASSET_DOCUMENT_STORAGE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "ASSET_500_01", "자산 문서 저장소 처리에 실패했습니다.");
 

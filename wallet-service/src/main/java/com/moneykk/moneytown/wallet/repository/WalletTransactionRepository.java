@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface WalletTransactionRepository extends JpaRepository<WalletTransaction, Long> {
@@ -35,4 +36,12 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
                                              Pageable pageable);
 
     Optional<WalletTransaction> findByIdempotencyKey(String idempotencyKey);
+
+    // 지갑별 마지막 거래의 balance_after = 그 지갑의 기대 잔액.
+    @Query(value = """
+            SELECT DISTINCT ON (wallet_id) wallet_id AS "walletId", balance_after AS "balanceAfter"
+            FROM p_wallet_transactions
+            ORDER BY wallet_id, transaction_id DESC
+            """, nativeQuery = true)
+    List<WalletLedgerSnapshot> findLatestBalanceAfterPerWallet();
 }

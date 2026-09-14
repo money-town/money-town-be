@@ -240,9 +240,7 @@ public class Offering extends BaseUpdatableEntity {
      * 현재 정책에서는 DRAFT 상태에서만 수정할 수 있으므로,
      * totalQuantity 변경 시 remainingQuantity도 동일한 값으로 초기화한다.
      *
-     * TODO:
-     * REJECTED 상태 수정 및 재심사를 허용할 경우
-     * remainingQuantity 초기화 정책을 다시 검토한다.
+     * REJECTED 상태의 수정 및 재심사는 현재 지원하지 않는다.
      */
     public void update(
             String title,

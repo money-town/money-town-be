@@ -1,8 +1,10 @@
 package com.moneykk.moneytown.offering.global.outbox;
 
 import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Counter;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,15 +25,23 @@ public class OutboxPublishMonitor {
     private final Semaphore publishSlots;
 
     // 현재 애플리케이션 인스턴스에서 발행 처리 중인 이벤트 수
-    private final AtomicInteger inFlightCount =
-            new AtomicInteger();
+    private final AtomicInteger inFlightCount = new AtomicInteger();
 
     // DB에 남아 있는 PROCESSING 이벤트 수를 메트릭으로 보관
-    private final AtomicLong processingEventCount =
-            new AtomicLong();
+    private final AtomicLong processingEventCount = new AtomicLong();
+
+    // DB에 남아 있는 FAILED 이벤트 수
+    private final AtomicLong failedEventCount = new AtomicLong();
+
+    // DB에서 Kafka 발행을 기다리는 PENDING 이벤트 수
+    private final AtomicLong pendingEventCount = new AtomicLong();
+
+    // 처리 기한을 초과하여 복구된 Outbox 이벤트 누적 수
+    private final Counter recoveredEventCounter;
 
     private final Timer successLatency;
     private final Timer failureLatency;
+
     private final OutboxPublishService outboxPublishService;
 
     public OutboxPublishMonitor(
@@ -62,6 +72,16 @@ public class OutboxPublishMonitor {
                 )
                 .register(meterRegistry);
 
+        Gauge.builder(
+                        "outbox.events.pending",
+                        pendingEventCount,
+                        AtomicLong::get
+                )
+                .description(
+                        "DB에서 Kafka 발행을 기다리는 PENDING Outbox 이벤트 수"
+                )
+                .register(meterRegistry);
+
         // DB에서 PROCESSING 상태인 Outbox 이벤트 수
         Gauge.builder(
                         "outbox.events.processing",
@@ -70,6 +90,17 @@ public class OutboxPublishMonitor {
                 )
                 .description(
                         "DB에서 PROCESSING 상태인 Outbox 이벤트 수"
+                )
+                .register(meterRegistry);
+
+        // DB에서 FAILED 상태인 Outbox 이벤트 수
+        Gauge.builder(
+                        "outbox.events.failed",
+                        failedEventCount,
+                        AtomicLong::get
+                )
+                .description(
+                        "DB에서 FAILED 상태인 Outbox 이벤트 수"
                 )
                 .register(meterRegistry);
 
@@ -88,6 +119,29 @@ public class OutboxPublishMonitor {
                 .description("Outbox Kafka 발행 처리 시간")
                 .tag("result", "failure")
                 .register(meterRegistry);
+
+        this.recoveredEventCounter = Counter.builder(
+                        "outbox.events.recovered"
+                )
+                .description(
+                        "처리 기한을 초과하여 복구된 Outbox 이벤트 수"
+                )
+                .register(meterRegistry);
+    }
+
+    /**
+     * 처리 기한을 초과하여 복구된 Outbox 이벤트 수를 기록한다.
+     */
+    public void recordRecoveredEvents(int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException(
+                    "복구 이벤트 수는 음수일 수 없습니다."
+            );
+        }
+
+        if (count > 0) {
+            recoveredEventCounter.increment(count);
+        }
     }
 
     /**
@@ -194,9 +248,13 @@ public class OutboxPublishMonitor {
     }
 
     /**
-     * DB의 PROCESSING 건수를 주기적으로 갱신한다.
+     * DB에 남아 있는 PROCESSING 및 FAILED 이벤트 건수를
+     * 주기적으로 조회하여 Gauge 값을 갱신한다.
      *
-     * 실제 쿼리는 다음 단계에서 OutboxPublishService에 추가한다.
+     * 각 상태 조회는 독립적으로 처리하여 한쪽 조회가 실패해도
+     * 다른 상태의 메트릭은 계속 갱신한다.
+     *
+     * 조회에 실패하면 해당 Gauge의 직전 값을 유지한다.
      */
     @Scheduled(
             initialDelayString =
@@ -204,7 +262,19 @@ public class OutboxPublishMonitor {
             fixedDelayString =
                     "${outbox.metrics.refresh-delay-ms:5000}"
     )
-    public void refreshProcessingEventCount() {
+    public void refreshEventCounts() {
+
+        try {
+            pendingEventCount.set(
+                    outboxPublishService.countPendingEvents()
+            );
+        } catch (Exception e) {
+            log.warn(
+                    "Outbox PENDING 건수 메트릭 갱신 실패",
+                    e
+            );
+        }
+
         try {
             processingEventCount.set(
                     outboxPublishService.countProcessingEvents()
@@ -213,6 +283,17 @@ public class OutboxPublishMonitor {
             // 조회 실패 시 직전 메트릭 값을 유지한다.
             log.warn(
                     "Outbox PROCESSING 건수 메트릭 갱신 실패",
+                    e
+            );
+        }
+
+        try {
+            failedEventCount.set(
+                    outboxPublishService.countFailedEvents()
+            );
+        } catch (Exception e) {
+            log.warn(
+                    "Outbox FAILED 건수 메트릭 갱신 실패",
                     e
             );
         }

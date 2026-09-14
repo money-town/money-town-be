@@ -33,4 +33,4 @@ spring:
 aws:
   region: ${AWS_REGION:ap-northeast-2}
   s3:
-    bucket: ${AWS_S3_BUCKET:money-town-assets}
+    bucket: ${AWS_S3_BUCKET:moneytown-asset}

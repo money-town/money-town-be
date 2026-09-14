@@ -6,10 +6,12 @@ import com.moneykk.moneytown.analysis.notification.domain.repository.Notificatio
 import com.moneykk.moneytown.analysis.notification.infrastructure.slack.SlackSendResult;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +22,7 @@ import java.util.UUID;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class NotificationStore {
 
     private final NotificationRepository notificationRepository;
@@ -38,16 +41,23 @@ public class NotificationStore {
         return notificationRepository.saveAndFlush(notification);
     }
 
-    /** 발송 결과(SENT/FAILED)를 별도 트랜잭션으로 기록한다. */
+    /**
+     * 발송 결과(SENT/FAILED)를 별도 트랜잭션으로 기록한다.
+     * id + status(PENDING)를 조건으로 건 원자적 UPDATE라서, {@link NotificationStaleReaper}의
+     * 벌크 정리와 동시에 실행돼도 늦게 도착한 쪽이 먼저 끝난 쪽을 덮어쓰지 않는다.
+     * (PENDING이 아니면 0건 갱신 → 이미 처리된 것으로 보고 조용히 무시)
+     */
     @Transactional
     public Notification complete(UUID notificationId, SlackSendResult result) {
-        Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new BusinessException(AnalysisErrorCode.NOTIFICATION_NOT_FOUND));
-        if (result.success()) {
-            notification.markSent();
-        } else {
-            notification.markFail(result.errorMessage());
+        int updated = result.success()
+                ? notificationRepository.completeIfPending(notificationId, Instant.now())
+                : notificationRepository.failIfPending(notificationId, result.errorMessage(), Instant.now());
+
+        if (updated == 0) {
+            log.warn("알림 {} 가 PENDING 상태가 아니라 complete를 무시합니다 (이미 처리됨).", notificationId);
         }
-        return notification;
+
+        return notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new BusinessException(AnalysisErrorCode.NOTIFICATION_NOT_FOUND));
     }
 }
