@@ -14,6 +14,7 @@ import com.moneykk.moneytown.asset.service.HoldingCommandService;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -40,60 +41,66 @@ public class HoldingRevocationEventConsumer {
         EventEnvelope<SubscriptionCompensationRequestedPayload> event =
                 readEvent(message);
 
-        if (!EVENT_TYPE.equals(event.eventType())) {
-            throw new IllegalArgumentException(
-                    "지원하지 않는 이벤트입니다: "
-                            + event.eventType()
-            );
-        }
-
-        UUID subscriptionId =
-                UUID.fromString(event.aggregateId());
-
-        SubscriptionCompensationRequestedPayload payload =
-                event.payload();
-
         try {
-            // 청약 잠금 이후 최신 배정 이력으로 회수 처리
-            HoldingRevocationResponse response =
-                    holdingCommandService.revokeBySubscription(
-                            payload.assetId(),
-                            event.userId(),
-                            new HoldingRevocationRequest(
-                                    subscriptionId,
-                                    payload.reason()
-                            )
-                    );
+            MDC.put("requestId", event.correlationId());
 
-            holdingEventPublisher.publishRevocationSucceeded(
-                    subscriptionId,
-                    event.userId(),
-                    event.correlationId(),
-                    new HoldingRevocationSucceededPayload(
-                            payload.assetId(),
-                            response.holdingId(),
-                            response.quantity(),
-                            response.result().name(),
-                            response.noActionReason()
-                    )
-            );
-        } catch (BusinessException exception) {
-            String errorCode =
-                    exception.getErrorCode() instanceof AssetErrorCode assetErrorCode
-                            ? assetErrorCode.name()
-                            : exception.getErrorCode().getCode();
+            if (!EVENT_TYPE.equals(event.eventType())) {
+                throw new IllegalArgumentException(
+                        "지원하지 않는 이벤트입니다: "
+                                + event.eventType()
+                );
+            }
 
-            holdingEventPublisher.publishRevocationFailed(
-                    subscriptionId,
-                    event.userId(),
-                    event.correlationId(),
-                    new HoldingRevocationFailedPayload(
-                            payload.assetId(),
-                            errorCode,
-                            exception.getErrorCode().getMessage(),
-                            false
-                    )
-            );
+            UUID subscriptionId =
+                    UUID.fromString(event.aggregateId());
+
+            SubscriptionCompensationRequestedPayload payload =
+                    event.payload();
+
+            try {
+                // 청약 잠금 이후 최신 배정 이력으로 회수 처리
+                HoldingRevocationResponse response =
+                        holdingCommandService.revokeBySubscription(
+                                payload.assetId(),
+                                event.userId(),
+                                new HoldingRevocationRequest(
+                                        subscriptionId,
+                                        payload.reason()
+                                )
+                        );
+
+                holdingEventPublisher.publishRevocationSucceeded(
+                        subscriptionId,
+                        event.userId(),
+                        event.correlationId(),
+                        new HoldingRevocationSucceededPayload(
+                                payload.assetId(),
+                                response.holdingId(),
+                                response.quantity(),
+                                response.result().name(),
+                                response.noActionReason()
+                        )
+                );
+            } catch (BusinessException exception) {
+                String errorCode =
+                        exception.getErrorCode() instanceof AssetErrorCode assetErrorCode
+                                ? assetErrorCode.name()
+                                : exception.getErrorCode().getCode();
+
+                holdingEventPublisher.publishRevocationFailed(
+                        subscriptionId,
+                        event.userId(),
+                        event.correlationId(),
+                        new HoldingRevocationFailedPayload(
+                                payload.assetId(),
+                                errorCode,
+                                exception.getErrorCode().getMessage(),
+                                false
+                        )
+                );
+            }
+        } finally {
+            MDC.remove("requestId");
         }
     }
 

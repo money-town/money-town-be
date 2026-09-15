@@ -3,6 +3,7 @@ package com.moneykk.moneytown.wallet.controller;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletHoldStatusResponse;
 import com.moneykk.moneytown.wallet.service.WalletService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,6 +18,7 @@ import java.util.UUID;
 
 // Offering(Subscription 도메인)이 관리자 재처리·보상 처리 시 호출하는 내부 전용 조회 API.
 // 상태 변경은 Kafka 이벤트 기반 그대로 유지, 이 API는 순수 조회 전용.
+@Hidden
 @Tag(name = "Wallet Internal", description = "다른 서비스가 서비스 간 호출로만 사용하는 내부 전용 API. 인증/인가 미구현 (TODO)")
 @RestController
 @RequiredArgsConstructor

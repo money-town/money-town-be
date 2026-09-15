@@ -78,11 +78,10 @@ class SettlementCommandServiceTest {
         RevenueResponse revenue = revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                 RevenueTransferStatus.READY);
         stubRevenue(revenue);
-        stubNoPreviousCompletedBatch();
 
         UUID investorId = UUID.randomUUID();
         when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
-                .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L))));
+                .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L, null))));
 
         SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
 
@@ -90,8 +89,6 @@ class SettlementCommandServiceTest {
         assertThat(response.revenueId()).isEqualTo(REVENUE_ID);
         assertThat(response.recordDate()).isEqualTo(RECORD_DATE);
         assertThat(response.totalAmount()).isEqualTo(10_000_000L);
-        assertThat(response.carriedInAmount()).isZero();
-        assertThat(response.remainderAmount()).isZero();
         assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
         assertThat(response.payoutCount()).isEqualTo(1);
 
@@ -122,10 +119,9 @@ class SettlementCommandServiceTest {
         RevenueResponse revenue = revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                 RevenueTransferStatus.READY);
         stubRevenue(revenue);
-        stubNoPreviousCompletedBatch();
 
         when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, explicitRecordDate))
-                .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L))));
+                .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L, null))));
 
         SettlementBatchResponse response =
                 settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, explicitRecordDate);
@@ -146,11 +142,10 @@ class SettlementCommandServiceTest {
             RevenueResponse revenue = revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                     RevenueTransferStatus.READY);
             stubRevenue(revenue);
-            stubNoPreviousCompletedBatch();
 
             UUID investorId = UUID.randomUUID();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
-                    .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L))));
+                    .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), investorId, 100L, null))));
 
             SettlementBatchResponse response = settlementCommandService.openBatchAutomatically(ASSET_ID, REVENUE_ID);
 
@@ -272,9 +267,8 @@ class SettlementCommandServiceTest {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                     RevenueTransferStatus.READY));
-            stubNoPreviousCompletedBatch();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
-                    .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
+                    .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L, null))));
         }
 
         private DataIntegrityViolationException constraintViolation(String constraintName) {
@@ -325,7 +319,6 @@ class SettlementCommandServiceTest {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(1_000_000), BigDecimal.ZERO,
                     RevenueTransferStatus.READY));
-            stubNoPreviousCompletedBatch();
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
@@ -333,34 +326,6 @@ class SettlementCommandServiceTest {
                     .isEqualTo(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
 
             verifyNoInteractions(holdingSnapshotRepository);
-        }
-
-        @Test
-        @DisplayName("직전 완료 회차의 잔여금이 이번 회차 총액에 이월되고, 소스 배치는 이월 대상으로 마킹된다")
-        void carriesInPreviousRemainder() {
-            stubNoExistingBatch();
-            stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                    RevenueTransferStatus.READY));
-
-            SettlementBatch previousCompletedBatch = SettlementBatch.open(ASSET_ID, UUID.randomUUID(),
-                    RECORD_DATE.minusMonths(1), 500_000L, 0L);
-            previousCompletedBatch.markSnapshotTaken();
-            previousCompletedBatch.markCalculated(777L);
-            ReflectionTestUtils.setField(previousCompletedBatch, "status", SettlementStatus.COMPLETED);
-            when(settlementBatchRepository
-                    .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndRemainderAmountGreaterThanAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
-                            ASSET_ID, SettlementStatus.COMPLETED, 0L))
-                    .thenReturn(Optional.of(previousCompletedBatch));
-
-            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
-                    .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L))));
-
-            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
-
-            assertThat(response.carriedInAmount()).isEqualTo(777L);
-            assertThat(response.totalAmount()).isEqualTo(1_000_777L);
-            assertThat(previousCompletedBatch.getCarriedOutToBatchId()).isEqualTo(response.settlementBatchId());
-            verify(settlementBatchRepository).save(previousCompletedBatch);
         }
     }
 
@@ -374,7 +339,6 @@ class SettlementCommandServiceTest {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
                     RevenueTransferStatus.READY));
-            stubNoPreviousCompletedBatch();
 
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(0L, List.of()));
 
@@ -392,13 +356,12 @@ class SettlementCommandServiceTest {
             stubNoExistingBatch();
             stubRevenue(revenue(BigDecimal.valueOf(300), BigDecimal.ZERO, BigDecimal.ZERO,
                     RevenueTransferStatus.READY));
-            stubNoPreviousCompletedBatch();
 
             UUID investor1 = UUID.randomUUID();
             UUID investor2 = UUID.randomUUID();
             when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE)).thenReturn(aggregated(3L, List.of(
-                    new HoldingItem(UUID.randomUUID(), investor1, 1L),
-                    new HoldingItem(UUID.randomUUID(), investor2, 2L))));
+                    new HoldingItem(UUID.randomUUID(), investor1, 1L, null),
+                    new HoldingItem(UUID.randomUUID(), investor2, 2L, null))));
 
             SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
 
@@ -488,7 +451,7 @@ class SettlementCommandServiceTest {
         }
 
         private SettlementBatch batchWithStatus(SettlementStatus status) {
-            SettlementBatch batch = SettlementBatch.open(ASSET_ID, UUID.randomUUID(), RECORD_DATE, 1_000_000L, 0L);
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, UUID.randomUUID(), RECORD_DATE, 1_000_000L);
             ReflectionTestUtils.setField(batch, "status", status);
             return batch;
         }
@@ -514,13 +477,6 @@ class SettlementCommandServiceTest {
         when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(false);
         when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
                 .thenReturn(false);
-    }
-
-    private void stubNoPreviousCompletedBatch() {
-        when(settlementBatchRepository
-                .findFirstByAssetIdAndStatusAndCarriedOutToBatchIdIsNullAndRemainderAmountGreaterThanAndIsDeletedFalseOrderByRecordDateDescCreatedAtDesc(
-                        ASSET_ID, SettlementStatus.COMPLETED, 0L))
-                .thenReturn(Optional.empty());
     }
 
     private void stubRevenue(RevenueResponse revenue) {

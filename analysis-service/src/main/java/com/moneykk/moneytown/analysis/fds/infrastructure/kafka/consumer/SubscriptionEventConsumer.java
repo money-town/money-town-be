@@ -10,6 +10,7 @@ import com.moneykk.moneytown.analysis.fds.infrastructure.kafka.event.Subscriptio
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -35,14 +36,20 @@ public class SubscriptionEventConsumer {
             return;
         }
 
-        log.info("consume start eventId={} type={}", envelope.eventId(), envelope.eventType());
-        try{
+        try {
+            MDC.put("requestId", envelope.correlationId());
 
-            postFdsService.handle(envelope);
-            log.info("consume success eventId={}", envelope.eventId());
-        }catch (Exception e){
-            log.error("post-fds 처리 실패 eventId={}", envelope.eventId(), e);
-            // MVP: 로그 후 ack (DLQ/리트라이)
+            log.info("consume start eventId={} type={}", envelope.eventId(), envelope.eventType());
+            try{
+
+                postFdsService.handle(envelope);
+                log.info("consume success eventId={}", envelope.eventId());
+            }catch (Exception e){
+                log.error("post-fds 처리 실패 eventId={}", envelope.eventId(), e);
+                // MVP: 로그 후 ack (DLQ/리트라이)
+            }
+        } finally {
+            MDC.remove("requestId");
         }
     }
 }

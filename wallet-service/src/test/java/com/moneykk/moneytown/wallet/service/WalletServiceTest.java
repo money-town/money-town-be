@@ -11,9 +11,12 @@ import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletHoldStatusResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletStatusResponse;
 import com.moneykk.moneytown.wallet.dto.support.TransactionCursor;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletHold;
+import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
@@ -318,6 +321,63 @@ class WalletServiceTest {
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.getTransactions(investorId, null, null, null, null, 20));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("내 지갑 정보를 조회한다")
+    void getMyWallet_returnsWallet() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+
+        WalletResponse response = walletService.getMyWallet(investorId);
+
+        assertEquals(WalletResponse.from(wallet), response);
+    }
+
+    @Test
+    @DisplayName("내 지갑이 없으면 404를 반환한다")
+    void getMyWallet_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getMyWallet(investorId));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("HELD 상태 동결 건이 있으면 hasActiveHold=true로 조회한다")
+    void getWalletStatus_withActiveHold_returnsTrue() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletHoldRepository.existsByWalletIdAndStatus(1L, WalletHoldStatus.HELD)).thenReturn(true);
+
+        WalletStatusResponse response = walletService.getWalletStatus(investorId);
+
+        assertEquals(WalletStatusResponse.of(wallet, true), response);
+    }
+
+    @Test
+    @DisplayName("HELD 상태 동결 건이 없으면 hasActiveHold=false로 조회한다")
+    void getWalletStatus_withoutActiveHold_returnsFalse() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletHoldRepository.existsByWalletIdAndStatus(1L, WalletHoldStatus.HELD)).thenReturn(false);
+
+        WalletStatusResponse response = walletService.getWalletStatus(investorId);
+
+        assertEquals(WalletStatusResponse.of(wallet, false), response);
+    }
+
+    @Test
+    @DisplayName("지갑 상태 조회 시 지갑이 없으면 404를 반환한다")
+    void getWalletStatus_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getWalletStatus(investorId));
 
         assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
     }

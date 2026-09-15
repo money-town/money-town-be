@@ -8,7 +8,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.autoconfigure.data.web.SpringDataWebAutoConfiguration;
 import org.springframework.boot.autoconfigure.data.web.SpringDataWebProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.Ordered;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.data.web.SortHandlerMethodArgumentResolver;
@@ -59,5 +61,14 @@ public class CommonWebMvcAutoConfiguration implements WebMvcConfigurer {
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(pageableResolvers.getObject());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(CorrelationIdMdcFilter.class)
+    public FilterRegistrationBean<CorrelationIdMdcFilter> correlationIdMdcFilter() {
+        FilterRegistrationBean<CorrelationIdMdcFilter> registration =
+                new FilterRegistrationBean<>(new CorrelationIdMdcFilter());
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 }

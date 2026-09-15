@@ -100,9 +100,9 @@ class SettlementQueryServiceTest {
         @Test
         @DisplayName("지급 내역 합계가 배당 총액과 일치하면 reconciled=true를 반환한다")
         void returnsReconciledTrueWhenAmountsMatch() {
-            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 9_960L);
             batch.markSnapshotTaken();
-            batch.markCalculated(40L);
+            batch.markCalculated();
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
                     .thenReturn(Optional.of(batch));
 
@@ -127,9 +127,9 @@ class SettlementQueryServiceTest {
         @Test
         @DisplayName("지급 내역 합계가 배당 총액과 다르면 reconciled=false를 반환한다")
         void returnsReconciledFalseWhenAmountsMismatch() {
-            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L);
             batch.markSnapshotTaken();
-            batch.markCalculated(0L);
+            batch.markCalculated();
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
                     .thenReturn(Optional.of(batch));
 
@@ -164,9 +164,9 @@ class SettlementQueryServiceTest {
         @Test
         @DisplayName("존재하는 회차를 조회하면 payout 상태별 집계와 함께 반환한다")
         void returnsBatchDetailWithPayoutSummary() {
-            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L);
             batch.markSnapshotTaken();
-            batch.markCalculated(0L);
+            batch.markCalculated();
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
                     .thenReturn(Optional.of(batch));
             when(dividendPayoutRepository.countByStatusGrouped(batch.getId()))
@@ -194,7 +194,7 @@ class SettlementQueryServiceTest {
         @Test
         @DisplayName("payout이 하나도 없으면 모든 집계가 0이다")
         void returnsZeroedSummaryWhenNoPayouts() {
-            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L, 0L);
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000L);
             when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId()))
                     .thenReturn(Optional.of(batch));
             when(dividendPayoutRepository.countByStatusGrouped(batch.getId()))

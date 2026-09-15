@@ -13,9 +13,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +30,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Tag(name = "Wallet", description = "내 지갑 조회 및 입출금 API")
+@Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/wallets")
@@ -81,7 +84,7 @@ public class WalletController {
     public ResponseEntity<ApiResponse<TransactionResponse>> deposit(
             @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @Parameter(description = "요청 재시도를 식별하는 클라이언트 생성 키", required = true, example = "3f6b6c6e-2b8e-4e2a-9c33-1a2b3c4d5e6f")
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody TransactionRequest request
     ) {
         TransactionResponse response = walletService.deposit(userId, idempotencyKey, request.amount());
@@ -100,7 +103,7 @@ public class WalletController {
     public ResponseEntity<ApiResponse<TransactionResponse>> withdraw(
             @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @Parameter(description = "요청 재시도를 식별하는 클라이언트 생성 키", required = true, example = "3f6b6c6e-2b8e-4e2a-9c33-1a2b3c4d5e6f")
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody TransactionRequest request
     ) {
         TransactionResponse response = walletService.withdraw(userId, idempotencyKey, request.amount());

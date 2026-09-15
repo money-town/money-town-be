@@ -5,6 +5,7 @@ import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -26,17 +27,22 @@ public class UserRegisteredConsumer {
             containerFactory = "userAccountEventKafkaListenerContainerFactory"
     )
     public void onUserAccountEvent(EventEnvelope<Object> event) {
-        if (!EVENT_TYPE_USER_REGISTERED.equals(event.eventType())) {
-            return;
-        }
+        try {
+            MDC.put("requestId", event.correlationId());
+            if (!EVENT_TYPE_USER_REGISTERED.equals(event.eventType())) {
+                return;
+            }
 
-        UUID userId = event.userId();
-        if (walletRepository.findByUserId(userId).isPresent()) {
-            log.info("이미 지갑이 존재하여 스킵합니다. userId={}", userId);
-            return;
-        }
+            UUID userId = event.userId();
+            if (walletRepository.findByUserId(userId).isPresent()) {
+                log.info("이미 지갑이 존재하여 스킵합니다. userId={}", userId);
+                return;
+            }
 
-        walletRepository.save(new Wallet(userId));
-        log.info("지갑을 자동생성했습니다. userId={}", userId);
+            walletRepository.save(new Wallet(userId));
+            log.info("지갑을 자동생성했습니다. userId={}", userId);
+        } finally {
+            MDC.remove("requestId");
+        }
     }
 }

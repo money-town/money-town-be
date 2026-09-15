@@ -15,6 +15,7 @@ import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FinalSettlementCommandService {
 
     private static final ZoneId SETTLEMENT_ZONE = ZoneId.of("Asia/Seoul");
@@ -43,32 +45,42 @@ public class FinalSettlementCommandService {
     @Transactional
     public FinalSettlementBatchResponse openFinalSettlement(String role, OpenFinalSettlementRequest request) {
         validateSystem(role);
-        Optional<FinalSettlementBatch> existingBatch =
-                finalSettlementBatchRepository.findByAssetIdAndIsDeletedFalse(request.assetId());
-        if (existingBatch.isPresent()) {
-            return FinalSettlementBatchResponse.of(existingBatch.get(), false);
+        try {
+            Optional<FinalSettlementBatch> existingBatch =
+                    finalSettlementBatchRepository.findByAssetIdAndIsDeletedFalse(request.assetId());
+            if (existingBatch.isPresent()) {
+                log.info("최종 정산 배치 멱등 재조회 (assetId={}, finalSettlementBatchId={})",
+                        request.assetId(), existingBatch.get().getId());
+                return FinalSettlementBatchResponse.of(existingBatch.get(), false);
+            }
+
+            LocalDate asOf = request.terminatedAt().atZone(SETTLEMENT_ZONE).toLocalDate();
+            List<HoldingItem> holders = fetchHolders(request.assetId(), asOf);
+            if (holders.isEmpty()) {
+                throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_HOLDERS_NOT_FOUND);
+            }
+
+            long totalAmount = holders.stream()
+                    .mapToLong(holder -> holder.quantity() * request.unitPrice())
+                    .sum();
+
+            FinalSettlementBatch batch = FinalSettlementBatch.open(
+                    request.assetId(), request.terminatedAt(), request.unitPrice(), totalAmount);
+            batch.markCalculated();
+
+            List<FinalSettlementPayout> payouts = holders.stream()
+                    .map(holder -> FinalSettlementPayout.queue(
+                            batch.getId(), holder.userId(), holder.quantity(), holder.quantity() * request.unitPrice()))
+                    .toList();
+
+            FinalSettlementBatchResponse response = saveNewBatchOrReturnExisting(request.assetId(), batch, payouts);
+            log.info("최종 정산 회차 개시 완료 (assetId={}, finalSettlementBatchId={}, totalAmount={}, payoutCount={})",
+                    request.assetId(), response.finalSettlementBatchId(), totalAmount, payouts.size());
+            return response;
+        } catch (BusinessException e) {
+            log.warn("최종 정산 회차 개시 실패 (assetId={}, reason={})", request.assetId(), e.getErrorCode());
+            throw e;
         }
-
-        LocalDate asOf = request.terminatedAt().atZone(SETTLEMENT_ZONE).toLocalDate();
-        List<HoldingItem> holders = fetchHolders(request.assetId(), asOf);
-        if (holders.isEmpty()) {
-            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_HOLDERS_NOT_FOUND);
-        }
-
-        long totalAmount = holders.stream()
-                .mapToLong(holder -> holder.quantity() * request.unitPrice())
-                .sum();
-
-        FinalSettlementBatch batch = FinalSettlementBatch.open(
-                request.assetId(), request.terminatedAt(), request.unitPrice(), totalAmount);
-        batch.markCalculated();
-
-        List<FinalSettlementPayout> payouts = holders.stream()
-                .map(holder -> FinalSettlementPayout.queue(
-                        batch.getId(), holder.userId(), holder.quantity(), holder.quantity() * request.unitPrice()))
-                .toList();
-
-        return saveNewBatchOrReturnExisting(request.assetId(), batch, payouts);
     }
 
     // 앞선 findByAssetIdAndIsDeletedFalse 조회를 동시 요청 두 건이 함께 통과하면(둘 다 아직 커밋 전),
@@ -99,25 +111,32 @@ public class FinalSettlementCommandService {
     @Transactional
     public FinalSettlementRetryResponse retryFinalSettlement(String role, UUID finalSettlementBatchId, FinalSettlementRetryRequest request) {
         validateAdmin(role);
-        FinalSettlementBatch batch = finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
-                .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
+        try {
+            FinalSettlementBatch batch = finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
+                    .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND));
 
-        if (!isRetryable(batch.getStatus())) {
-            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_RETRYABLE);
+            if (!isRetryable(batch.getStatus())) {
+                throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_RETRYABLE);
+            }
+
+            List<FinalSettlementPayout> retryablePayouts = findRetryablePayouts(finalSettlementBatchId, request);
+            if (retryablePayouts.isEmpty()) {
+                throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_NO_RETRYABLE_PAYOUTS);
+            }
+
+            retryablePayouts.forEach(FinalSettlementPayout::requeue);
+            batch.markDisbursing();
+
+            finalSettlementBatchRepository.save(batch);
+            finalSettlementPayoutRepository.saveAll(retryablePayouts);
+
+            log.info("최종 정산 회차 재시도 개시 (finalSettlementBatchId={}, 재처리 건수={})",
+                    finalSettlementBatchId, retryablePayouts.size());
+            return FinalSettlementRetryResponse.of(batch, retryablePayouts.size());
+        } catch (BusinessException e) {
+            log.warn("최종 정산 회차 재시도 실패 (finalSettlementBatchId={}, reason={})", finalSettlementBatchId, e.getErrorCode());
+            throw e;
         }
-
-        List<FinalSettlementPayout> retryablePayouts = findRetryablePayouts(finalSettlementBatchId, request);
-        if (retryablePayouts.isEmpty()) {
-            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_NO_RETRYABLE_PAYOUTS);
-        }
-
-        retryablePayouts.forEach(FinalSettlementPayout::requeue);
-        batch.markDisbursing();
-
-        finalSettlementBatchRepository.save(batch);
-        finalSettlementPayoutRepository.saveAll(retryablePayouts);
-
-        return FinalSettlementRetryResponse.of(batch, retryablePayouts.size());
     }
 
     private boolean isRetryable(SettlementStatus status) {

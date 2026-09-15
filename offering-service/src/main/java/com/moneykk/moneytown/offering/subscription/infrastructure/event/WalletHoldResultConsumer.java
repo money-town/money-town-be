@@ -8,6 +8,7 @@ import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.subscription.command.application.WalletHoldResultService;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -46,45 +47,51 @@ public class WalletHoldResultConsumer {
 
         String eventType = root.path("eventType").asText("");
 
-        switch (eventType) {
-            case "WalletHoldSucceeded" -> {
-                EventEnvelope<WalletHoldSucceededPayload> envelope =
-                        objectMapper.readValue(
-                                json,
-                                new TypeReference<
-                                        EventEnvelope<WalletHoldSucceededPayload>
-                                        >() {}
-                        );
+        try {
+            MDC.put("requestId", root.path("correlationId").asText(null));
 
-                validatePartitionKey(record.key(), envelope);
+            switch (eventType) {
+                case "WalletHoldSucceeded" -> {
+                    EventEnvelope<WalletHoldSucceededPayload> envelope =
+                            objectMapper.readValue(
+                                    json,
+                                    new TypeReference<
+                                            EventEnvelope<WalletHoldSucceededPayload>
+                                            >() {}
+                            );
 
-                walletHoldResultService.handleSucceeded(
-                        envelope,
-                        consumerGroup
+                    validatePartitionKey(record.key(), envelope);
+
+                    walletHoldResultService.handleSucceeded(
+                            envelope,
+                            consumerGroup
+                    );
+                }
+
+                case "WalletHoldFailed" -> {
+                    EventEnvelope<WalletHoldFailedPayload> envelope =
+                            objectMapper.readValue(
+                                    json,
+                                    new TypeReference<
+                                            EventEnvelope<WalletHoldFailedPayload>
+                                            >() {}
+                            );
+
+                    validatePartitionKey(record.key(), envelope);
+
+                    walletHoldResultService.handleFailed(
+                            envelope,
+                            consumerGroup
+                    );
+                }
+
+                default -> throw new IllegalArgumentException(
+                        "지원하지 않는 동결 결과 이벤트입니다. eventType="
+                                + eventType
                 );
             }
-
-            case "WalletHoldFailed" -> {
-                EventEnvelope<WalletHoldFailedPayload> envelope =
-                        objectMapper.readValue(
-                                json,
-                                new TypeReference<
-                                        EventEnvelope<WalletHoldFailedPayload>
-                                        >() {}
-                        );
-
-                validatePartitionKey(record.key(), envelope);
-
-                walletHoldResultService.handleFailed(
-                        envelope,
-                        consumerGroup
-                );
-            }
-
-            default -> throw new IllegalArgumentException(
-                    "지원하지 않는 동결 결과 이벤트입니다. eventType="
-                            + eventType
-            );
+        } finally {
+            MDC.remove("requestId");
         }
     }
 

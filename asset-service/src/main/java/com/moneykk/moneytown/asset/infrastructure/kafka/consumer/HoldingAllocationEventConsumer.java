@@ -14,6 +14,7 @@ import com.moneykk.moneytown.asset.service.HoldingCommandService;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -40,58 +41,64 @@ public class HoldingAllocationEventConsumer {
         EventEnvelope<SubscriptionConfirmedPayload> event =
                 readEvent(message);
 
-        if (!EVENT_TYPE.equals(event.eventType())) {
-            throw new IllegalArgumentException(
-                    "지원하지 않는 이벤트입니다: "
-                            + event.eventType()
-            );
-        }
-
-        UUID subscriptionId =
-                UUID.fromString(event.aggregateId());
-
-        SubscriptionConfirmedPayload payload =
-                event.payload();
-
         try {
-            HoldingAllocationResponse response =
-                    holdingCommandService.allocate(
-                            new HoldingAllocationRequest(
-                                    subscriptionId,
-                                    payload.assetId(),
-                                    event.userId(),
-                                    payload.quantity()
-                            )
-                    );
+            MDC.put("requestId", event.correlationId());
 
-            holdingEventPublisher.publishAllocationSucceeded(
-                    subscriptionId,
-                    event.userId(),
-                    event.correlationId(),
-                    new HoldingAllocationSucceededPayload(
-                            response.assetId(),
-                            response.holdingId(),
-                            response.quantity(),
-                            response.result().name()
-                    )
-            );
-        } catch (BusinessException exception) {
-            String errorCode =
-                    exception.getErrorCode() instanceof AssetErrorCode assetErrorCode
-                            ? assetErrorCode.name()
-                            : exception.getErrorCode().getCode();
+            if (!EVENT_TYPE.equals(event.eventType())) {
+                throw new IllegalArgumentException(
+                        "지원하지 않는 이벤트입니다: "
+                                + event.eventType()
+                );
+            }
 
-            holdingEventPublisher.publishAllocationFailed(
-                    subscriptionId,
-                    event.userId(),
-                    event.correlationId(),
-                    new HoldingAllocationFailedPayload(
-                            payload.assetId(),
-                            errorCode,
-                            exception.getErrorCode().getMessage(),
-                            false
-                    )
-            );
+            UUID subscriptionId =
+                    UUID.fromString(event.aggregateId());
+
+            SubscriptionConfirmedPayload payload =
+                    event.payload();
+
+            try {
+                HoldingAllocationResponse response =
+                        holdingCommandService.allocate(
+                                new HoldingAllocationRequest(
+                                        subscriptionId,
+                                        payload.assetId(),
+                                        event.userId(),
+                                        payload.quantity()
+                                )
+                        );
+
+                holdingEventPublisher.publishAllocationSucceeded(
+                        subscriptionId,
+                        event.userId(),
+                        event.correlationId(),
+                        new HoldingAllocationSucceededPayload(
+                                response.assetId(),
+                                response.holdingId(),
+                                response.quantity(),
+                                response.result().name()
+                        )
+                );
+            } catch (BusinessException exception) {
+                String errorCode =
+                        exception.getErrorCode() instanceof AssetErrorCode assetErrorCode
+                                ? assetErrorCode.name()
+                                : exception.getErrorCode().getCode();
+
+                holdingEventPublisher.publishAllocationFailed(
+                        subscriptionId,
+                        event.userId(),
+                        event.correlationId(),
+                        new HoldingAllocationFailedPayload(
+                                payload.assetId(),
+                                errorCode,
+                                exception.getErrorCode().getMessage(),
+                                false
+                        )
+                );
+            }
+        } finally {
+            MDC.remove("requestId");
         }
     }
 

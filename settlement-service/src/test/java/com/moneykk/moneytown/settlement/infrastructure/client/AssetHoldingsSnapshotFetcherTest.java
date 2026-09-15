@@ -41,7 +41,7 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("단일 페이지면 한 번만 호출하고, 지분 수량 합계는 직접 계산한다")
     void fetchesSinglePage() {
-        HoldingItem item = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L);
+        HoldingItem item = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L, null);
         when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, null))
                 .thenReturn(ApiResponse.success(page(List.of(item), 100L, null, false), null));
 
@@ -54,8 +54,8 @@ class AssetHoldingsSnapshotFetcherTest {
     @Test
     @DisplayName("여러 페이지로 나뉘어 오면 cursor를 따라가며 모두 모으고, 전체 페이지의 수량을 합산한다")
     void aggregatesAcrossPaginatedPages() {
-        HoldingItem item1 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L);
-        HoldingItem item2 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 2L);
+        HoldingItem item1 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L, null);
+        HoldingItem item2 = new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 2L, null);
         UUID cursor1 = UUID.randomUUID();
         when(assetServiceClient.getHoldingsSnapshot("SYSTEM", ASSET_ID, AS_OF_ISO, null))
                 .thenReturn(ApiResponse.success(page(List.of(item1), 3L, cursor1, true), null));
