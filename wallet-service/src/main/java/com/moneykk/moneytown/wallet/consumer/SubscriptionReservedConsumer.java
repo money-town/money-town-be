@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.service.WalletHoldService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +21,11 @@ public class SubscriptionReservedConsumer {
             containerFactory = "subscriptionReservedKafkaListenerContainerFactory"
     )
     public void onSubscriptionReserved(EventEnvelope<SubscriptionReservedPayload> event) {
-        walletHoldService.processReservation(event);
+        try {
+            MDC.put("requestId", event.correlationId());
+            walletHoldService.processReservation(event);
+        } finally {
+            MDC.remove("requestId");
+        }
     }
 }
