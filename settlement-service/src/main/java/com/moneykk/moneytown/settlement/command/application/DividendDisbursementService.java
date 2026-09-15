@@ -36,11 +36,18 @@ public class DividendDisbursementService {
         payoutWriter.markDisbursing(settlementBatchId);
 
         List<DividendPayout> claimedPayouts = payoutWriter.claimPendingPayouts(settlementBatchId);
+        log.info("배당 지급 처리 시작 (settlementBatchId={}, 대상 건수={})", settlementBatchId, claimedPayouts.size());
         claimedPayouts.forEach(payout -> attempt(settlementBatchId, payout));
 
-        payoutWriter.updateBatchStatus(settlementBatchId)
-                .filter(batch -> FAILURE_STATUSES.contains(batch.getStatus()))
-                .ifPresent(settlementFailureNotifier::notifyDividendBatchFailed);
+        payoutWriter.updateBatchStatus(settlementBatchId).ifPresentOrElse(
+                batch -> {
+                    log.info("배당 지급 처리 마감 (settlementBatchId={}, status={})", settlementBatchId, batch.getStatus());
+                    if (FAILURE_STATUSES.contains(batch.getStatus())) {
+                        settlementFailureNotifier.notifyDividendBatchFailed(batch);
+                    }
+                },
+                () -> log.debug("배당 지급 처리 중 — 아직 진행 중인 건이 남아있어 회차 상태를 확정하지 않음 (settlementBatchId={})", settlementBatchId)
+        );
     }
 
     public int reclaimStalledProcessing(Instant staleBefore) {
