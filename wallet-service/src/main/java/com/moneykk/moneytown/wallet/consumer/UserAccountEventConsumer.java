@@ -35,10 +35,11 @@ public class UserAccountEventConsumer {
     public void onUserAccountEvent(EventEnvelope<Object> event) {
         try {
             MDC.put("requestId", event.correlationId());
-            switch (event.eventType()) {
+            String eventType = event.eventType();
+            switch (eventType == null ? "" : eventType) {
                 case EVENT_TYPE_USER_REGISTERED -> handleUserRegistered(event.userId());
                 case EVENT_TYPE_USER_WITHDRAWN -> handleUserWithdrawn(event);
-                default -> log.debug("처리하지 않는 이벤트 타입 무시: eventType={}", event.eventType());
+                default -> log.debug("처리하지 않는 이벤트 타입 무시: eventType={}", eventType);
             }
         } finally {
             MDC.remove("requestId");
