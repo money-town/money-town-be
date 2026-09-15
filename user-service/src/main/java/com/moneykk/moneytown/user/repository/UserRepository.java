@@ -2,19 +2,20 @@ package com.moneykk.moneytown.user.repository;
 
 import com.moneykk.moneytown.user.entity.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
+import org.springframework.data.domain.Pageable;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
     // 전체 조회
-    List<User> findAllByIsDeletedFalse();
+    Page<User> findAllByIsDeletedFalse(Pageable pageable);
 
     // 단일 조회
     Optional<User> findByUserIdAndIsDeletedFalse(UUID userId);
@@ -31,8 +32,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmailAndIsDeletedFalse(String email);
 
 
-    boolean existsByUserIdAndIsDeletedFalse(UUID userId);
-
     // 사용자 잠금 조회
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
@@ -44,5 +43,5 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByUserIdForUpdate(@Param("userId") UUID userId);
 
 
-    List<User> findAllByNameContainingAndIsDeletedFalse(String name);
+    Page<User> findAllByNameContainingAndIsDeletedFalse(String name, Pageable pageable);
 }

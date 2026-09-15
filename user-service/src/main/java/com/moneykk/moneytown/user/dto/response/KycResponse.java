@@ -18,13 +18,21 @@ public record KycResponse(UUID kycVerificationId,
                           Instant expiresAt,
                           String rejectionReason) {
 
-    public static KycResponse from(Kyc kyc) {
+    public static KycResponse from(Kyc kyc, Instant now) {
+        KycVerificationStatus effectiveStatus = kyc.getStatus();
+
+        if (kyc.getStatus() == KycVerificationStatus.VERIFIED
+                && (kyc.getExpiresAt() == null
+                || !now.isBefore(kyc.getExpiresAt()))) {
+            effectiveStatus = KycVerificationStatus.EXPIRED;
+        }
+
         return new KycResponse(
                 kyc.getId(),
                 kyc.getUserId(),
                 kyc.getOccupationType(),
                 kyc.getFundSource(),
-                kyc.getStatus(),
+                effectiveStatus,
                 kyc.getAttemptNo(),
                 kyc.getSubmittedAt(),
                 kyc.getReviewedAt(),

@@ -242,7 +242,7 @@ class DividendPayoutWriterTest {
     }
 
     private SettlementBatch openBatch() {
-        return SettlementBatch.open(ASSET_ID, UUID.randomUUID(), RECORD_DATE, 1_000_000L, 0L);
+        return SettlementBatch.open(ASSET_ID, UUID.randomUUID(), RECORD_DATE, 1_000_000L);
     }
 
     private DividendPayout queuedPayout() {
