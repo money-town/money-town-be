@@ -63,4 +63,45 @@ class KafkaConsumerConfigTest {
 
         verify(kafkaOperations, never()).send(any(ProducerRecord.class));
     }
+
+    @Test
+    @DisplayName("재시도 가능한 예외도 백오프(1s->2s->4s)를 다 소진하면 DLT로 보낸다")
+    void retryableException_recoversAfterBackOffExhausted() {
+        KafkaOperations<Object, Object> kafkaOperations = mock(KafkaOperations.class);
+        when(kafkaOperations.send(any(ProducerRecord.class))).thenReturn(CompletableFuture.completedFuture(null));
+
+        CommonErrorHandler errorHandler = config.kafkaConsumerErrorHandler(kafkaOperations);
+
+        // 같은 토픽/파티션/오프셋으로 반복 실패해야 동일 레코드의 재시도로 취급된다.
+        ConsumerRecord<Object, Object> record = new ConsumerRecord<>("subscription-reserved", 0, 5L, "key", "value");
+        Consumer<?, ?> consumer = mock(Consumer.class);
+        MessageListenerContainer container = mock(MessageListenerContainer.class);
+
+        // 실제 운영 백오프(1s+2s+4s=7s)를 그대로 소진시켜야 recoverer 위임을 신뢰성 있게 검증할 수 있다.
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> errorHandler.handleRemaining(
+                    new RuntimeException("transient failure"), List.of(record), consumer, container));
+            assertEquals("RecordInRetryException", thrown.getClass().getSimpleName());
+            verify(kafkaOperations, never()).send(any(ProducerRecord.class));
+        }
+
+        // 백오프가 완전히 끝났음을 보장하기 위해 마지막 간격(4s)만큼 실제로 대기한다.
+        await(4_100L);
+
+        errorHandler.handleRemaining(
+                new RuntimeException("transient failure"), List.of(record), consumer, container);
+
+        ArgumentCaptor<ProducerRecord> dltRecordCaptor = ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaOperations).send(dltRecordCaptor.capture());
+        assertThat(dltRecordCaptor.getValue().topic()).isEqualTo("subscription-reserved-dlt");
+    }
+
+    private static void await(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
 }
