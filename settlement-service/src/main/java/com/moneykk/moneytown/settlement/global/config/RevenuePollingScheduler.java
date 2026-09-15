@@ -12,6 +12,7 @@ import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueRespons
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
+@ConditionalOnProperty(
+        name = "settlement.scheduler.revenue-polling.enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 @Component
 @RequiredArgsConstructor
 @Slf4j
