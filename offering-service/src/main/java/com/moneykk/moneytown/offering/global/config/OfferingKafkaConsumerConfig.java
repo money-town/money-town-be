@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.listener.RetryListener;
-import org.apache.kafka.common.TopicPartition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -23,14 +22,14 @@ public class OfferingKafkaConsumerConfig {
     public DeadLetterPublishingRecoverer offeringDeadLetterPublishingRecoverer(
             KafkaTemplate<String, String> kafkaTemplate
     ) {
+        /*
+         * Spring Kafka의 기본 DLT 규칙을 사용한다.
+         *
+         * 토픽: {원본 토픽}-dlt
+         * 파티션: 원본 레코드와 동일한 파티션
+         */
         DeadLetterPublishingRecoverer recoverer =
-                new DeadLetterPublishingRecoverer(
-                        kafkaTemplate,
-                        (record, exception) -> new TopicPartition(
-                                record.topic() + ".DLT",
-                                record.partition()
-                        )
-                );
+                new DeadLetterPublishingRecoverer(kafkaTemplate);
 
         // DLT 발행 자체가 실패하면 원본 레코드를 정상 복구로 간주하지 않는다.
         recoverer.setFailIfSendResultIsError(true);
@@ -92,7 +91,7 @@ public class OfferingKafkaConsumerConfig {
                         record.topic(),
                         record.partition(),
                         record.offset(),
-                        record.topic() + ".DLT",
+                        record.topic() + "-dlt",
                         exception.getClass().getSimpleName()
                 );
             }

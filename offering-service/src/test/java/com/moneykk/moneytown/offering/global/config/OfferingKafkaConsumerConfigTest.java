@@ -82,7 +82,7 @@ class OfferingKafkaConsumerConfigTest {
                 recordCaptor.getValue();
 
         assertThat(deadLetterRecord.topic())
-                .isEqualTo("wallet-hold-result.DLT");
+                .isEqualTo("wallet-hold-result-dlt");
 
         assertThat(deadLetterRecord.partition())
                 .isEqualTo(2);
