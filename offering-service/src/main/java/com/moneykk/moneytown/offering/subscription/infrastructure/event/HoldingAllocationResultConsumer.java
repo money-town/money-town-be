@@ -8,6 +8,7 @@ import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.subscription.command.application.HoldingAllocationResultService;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -68,47 +69,53 @@ public class HoldingAllocationResultConsumer {
 
         String eventType = eventTypeNode.asText();
 
-        switch (eventType) {
-            case "HoldingAllocationSucceeded" -> {
-                EventEnvelope<HoldingAllocationSucceededPayload> envelope =
-                        objectMapper.readValue(
-                                json,
-                                SUCCEEDED_TYPE
-                        );
+        try {
+            MDC.put("requestId", root.path("correlationId").asText(null));
 
-                validatePartitionKey(
-                        record.key(),
-                        envelope
-                );
+            switch (eventType) {
+                case "HoldingAllocationSucceeded" -> {
+                    EventEnvelope<HoldingAllocationSucceededPayload> envelope =
+                            objectMapper.readValue(
+                                    json,
+                                    SUCCEEDED_TYPE
+                            );
 
-                holdingAllocationResultService.handleSucceeded(
-                        envelope,
-                        consumerGroup
+                    validatePartitionKey(
+                            record.key(),
+                            envelope
+                    );
+
+                    holdingAllocationResultService.handleSucceeded(
+                            envelope,
+                            consumerGroup
+                    );
+                }
+
+                case "HoldingAllocationFailed" -> {
+                    EventEnvelope<HoldingAllocationFailedPayload> envelope =
+                            objectMapper.readValue(
+                                    json,
+                                    FAILED_TYPE
+                            );
+
+                    validatePartitionKey(
+                            record.key(),
+                            envelope
+                    );
+
+                    holdingAllocationResultService.handleFailed(
+                            envelope,
+                            consumerGroup
+                    );
+                }
+
+                default -> throw new IllegalArgumentException(
+                        "지원하지 않는 Holding 배정 결과 이벤트입니다. "
+                                + "eventType=" + eventType
                 );
             }
-
-            case "HoldingAllocationFailed" -> {
-                EventEnvelope<HoldingAllocationFailedPayload> envelope =
-                        objectMapper.readValue(
-                                json,
-                                FAILED_TYPE
-                        );
-
-                validatePartitionKey(
-                        record.key(),
-                        envelope
-                );
-
-                holdingAllocationResultService.handleFailed(
-                        envelope,
-                        consumerGroup
-                );
-            }
-
-            default -> throw new IllegalArgumentException(
-                    "지원하지 않는 Holding 배정 결과 이벤트입니다. "
-                            + "eventType=" + eventType
-            );
+        } finally {
+            MDC.remove("requestId");
         }
     }
 

@@ -8,6 +8,7 @@ import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.subscription.command.application.HoldingRevocationResultService;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -66,35 +67,41 @@ public class HoldingRevocationResultConsumer {
 
         String eventType = eventTypeNode.asText();
 
-        switch (eventType) {
-            case "HoldingRevocationSucceeded" -> {
-                EventEnvelope<HoldingRevocationSucceededPayload> envelope =
-                        objectMapper.readValue(json, SUCCEEDED_TYPE);
+        try {
+            MDC.put("requestId", root.path("correlationId").asText(null));
 
-                validatePartitionKey(record.key(), envelope);
+            switch (eventType) {
+                case "HoldingRevocationSucceeded" -> {
+                    EventEnvelope<HoldingRevocationSucceededPayload> envelope =
+                            objectMapper.readValue(json, SUCCEEDED_TYPE);
 
-                holdingRevocationResultService.handleSucceeded(
-                        envelope,
-                        consumerGroup
+                    validatePartitionKey(record.key(), envelope);
+
+                    holdingRevocationResultService.handleSucceeded(
+                            envelope,
+                            consumerGroup
+                    );
+                }
+
+                case "HoldingRevocationFailed" -> {
+                    EventEnvelope<HoldingRevocationFailedPayload> envelope =
+                            objectMapper.readValue(json, FAILED_TYPE);
+
+                    validatePartitionKey(record.key(), envelope);
+
+                    holdingRevocationResultService.handleFailed(
+                            envelope,
+                            consumerGroup
+                    );
+                }
+
+                default -> throw new IllegalArgumentException(
+                        "지원하지 않는 Holding 회수 결과 이벤트입니다. eventType="
+                                + eventType
                 );
             }
-
-            case "HoldingRevocationFailed" -> {
-                EventEnvelope<HoldingRevocationFailedPayload> envelope =
-                        objectMapper.readValue(json, FAILED_TYPE);
-
-                validatePartitionKey(record.key(), envelope);
-
-                holdingRevocationResultService.handleFailed(
-                        envelope,
-                        consumerGroup
-                );
-            }
-
-            default -> throw new IllegalArgumentException(
-                    "지원하지 않는 Holding 회수 결과 이벤트입니다. eventType="
-                            + eventType
-            );
+        } finally {
+            MDC.remove("requestId");
         }
     }
 
