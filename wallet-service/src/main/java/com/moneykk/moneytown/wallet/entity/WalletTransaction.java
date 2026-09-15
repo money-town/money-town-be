@@ -49,9 +49,19 @@ public class WalletTransaction extends BaseEntity {
     @Column(name = "reference_id", updatable = false, length = 100)
     private String referenceId;
 
+    // UNHOLD/REFUND의 보상 사유(모집미달/관리자강제취소 등). 그 외 거래타입은 NULL.
+    @Column(name = "reason", updatable = false, length = 50)
+    private String reason;
+
     public WalletTransaction(Long walletId, WalletTransactionType type, long amount,
                               long balanceBefore, long balanceAfter,
                               String idempotencyKey, String referenceId) {
+        this(walletId, type, amount, balanceBefore, balanceAfter, idempotencyKey, referenceId, null);
+    }
+
+    public WalletTransaction(Long walletId, WalletTransactionType type, long amount,
+                              long balanceBefore, long balanceAfter,
+                              String idempotencyKey, String referenceId, String reason) {
         if (amount <= 0) {
             throw new BusinessException(WalletErrorCode.INVALID_AMOUNT);
         }
@@ -63,6 +73,7 @@ public class WalletTransaction extends BaseEntity {
         this.balanceAfter = balanceAfter;
         this.idempotencyKey = idempotencyKey;
         this.referenceId = referenceId;
+        this.reason = reason;
     }
 
     // 총잔액(balance) 기준 방향: DEPOSIT/DIVIDEND/REFUND/SETTLEMENT는 증가, WITHDRAW/DEDUCT는 감소,

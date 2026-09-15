@@ -1,15 +1,19 @@
 package com.moneykk.moneytown.wallet.consumer;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
+import com.moneykk.moneytown.wallet.service.WalletWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,13 +24,19 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class UserRegisteredConsumerTest {
+class UserAccountEventConsumerTest {
 
     @Mock
     private WalletRepository walletRepository;
 
+    @Mock
+    private WalletWithdrawalService walletWithdrawalService;
+
+    @Spy
+    private ObjectMapper objectMapper = new ObjectMapper();
+
     @InjectMocks
-    private UserRegisteredConsumer consumer;
+    private UserAccountEventConsumer consumer;
 
     private final UUID userId = UUID.randomUUID();
 
@@ -35,7 +45,7 @@ class UserRegisteredConsumerTest {
     void onUserAccountEvent_userRegistered_createsWalletIfAbsent() {
         when(walletRepository.findByUserId(userId)).thenReturn(Optional.empty());
 
-        consumer.onUserAccountEvent(userAccountEvent("UserRegistered"));
+        consumer.onUserAccountEvent(userAccountEvent("UserRegistered", Map.of()));
 
         verify(walletRepository).save(any(Wallet.class));
     }
@@ -45,20 +55,30 @@ class UserRegisteredConsumerTest {
     void onUserAccountEvent_userRegistered_alreadyExists_isIdempotent() {
         when(walletRepository.findByUserId(userId)).thenReturn(Optional.of(new Wallet(userId)));
 
-        consumer.onUserAccountEvent(userAccountEvent("UserRegistered"));
+        consumer.onUserAccountEvent(userAccountEvent("UserRegistered", Map.of()));
 
         verify(walletRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("UserRegistered가 아닌 이벤트(예: UserWithdrawn)는 조용히 무시한다")
-    void onUserAccountEvent_otherEventType_isIgnored() {
-        consumer.onUserAccountEvent(userAccountEvent("UserWithdrawn"));
+    @DisplayName("UserWithdrawn이면 payload의 withdrawnBy를 꺼내 탈퇴 처리 서비스에 위임한다")
+    void onUserAccountEvent_userWithdrawn_delegatesToWithdrawalService() {
+        UUID withdrawnBy = UUID.randomUUID();
 
-        verifyNoInteractions(walletRepository);
+        consumer.onUserAccountEvent(userAccountEvent("UserWithdrawn", Map.of("withdrawnBy", withdrawnBy.toString())));
+
+        verify(walletWithdrawalService).handleUserWithdrawn(userId, withdrawnBy);
     }
 
-    private EventEnvelope<Object> userAccountEvent(String eventType) {
-        return EventEnvelope.of(eventType, userId.toString(), userId, "corr-1", new Object());
+    @Test
+    @DisplayName("UserRegistered/UserWithdrawn이 아닌 이벤트는 조용히 무시한다")
+    void onUserAccountEvent_otherEventType_isIgnored() {
+        consumer.onUserAccountEvent(userAccountEvent("SomeOtherEvent", Map.of()));
+
+        verifyNoInteractions(walletRepository, walletWithdrawalService);
+    }
+
+    private EventEnvelope<Object> userAccountEvent(String eventType, Object payload) {
+        return EventEnvelope.of(eventType, userId.toString(), userId, "corr-1", payload);
     }
 }
