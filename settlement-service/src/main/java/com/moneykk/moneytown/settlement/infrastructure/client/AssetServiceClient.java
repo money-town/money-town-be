@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.time.LocalDate;
 import java.util.UUID;
 
 @FeignClient(name = "asset-service")
@@ -23,12 +22,13 @@ public interface AssetServiceClient {
 
     @GetMapping("/api/v1/assets/{assetId}/revenues/{revenueId}")
     ApiResponse<RevenueResponse> getRevenue(@PathVariable("assetId") UUID assetId,
-                                            @PathVariable("revenueId") UUID revenueId);
+                                            @PathVariable("revenueId") UUID revenueId,
+                                            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role);
 
     @GetMapping("/api/v1/assets/{assetId}/holdings")
     ApiResponse<HoldingsSnapshotResponse> getHoldingsSnapshot(@RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
                                                               @PathVariable("assetId") UUID assetId,
-                                                              @RequestParam("asOf") LocalDate asOf,
+                                                              @RequestParam("asOf") String asOf,
                                                               @RequestParam(value = "cursor", required = false) UUID cursor);
 
     @PatchMapping("/api/v1/assets/revenues/{revenueId}/transfer-status")

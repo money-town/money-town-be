@@ -18,6 +18,7 @@ import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepositor
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,12 @@ public class WalletHoldService {
     private final WalletExpiredReservationRepository walletExpiredReservationRepository;
     private final WalletEventPublisher walletEventPublisher;
     private final EntityManager entityManager;
+    private final MeterRegistry meterRegistry;
+
+    // 거래 타입별 처리량을 Grafana에서 볼 수 있도록 카운터로 남긴다.
+    private void recordTransactionMetric(WalletTransactionType type) {
+        meterRegistry.counter("wallet.transaction.count", "type", type.name()).increment();
+    }
 
     @Transactional
     public void processReservation(EventEnvelope<SubscriptionReservedPayload> event) // HOLD
@@ -85,6 +92,7 @@ public class WalletHoldService {
                 wallet.getId(), WalletTransactionType.HOLD, amount, balanceBefore, wallet.getBalance(),
                 "HOLD:" + subscriptionId, aggregateId
         ));
+        recordTransactionMetric(WalletTransactionType.HOLD);
 
         WalletHold hold = walletHoldRepository.save(new WalletHold(wallet.getId(), subscriptionId, amount));
 
@@ -117,6 +125,7 @@ public class WalletHoldService {
                 wallet.getId(), WalletTransactionType.DEDUCT, hold.getAmount(), balanceBefore, wallet.getBalance(),
                 "DEDUCT:" + subscriptionId, subscriptionId.toString()
         ));
+        recordTransactionMetric(WalletTransactionType.DEDUCT);
     }
 
     @Transactional
@@ -174,6 +183,7 @@ public class WalletHoldService {
                 wallet.getId(), WalletTransactionType.UNHOLD, hold.getAmount(), balanceBefore, wallet.getBalance(),
                 "UNHOLD:" + subscriptionId, subscriptionId
         ));
+        recordTransactionMetric(WalletTransactionType.UNHOLD);
 
         walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "RELEASE", transaction.getId(), hold.getAmount()));
@@ -188,6 +198,7 @@ public class WalletHoldService {
                 wallet.getId(), WalletTransactionType.REFUND, hold.getAmount(), balanceBefore, wallet.getBalance(),
                 "REFUND:" + subscriptionId, subscriptionId
         ));
+        recordTransactionMetric(WalletTransactionType.REFUND);
 
         walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "REFUND", transaction.getId(), hold.getAmount()));

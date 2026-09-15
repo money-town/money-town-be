@@ -5,6 +5,8 @@ import java.util.UUID;
 public record SubscriptionEventPayload(
         UUID userId,
         UUID assetId,
-        UUID subscriptionId
+        UUID subscriptionId,
+        FailureSource failureSource,
+        String failureReasonCode
 ) {
 }

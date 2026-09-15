@@ -77,7 +77,7 @@ public class SettlementQueryService {
 
         List<DividendPayout> payouts = dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(settlementBatchId);
 
-        long expectedAmount = batch.getTotalAmount() - batch.getRemainderAmount();
+        long expectedAmount = batch.getTotalAmount();
         long totalPayoutAmount = payouts.stream().mapToLong(DividendPayout::getAmount).sum();
         long paidAmount = payouts.stream()
                 .filter(payout -> payout.getStatus() == PayoutStatus.PAID)

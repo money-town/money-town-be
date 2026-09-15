@@ -5,6 +5,7 @@ import com.moneykk.moneytown.asset.dto.request.RevenueTransferStatusRequest;
 import com.moneykk.moneytown.asset.dto.response.RevenueDetailResponse;
 import com.moneykk.moneytown.asset.dto.response.RevenueTransferStatusResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
+import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.Revenue;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
@@ -84,12 +85,23 @@ public class RevenueCommandService {
             throw new BusinessException(AssetErrorCode.REVENUE_ACCESS_DENIED);
         }
 
+        // 승인되어 운영 중인 자산에만 수익 등록 가능
+        if (asset.getStatus() != AssetStatus.APPROVED) {
+            throw new BusinessException(
+                    AssetErrorCode.REVENUE_REGISTRATION_NOT_ALLOWED
+            );
+        }
+
+        // 앞뒤 공백을 제거해 동일 참조 ID의 중복 등록 방지
+        String sourceReferenceId =
+                request.sourceReferenceId().strip();
+
         // 동일 출처 수익의 중복 등록 방지
         boolean duplicated = revenueRepository
                 .existsByAssetIdAndSourceTypeAndSourceReferenceId(
                         assetId,
                         request.sourceType(),
-                        request.sourceReferenceId()
+                        sourceReferenceId
                 );
 
         if (duplicated) {
@@ -101,7 +113,7 @@ public class RevenueCommandService {
                 assetId,
                 userId,
                 request.sourceType(),
-                request.sourceReferenceId(),
+                sourceReferenceId,
                 request.revenueType(),
                 request.grossAmount(),
                 request.expenseAmount(),

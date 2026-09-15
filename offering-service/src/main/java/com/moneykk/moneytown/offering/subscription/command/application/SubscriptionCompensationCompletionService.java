@@ -13,6 +13,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCom
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,8 @@ public class SubscriptionCompensationCompletionService {
     private final SubscriptionCompensationRepository subscriptionCompensationRepository;
     private final OfferingCompensationCompletionService offeringCompensationCompletionService;
     private final EntityManager entityManager;
+
+    private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     /**
      * 외부 보상이 모두 완료된 청약의 수량을 복원하고
@@ -118,7 +121,15 @@ public class SubscriptionCompensationCompletionService {
                 );
             }
 
+            Instant rejectedAt = Instant.now();
+
             subscription.completeExpirationRejection();
+
+            subscriptionLifecycleMetrics.publishOutcome(
+                    subscription,
+                    SubscriptionLifecycleMetrics.Result.REJECTED,
+                    rejectedAt
+            );
 
             log.info(
                     "청약 예약 만료 보상 완료. "
@@ -153,7 +164,15 @@ public class SubscriptionCompensationCompletionService {
             subscription.markCompensationQuantityRestored();
         }
 
-        subscription.completeCancellation(Instant.now());
+        Instant cancelledAt = Instant.now();
+
+        subscription.completeCancellation(cancelledAt);
+
+        subscriptionLifecycleMetrics.publishOutcome(
+                subscription,
+                SubscriptionLifecycleMetrics.Result.CANCELLED,
+                cancelledAt
+        );
 
         offeringCompensationCompletionService.completeIfReady(
                 offeringId

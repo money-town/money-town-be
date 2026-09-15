@@ -22,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,7 +52,7 @@ class OfferingCommandServiceTest {
     private OfferingCommandService offeringCommandService;
 
     @Test
-    @DisplayName("유효한 ISSUER는 사용자와 자산 검증 후 공모를 생성한다")
+    @DisplayName("유효한 ISSUER는 사용자와 자산 검증 후 자동 생성한 제목으로 공모를 생성한다")
     void createsOfferingForEligibleIssuer() {
         // given
         UUID issuerId = UUID.randomUUID();
@@ -74,7 +75,7 @@ class OfferingCommandServiceTest {
                         "사용자 조회 성공"
                 ));
 
-        when(assetServiceClient.getAsset("SYSTEM",assetId))
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
                 .thenReturn(ApiResponse.success(
                         asset,
                         "자산 조회 성공"
@@ -83,6 +84,7 @@ class OfferingCommandServiceTest {
         when(offeringTransactionService.createOffering(
                 issuerId,
                 request,
+                "테스트 자산 공모",
                 asset.unitPrice()
         )).thenReturn(expectedResponse);
 
@@ -100,12 +102,13 @@ class OfferingCommandServiceTest {
                 .getInvestmentEligibility(issuerId);
 
         verify(assetServiceClient)
-                .getAsset("SYSTEM",assetId);
+                .getAsset("SYSTEM", assetId);
 
         verify(offeringTransactionService)
                 .createOffering(
                         issuerId,
                         request,
+                        "테스트 자산 공모",
                         asset.unitPrice()
                 );
     }
@@ -372,16 +375,15 @@ class OfferingCommandServiceTest {
     }
 
     private OfferingCreateRequest createRequest(UUID assetId) {
-        Instant now = Instant.now();
+        LocalDateTime now = LocalDateTime.now();
 
         return new OfferingCreateRequest(
                 assetId,
-                "테스트 공모",
                 100L,
                 1L,
                 10L,
-                now.plusSeconds(3_600),
-                now.plusSeconds(7_200)
+                now.plusHours(1),
+                now.plusHours(2)
         );
     }
 
@@ -544,6 +546,72 @@ class OfferingCommandServiceTest {
                         offeringId,
                         adminId,
                         "ADMIN"
+                );
+    }
+
+    @Test
+    @DisplayName("자산명의 앞뒤 Unicode 공백을 제거하여 공모 제목을 생성한다")
+    void stripsUnicodeWhitespaceFromOfferingTitle() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        OfferingCreateRequest request =
+                createRequest(assetId);
+
+        AssetOfferingInfoResponse asset =
+                new AssetOfferingInfoResponse(
+                        assetId,
+                        issuerId,
+                        "REAL_ESTATE",
+
+                        // U+2003 EM SPACE를 자산명 앞뒤에 배치
+                        "\u2003테스트 자산\u2003",
+
+                        10_000L,
+                        1_000L,
+                        0L,
+                        "APPROVED"
+                );
+
+        OfferingCreateResponse expectedResponse =
+                mock(OfferingCreateResponse.class);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId),
+                        "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(
+                        asset,
+                        "자산 조회 성공"
+                ));
+
+        when(offeringTransactionService.createOffering(
+                issuerId,
+                request,
+                "테스트 자산 공모",
+                asset.unitPrice()
+        )).thenReturn(expectedResponse);
+
+        // when
+        OfferingCreateResponse response =
+                offeringCommandService.create(
+                        issuerId,
+                        request
+                );
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+
+        verify(offeringTransactionService)
+                .createOffering(
+                        issuerId,
+                        request,
+                        "테스트 자산 공모",
+                        asset.unitPrice()
                 );
     }
 

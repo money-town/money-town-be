@@ -8,6 +8,7 @@ import com.moneykk.moneytown.wallet.dto.request.SettlementDepositRequest;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.service.WalletService;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Hidden
 @Tag(name = "Wallet Internal Deposit", description = "Settlement 서비스가 배당/자산종료 정산 지급 시 호출하는 내부 전용 API. 인증/인가 미구현 (TODO)")
 //TODO: 인가 코드 추가 (Settlement 서비스 전용 내부 호출임을 검증)
 @RestController

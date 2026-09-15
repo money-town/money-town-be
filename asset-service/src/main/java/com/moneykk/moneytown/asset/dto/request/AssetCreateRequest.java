@@ -1,16 +1,14 @@
 package com.moneykk.moneytown.asset.dto.request;
 
 import com.moneykk.moneytown.asset.entity.AssetType;
-import jakarta.validation.constraints.Digits;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
 import java.util.Map;
 
-/** 자산 등록 요청 */
+/**
+ * 자산 등록 요청
+ */
 public record AssetCreateRequest(
 
         // 자산 이름
@@ -24,6 +22,10 @@ public record AssetCreateRequest(
 
         // 자산 설명
         @NotBlank(message = "자산 설명은 필수입니다.")
+        @Size(
+                max = 5000,
+                message = "자산 설명은 5000자 이하여야 합니다."
+        )
         String description,
 
         // 평가 금액(원)
@@ -33,6 +35,7 @@ public record AssetCreateRequest(
 
         // 예상 수익률(%)
         @NotNull(message = "예상 수익률은 필수입니다.")
+        @PositiveOrZero(message = "예상 수익률은 0 이상이어야 합니다.")
         @Digits(
                 integer = 3,
                 fraction = 4,

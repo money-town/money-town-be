@@ -39,7 +39,7 @@ class SettlementFailureNotifierTest {
     @Test
     @DisplayName("배당 정산 회차 실패를 배치ID를 멱등키로 삼아 SETTLEMENT_FAILED 알림으로 통보한다")
     void notifiesDividendBatchFailure() {
-        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L, 0L);
+        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L);
         ReflectionTestUtils.setField(batch, "status", SettlementStatus.FAILED);
 
         settlementFailureNotifier.notifyDividendBatchFailed(batch);
@@ -69,7 +69,7 @@ class SettlementFailureNotifierTest {
     @Test
     @DisplayName("analysis-service 호출이 실패해도 예외를 전파하지 않는다")
     void swallowsFailureWithoutPropagating() {
-        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L, 0L);
+        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L);
         ReflectionTestUtils.setField(batch, "status", SettlementStatus.FAILED);
         when(analysisServiceClient.sendNotification(any(), any())).thenThrow(mock(FeignException.class));
 

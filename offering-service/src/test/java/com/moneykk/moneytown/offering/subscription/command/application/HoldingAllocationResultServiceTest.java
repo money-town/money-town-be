@@ -67,6 +67,7 @@ class HoldingAllocationResultServiceTest {
     @BeforeEach
     void setUp() {
         subscription = createProcessingSubscription();
+        subscription.markHoldSucceeded();
         subscription.confirm(Instant.now());
 
         offering = mock(Offering.class);

@@ -1,0 +1,45 @@
+# Prometheus scrape 설정
+#
+# 각 서비스는 config-repository/application.yml 의
+#   management.endpoints.web.exposure.include: health,info,prometheus
+# 설정으로 /actuator/prometheus 를 이미 노출한다.
+# Prometheus 는 moneytown 도커 네트워크 안에서 컨테이너 이름으로 각 서비스를
+# 직접 긁는다. (게이트웨이/nginx 를 경유하지 않는다.)
+#
+# 포트 규칙
+#   - gateway-service 는 management.server.port 로 관리 포트를 9091 로 분리했다.
+#   - 나머지 서비스는 앱 포트와 관리 포트가 같다.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    project: money-town
+
+scrape_configs:
+  # Prometheus 자기 자신
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # money-town 서비스들
+  # application 라벨은 micrometer 가 spring.application.name 으로 자동 부여하므로
+  # 여기서는 job 을 하나로 두고 target 만 나열한다.
+  - job_name: moneytown-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - discovery-server:19090
+          - config-server:19093
+          - user-service:19092
+          - wallet-service:19094
+          - asset-service:19095
+          - offering-service:19096
+          - settlement-service:19097
+          - analysis-service:19098
+        labels:
+          tier: backend
+      - targets:
+          - gateway-service:9091
+        labels:
+          tier: edge

@@ -8,6 +8,7 @@ import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,6 +32,7 @@ class FinalSettlementPayoutWriter {
 
     private final FinalSettlementBatchRepository finalSettlementBatchRepository;
     private final FinalSettlementPayoutRepository finalSettlementPayoutRepository;
+    private final MeterRegistry meterRegistry;
 
     // 별도 트랜잭션(REQUIRES_NEW)에서 실행한다 — asset_id 유니크 제약 위반이 나도 이 트랜잭션만 롤백되고,
     // 호출자(FinalSettlementCommandService)가 이어서 기존 배치를 새 트랜잭션으로 조회할 수 있어야 하기 때문이다.
@@ -82,8 +84,10 @@ class FinalSettlementPayoutWriter {
     public void markFailedAttempt(UUID payoutId) {
         FinalSettlementPayout payout = loadPayout(payoutId);
         payout.incrementRetryCount();
+        meterRegistry.counter("settlement.payout.retry", "type", "final").increment();
         if (payout.getRetryCount() >= MAX_RETRY_COUNT) {
             payout.markDeadLetter();
+            meterRegistry.counter("settlement.payout.dead_letter", "type", "final", "reason", "retry_exceeded").increment();
         } else {
             payout.markRetrying();
         }
@@ -95,6 +99,7 @@ class FinalSettlementPayoutWriter {
     public void markResponseMismatch(UUID payoutId) {
         FinalSettlementPayout payout = loadPayout(payoutId);
         payout.markDeadLetter();
+        meterRegistry.counter("settlement.payout.dead_letter", "type", "final", "reason", "response_mismatch").increment();
         finalSettlementPayoutRepository.save(payout);
     }
 
@@ -120,6 +125,7 @@ class FinalSettlementPayoutWriter {
         } else {
             batch.markFailed();
         }
+        meterRegistry.counter("settlement.batch.status", "type", "final", "status", batch.getStatus().name()).increment();
         finalSettlementBatchRepository.save(batch);
 
         return Optional.of(batch);

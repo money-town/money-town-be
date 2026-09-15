@@ -10,6 +10,7 @@ import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +25,16 @@ public class WalletTransactionService {
 
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
+    private final MeterRegistry meterRegistry;
 
-    @Transactional
+    // 거래 타입별 처리량을 Grafana에서 볼 수 있도록 카운터로 남긴다.
+    private void recordTransactionMetric(WalletTransactionType type) {
+        meterRegistry.counter("wallet.transaction.count", "type", type.name()).increment();
+    }
+
+    // 게이트웨이 응답 타임아웃(10초)보다 확실히 짧게 잡아서, 커넥션 획득 이후 실제 처리가
+    // 예상 못 하게 늘어지는 경우에도 클라이언트가 이미 포기한 뒤까지 커넥션을 붙잡지 않게 한다.
+    @Transactional(timeout = 5)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -37,11 +46,12 @@ public class WalletTransactionService {
                 wallet.getId(), WalletTransactionType.DEPOSIT, amount,
                 balanceBefore, wallet.getBalance(), idempotencyKey, null
         ));
+        recordTransactionMetric(WalletTransactionType.DEPOSIT);
 
         return TransactionResponse.from(transaction);
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -53,11 +63,12 @@ public class WalletTransactionService {
                 wallet.getId(), WalletTransactionType.WITHDRAW, amount,
                 balanceBefore, wallet.getBalance(), idempotencyKey, null
         ));
+        recordTransactionMetric(WalletTransactionType.WITHDRAW);
 
         return TransactionResponse.from(transaction);
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public DividendDepositResponse depositDividend(UUID userId, String idempotencyKey, UUID settlementBatchId, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -69,11 +80,12 @@ public class WalletTransactionService {
                 wallet.getId(), WalletTransactionType.DIVIDEND, amount,
                 balanceBefore, wallet.getBalance(), idempotencyKey, settlementBatchId.toString()
         ));
+        recordTransactionMetric(WalletTransactionType.DIVIDEND);
 
         return DividendDepositResponse.from(transaction);
     }
 
-    @Transactional
+    @Transactional(timeout = 5)
     public SettlementDepositResponse depositSettlement(UUID userId, String idempotencyKey, UUID finalSettlementBatchId, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
@@ -85,6 +97,7 @@ public class WalletTransactionService {
                 wallet.getId(), WalletTransactionType.SETTLEMENT, amount,
                 balanceBefore, wallet.getBalance(), idempotencyKey, finalSettlementBatchId.toString()
         ));
+        recordTransactionMetric(WalletTransactionType.SETTLEMENT);
 
         return SettlementDepositResponse.from(transaction);
     }

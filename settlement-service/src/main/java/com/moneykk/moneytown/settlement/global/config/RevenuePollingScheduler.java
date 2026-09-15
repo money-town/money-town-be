@@ -9,6 +9,7 @@ import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient
 import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,12 +38,14 @@ public class RevenuePollingScheduler {
     private final SettlementCommandService settlementCommandService;
     private final RevenueTransferStatusNotifier revenueTransferStatusNotifier;
     private final DividendDisbursementService dividendDisbursementService;
+    private final MeterRegistry meterRegistry;
 
     @Scheduled(fixedDelay = POLL_INTERVAL_MS)
     public void pollReadyRevenues() {
         UUID cursor = null;
         boolean hasNext = true;
         int pageCount = 0;
+        int processedCount = 0;
 
         while (hasNext) {
             if (++pageCount > MAX_PAGES) {
@@ -53,6 +56,7 @@ public class RevenuePollingScheduler {
             UUID requestCursor = cursor;
             ReadyRevenueListResponse page = assetServiceClient.getReadyRevenues(SYSTEM_ROLE, requestCursor).data();
 
+            processedCount += page.revenues().size();
             page.revenues().forEach(this::tryOpenBatch);
 
             hasNext = page.hasNext();
@@ -62,6 +66,11 @@ public class RevenuePollingScheduler {
                 return;
             }
             cursor = nextCursor;
+        }
+
+        // 매 3분 도는 스케줄러라, 처리한 게 없는 조용한 주기까지 매번 남기면 로그만 쌓인다 — 처리 건이 있을 때만 남긴다.
+        if (processedCount > 0) {
+            log.info("정산 대기 수익 폴링 완료 (처리 시도 건수={})", processedCount);
         }
     }
 
@@ -73,8 +82,10 @@ public class RevenuePollingScheduler {
             dividendDisbursementService.disburseAsync(response.settlementBatchId());
         } catch (BusinessException e) {
             if (EXPECTED_SKIP_REASONS.contains(e.getErrorCode())) {
+                meterRegistry.counter("settlement.batch.auto_open", "result", "skipped").increment();
                 log.debug("정산 회차 자동 개시 건너뜀 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             } else {
+                meterRegistry.counter("settlement.batch.auto_open", "result", "failed").increment();
                 log.warn("정산 회차 자동 개시 실패 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             }
         }

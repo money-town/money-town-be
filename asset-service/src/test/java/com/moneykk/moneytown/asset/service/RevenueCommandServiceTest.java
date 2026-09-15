@@ -5,6 +5,7 @@ import com.moneykk.moneytown.asset.dto.request.RevenueTransferStatusRequest;
 import com.moneykk.moneytown.asset.dto.response.RevenueDetailResponse;
 import com.moneykk.moneytown.asset.dto.response.RevenueTransferStatusResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
+import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.AssetType;
 import com.moneykk.moneytown.asset.entity.Revenue;
 import com.moneykk.moneytown.asset.entity.RevenueSourceType;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -185,6 +187,38 @@ class RevenueCommandServiceTest {
     }
 
     @Test
+    @DisplayName("원본 참조 ID의 앞뒤 공백을 제거해 조회하고 저장한다")
+    void normalizesSourceReferenceId() {
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID revenueId = UUID.randomUUID();
+        RevenueCreateRequest request = createRequest("  RENT-2026-09  ");
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset(userId)));
+        when(revenueRepository.save(any(Revenue.class))).thenAnswer(invocation -> {
+            Revenue saved = invocation.getArgument(0);
+            assertEquals("RENT-2026-09", saved.getSourceReferenceId());
+            ReflectionTestUtils.setField(saved, "id", revenueId);
+            return saved;
+        });
+
+        RevenueDetailResponse response = revenueCommandService.createRevenue(
+                assetId,
+                userId,
+                "ISSUER",
+                request
+        );
+
+        assertEquals("RENT-2026-09", response.sourceReferenceId());
+        verify(revenueRepository)
+                .existsByAssetIdAndSourceTypeAndSourceReferenceId(
+                        assetId,
+                        request.sourceType(),
+                        "RENT-2026-09"
+                );
+    }
+
+    @Test
     @DisplayName("동일 출처 수익이 있으면 중복 등록을 거부한다")
     void rejectsDuplicateRevenue() {
         UUID assetId = UUID.randomUUID();
@@ -239,6 +273,35 @@ class RevenueCommandServiceTest {
                         assetId, UUID.randomUUID(), "SYSTEM", createRequest()));
 
         assertEquals(AssetErrorCode.ASSET_NOT_FOUND, exception.getErrorCode());
+        verifyNoInteractions(revenueRepository);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AssetStatus.class, names = {
+            "DRAFT",
+            "REVIEW_REQUESTED",
+            "REJECTED",
+            "SUSPENDED",
+            "TERMINATION_REQUESTED",
+            "TERMINATED"
+    })
+    @DisplayName("승인되어 운영 중이지 않은 자산에는 수익을 등록할 수 없다")
+    void rejectsRevenueForUnavailableAsset(AssetStatus status) {
+        UUID assetId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        Asset asset = asset(userId);
+        ReflectionTestUtils.setField(asset, "status", status);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> revenueCommandService.createRevenue(
+                        assetId, userId, "ISSUER", createRequest()));
+
+        assertEquals(
+                AssetErrorCode.REVENUE_REGISTRATION_NOT_ALLOWED,
+                exception.getErrorCode()
+        );
         verifyNoInteractions(revenueRepository);
     }
 
@@ -299,13 +362,19 @@ class RevenueCommandServiceTest {
     }
 
     private Asset asset(UUID ownerId) {
-        return new Asset(ownerId, "테스트 자산", AssetType.REAL_ESTATE, "테스트 부동산",
+        Asset asset = new Asset(ownerId, "테스트 자산", AssetType.REAL_ESTATE, "테스트 부동산",
                 100_000_000L, BigDecimal.valueOf(5), Map.of(), 10_000L);
+        ReflectionTestUtils.setField(asset, "status", AssetStatus.APPROVED);
+        return asset;
     }
 
     private RevenueCreateRequest createRequest() {
+        return createRequest("RENT-2026-09");
+    }
+
+    private RevenueCreateRequest createRequest(String sourceReferenceId) {
         return new RevenueCreateRequest(
-                RevenueSourceType.PROPERTY_MANAGER, "RENT-2026-09", RevenueType.RENTAL_INCOME,
+                RevenueSourceType.PROPERTY_MANAGER, sourceReferenceId, RevenueType.RENTAL_INCOME,
                 BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(100_000), BigDecimal.valueOf(50_000),
                 "KRW", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31),
                 Map.of("source", "임대관리 시스템"));

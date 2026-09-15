@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 
 public enum WalletErrorCode implements ErrorCode {
     WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "WALLET_404_01", "존재하지 않는 지갑입니다."),
+    WALLET_HOLD_NOT_FOUND(HttpStatus.NOT_FOUND, "WALLET_404_02", "해당 청약에 대한 동결 처리 이력이 없습니다."),
     INSUFFICIENT_AVAILABLE_BALANCE(HttpStatus.BAD_REQUEST, "WALLET_400_01", "가용잔액이 부족합니다."),
     INVALID_HOLD_STATUS_TRANSITION(HttpStatus.CONFLICT, "WALLET_409_02", "허용되지 않는 동결 상태 전이입니다."),
     INVALID_AMOUNT(HttpStatus.BAD_REQUEST, "WALLET_400_02", "금액은 0보다 커야 합니다."),
@@ -13,7 +14,9 @@ public enum WalletErrorCode implements ErrorCode {
     BALANCE_OVERFLOW(HttpStatus.BAD_REQUEST, "WALLET_400_05", "처리 가능한 최대 금액을 초과했습니다."),
     INELIGIBLE_FOR_TRANSACTION(HttpStatus.FORBIDDEN, "WALLET_403_01", "입출금 가능한 계정 상태가 아닙니다."),
     WALLET_ADMIN_ACCESS_DENIED(HttpStatus.FORBIDDEN, "WALLET_403_02", "지갑 상세 조회는 ADMIN 권한으로만 이용할 수 있습니다."),
-    IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "WALLET_409_01", "동일한 멱등키로 다른 요청이 이미 처리되었습니다.");
+    IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "WALLET_409_01", "동일한 멱등키로 다른 요청이 이미 처리되었습니다."),
+    USER_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "WALLET_503_01", "회원 서비스 상태를 확인할 수 없어 요청을 처리할 수 없습니다."),
+    INVALID_CURSOR(HttpStatus.BAD_REQUEST, "WALLET_400_06", "유효하지 않은 커서입니다.");
 
     private final HttpStatus status;
     private final String code;

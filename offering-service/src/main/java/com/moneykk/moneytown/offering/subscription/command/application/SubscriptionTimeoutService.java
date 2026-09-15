@@ -1,82 +1,139 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
-import com.moneykk.moneytown.common.exception.BusinessException;
-import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
-import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
-import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
-import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
-import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SubscriptionTimeoutService {
 
     private static final int TIMEOUT_BATCH_SIZE = 100;
 
-    private final OfferingRepository offeringRepository;
     private final SubscriptionRepository subscriptionRepository;
-    private final SubscriptionCompensationRepository subscriptionCompensationRepository;
-    private final SubscriptionEventPublisher subscriptionEventPublisher;
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
+
+    /*
+     * 청약 한 건을 독립 트랜잭션으로 처리하는 서비스를 주입한다.
+     */
+    private final SubscriptionTimeoutTransactionService
+            subscriptionTimeoutTransactionService;
 
     /**
-     * 예약 유효시간이 만료된 PROCESSING 청약을 조회하여
-     * COMPENSATING 상태로 전환하고 Wallet 보상 요청을 저장한다.
+     * 예약 유효시간이 만료된 PROCESSING 청약을
+     * 키셋 방식으로 100건씩 조회하여 보상 처리를 시작한다.
      *
-     * 청약 상태 변경, 보상 진행 정보 생성 및 Outbox 저장은
-     * 동일한 로컬 트랜잭션에서 처리한다.
+     * 청약별 처리는 독립 트랜잭션에서 수행한다. 특정 청약이 실패해
+     * PROCESSING 상태에 남더라도 같은 실행에서 후속 청약을 계속 처리한다.
      *
-     * @return timeout 처리된 청약 수
+     * 실패한 청약은 다음 스케줄 실행에서 다시 조회된다.
+     *
+     * @return 실제로 만료 보상을 시작한 청약 수
      */
-    @Transactional
     public int processExpiredReservations() {
 
         Instant now = Instant.now();
 
-        List<Subscription> subscriptions =
-                subscriptionRepository
-                        .findAllBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(
-                                SubscriptionStatus.PROCESSING,
-                                now,
-                                PageRequest.of(0, TIMEOUT_BATCH_SIZE)
-                        );
+        Instant lastReservationExpiresAt = null;
+        UUID lastSubscriptionId = null;
 
-        for (Subscription subscription : subscriptions) {
-            Offering offering = offeringRepository
-                    .findByOfferingIdAndIsDeletedFalse(
-                            subscription.getOfferingId()
-                    )
-                    .orElseThrow(() -> new BusinessException(
-                            OfferingErrorCode.OFFERING_NOT_FOUND
-                    ));
+        int processedCount = 0;
 
-            subscription.startExpirationCompensation(now);
+        while (true) {
+            List<ExpiredProcessingSubscriptionTarget> targets;
 
-            SubscriptionCompensation compensation =
-                    SubscriptionCompensation
-                            .createForReservationExpiration(
-                                    subscription.getSubscriptionId()
-                            );
+            if (lastReservationExpiresAt == null) {
+                targets =
+                        subscriptionRepository
+                                .findExpiredProcessingSubscriptionTargets(
+                                        now,
+                                        PageRequest.of(
+                                                0,
+                                                TIMEOUT_BATCH_SIZE
+                                        )
+                                );
+            } else {
+                targets =
+                        subscriptionRepository
+                                .findExpiredProcessingSubscriptionTargetsAfter(
+                                        now,
+                                        lastReservationExpiresAt,
+                                        lastSubscriptionId,
+                                        PageRequest.of(
+                                                0,
+                                                TIMEOUT_BATCH_SIZE
+                                        )
+                                );
+            }
 
-            subscriptionCompensationRepository.save(compensation);
+            if (targets.isEmpty()) {
+                break;
+            }
 
-            subscriptionEventPublisher.publishCompensationRequested(
-                    subscription,
-                    offering.getAssetId(),
-                    UUID.randomUUID().toString()
-            );
+            /*
+             * 각 청약을 REQUIRES_NEW 트랜잭션으로 처리한다.
+             *
+             * 한 건이 실패해도 다음 청약을 계속 처리하므로
+             * 전체 배치가 함께 롤백되지 않는다.
+             */
+            for (ExpiredProcessingSubscriptionTarget target : targets) {
+                try {
+                    boolean processed =
+                            subscriptionTimeoutTransactionService
+                                    .processExpiredReservation(
+                                            target.subscriptionId(),
+                                            now
+                                    );
+
+                    if (processed) {
+                        processedCount++;
+                    }
+                } catch (Exception e) {
+                    offeringSchedulerMetrics
+                            .recordSubscriptionTimeoutItemFailure();
+
+                    /*
+                     * 현재 대상이 실패해도 키셋 커서를 전진시켜
+                     * 같은 실행에서 후속 청약을 계속 처리한다.
+                     *
+                     * 실패한 청약은 PROCESSING 상태로 남아
+                     * 다음 스케줄 실행에서 다시 조회된다.
+                     */
+                    log.error(
+                            "예약 만료 청약 처리 실패. subscriptionId={}",
+                            target.subscriptionId(),
+                            e
+                    );
+                }
+            }
+
+            /*
+             * 처리 성공 여부와 관계없이 조회한 마지막 대상을
+             * 다음 키셋 조회의 커서로 사용한다.
+             */
+            ExpiredProcessingSubscriptionTarget lastTarget =
+                    targets.get(targets.size() - 1);
+
+            lastReservationExpiresAt =
+                    lastTarget.reservationExpiresAt();
+
+            lastSubscriptionId =
+                    lastTarget.subscriptionId();
+
+            if (targets.size() < TIMEOUT_BATCH_SIZE) {
+                break;
+            }
         }
-        return subscriptions.size();
+
+        return processedCount;
     }
 }

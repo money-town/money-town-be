@@ -14,6 +14,7 @@ dependencies {
     // 테스트
     testImplementation 'org.springframework:spring-web'
     testImplementation 'org.springframework.data:spring-data-jpa'
+    testImplementation "org.springdoc:springdoc-openapi-starter-common:${springdocVersion}"
 
     compileOnly 'jakarta.servlet:jakarta.servlet-api'
     compileOnly 'com.fasterxml.jackson.core:jackson-annotations'
@@ -23,6 +24,7 @@ dependencies {
     compileOnly 'io.github.openfeign:feign-core'
     compileOnly 'org.slf4j:slf4j-api'
     compileOnly 'org.springframework.boot:spring-boot-autoconfigure'
+    compileOnly "org.springdoc:springdoc-openapi-starter-common:${springdocVersion}"
     compileOnly "com.querydsl:querydsl-jpa:${dependencyManagement.importedProperties['querydsl.version']}:jakarta"
 
     annotationProcessor "com.querydsl:querydsl-apt:${dependencyManagement.importedProperties['querydsl.version']}:jakarta"

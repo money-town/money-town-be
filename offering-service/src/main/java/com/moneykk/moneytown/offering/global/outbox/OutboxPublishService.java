@@ -75,6 +75,9 @@ public class OutboxPublishService {
     /**
      * Kafka 발행 실패를 기록하고 재시도를 예약한다.
      *
+     *  실패 누적 횟수가 설정된 한도에 도달하면
+     *  Outbox 이벤트를 FAILED 상태로 전환한다.
+     *
      * @return 현재 발행 시도에 결과가 반영되었으면 true
      */
     @Transactional
@@ -108,15 +111,6 @@ public class OutboxPublishService {
         );
 
         return updatedRows == 1;
-    }
-
-    private void validateClaimedEvent(ClaimedEvent event) {
-        Objects.requireNonNull(event, "발행 이벤트는 필수입니다.");
-        Objects.requireNonNull(event.eventId(), "eventId는 필수입니다.");
-        Objects.requireNonNull(
-                event.processingStartedAt(),
-                "발행 처리 시작 시각은 필수입니다."
-        );
     }
 
     /**
@@ -155,6 +149,77 @@ public class OutboxPublishService {
                 batchSize
         );
     }
+
+    /*
+     * 원인이 해결된 FAILED 이벤트를 다시 발행할 수 있도록
+     * PENDING 상태로 전환한다.
+     *
+     * 같은 이벤트에 재처리를 여러 번 요청하거나,
+     * 이미 PENDING/PROCESSING/PUBLISHED 상태라면 false를 반환한다.
+     *
+     * @return FAILED에서 PENDING으로 변경됐으면 true
+     */
+    @Transactional
+    public boolean requeueFailedEvent(
+            UUID eventId
+    ) {
+        Objects.requireNonNull(
+                eventId,
+                "eventId는 필수입니다."
+        );
+
+        int updatedRows =
+                outboxEventRepository.requeueFailedEvent(
+                        eventId
+                );
+
+        return updatedRows == 1;
+    }
+
+    /**
+     * Kafka 발행을 기다리는 PENDING Outbox 이벤트 수를 조회한다.
+     */
+    @Transactional(readOnly = true)
+    public long countPendingEvents() {
+        return outboxEventRepository.countByEventStatus(
+                OutboxEventStatus.PENDING
+        );
+    }
+
+    /**
+     * 현재 DB에서 발행 처리 중인 Outbox 이벤트 수를 조회한다.
+     *
+     * OutboxPublishMonitor가 PROCESSING 건수 Gauge를 갱신할 때 사용한다.
+     */
+    @Transactional(readOnly = true)
+    public long countProcessingEvents() {
+        return outboxEventRepository.countByEventStatus(
+                OutboxEventStatus.PROCESSING
+        );
+    }
+
+    /**
+     * 현재 DB에서 영구 실패 상태로 남아 있는
+     * FAILED Outbox 이벤트 수를 조회한다.
+     *
+     * OutboxPublishMonitor가 FAILED Gauge를 갱신할 때 사용한다.
+     */
+    @Transactional(readOnly = true)
+    public long countFailedEvents() {
+        return outboxEventRepository.countByEventStatus(
+                OutboxEventStatus.FAILED
+        );
+    }
+
+    private void validateClaimedEvent(ClaimedEvent event) {
+        Objects.requireNonNull(event, "발행 이벤트는 필수입니다.");
+        Objects.requireNonNull(event.eventId(), "eventId는 필수입니다.");
+        Objects.requireNonNull(
+                event.processingStartedAt(),
+                "발행 처리 시작 시각은 필수입니다."
+        );
+    }
+
     public record ClaimedEvent(
             UUID eventId,
             String topic,

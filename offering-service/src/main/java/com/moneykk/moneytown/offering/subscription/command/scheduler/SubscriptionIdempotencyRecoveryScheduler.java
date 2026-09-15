@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.offering.subscription.command.scheduler;
 
+import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionIdempotencyRecoveryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,8 +13,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SubscriptionIdempotencyRecoveryScheduler {
 
-    private final SubscriptionIdempotencyRecoveryService
-            subscriptionIdempotencyRecoveryService;
+    private final SubscriptionIdempotencyRecoveryService subscriptionIdempotencyRecoveryService;
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     @Value("${subscription.idempotency.recovery-batch-size:100}")
     private int recoveryBatchSize;
@@ -39,6 +40,7 @@ public class SubscriptionIdempotencyRecoveryScheduler {
                 );
             }
         } catch (Exception e) {
+            offeringSchedulerMetrics.recordIdempotencyRecoveryFailure();
             /*
              * 한 번의 복구 실패가 스케줄러의 다음 실행을 막지 않도록
              * 예외를 기록하고 종료한다.

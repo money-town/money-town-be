@@ -336,9 +336,10 @@ class HoldingQueryServiceTest {
         UUID cursor = UUID.randomUUID();
         LocalDate asOf = LocalDate.of(2026, 8, 31);
         Instant cutoff = Instant.parse("2026-08-31T15:00:00Z");
+        Instant firstAcquiredAt = Instant.parse("2026-08-01T00:00:00Z");
         List<HoldingSnapshotItemResponse> rows = List.of(
-                new HoldingSnapshotItemResponse(UUID.randomUUID(), UUID.randomUUID(), 10),
-                new HoldingSnapshotItemResponse(UUID.randomUUID(), UUID.randomUUID(), 20)
+                new HoldingSnapshotItemResponse(UUID.randomUUID(), UUID.randomUUID(), 10, firstAcquiredAt),
+                new HoldingSnapshotItemResponse(UUID.randomUUID(), UUID.randomUUID(), 20, firstAcquiredAt)
         ).subList(0, count);
         when(assetQueryRepository.findActiveById(assetId))
                 .thenReturn(Optional.of(mock(Asset.class)));
@@ -379,15 +380,16 @@ class HoldingQueryServiceTest {
         UUID thirdHoldingId = UUID.randomUUID();
         LocalDate asOf = LocalDate.of(2026, 9, 2);
         Instant cutoffExclusive = Instant.parse("2026-09-02T15:00:00Z");
+        Instant firstAcquiredAt = Instant.parse("2026-08-01T00:00:00Z");
 
         HoldingSnapshotItemResponse first = new HoldingSnapshotItemResponse(
-                firstHoldingId, UUID.randomUUID(), 10
+                firstHoldingId, UUID.randomUUID(), 10, firstAcquiredAt
         );
         HoldingSnapshotItemResponse second = new HoldingSnapshotItemResponse(
-                secondHoldingId, UUID.randomUUID(), 20
+                secondHoldingId, UUID.randomUUID(), 20, firstAcquiredAt.plusSeconds(1)
         );
         HoldingSnapshotItemResponse extra = new HoldingSnapshotItemResponse(
-                thirdHoldingId, UUID.randomUUID(), 30
+                thirdHoldingId, UUID.randomUUID(), 30, firstAcquiredAt.plusSeconds(2)
         );
 
         when(assetQueryRepository.findActiveById(assetId))

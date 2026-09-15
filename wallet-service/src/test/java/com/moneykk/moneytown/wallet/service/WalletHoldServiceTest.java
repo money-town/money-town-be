@@ -15,6 +15,7 @@ import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepositor
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,9 @@ class WalletHoldServiceTest {
     // pg_advisory_xact_lock 네이티브 쿼리 체인만 통과시키면 되므로 deep stub으로 처리
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private EntityManager entityManager;
+    // .counter(...).increment() 체인만 통과시키면 되므로 deep stub으로 처리
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private MeterRegistry meterRegistry;
 
     @InjectMocks
     private WalletHoldService walletHoldService;

@@ -18,7 +18,7 @@ spring:
             - id: wallet-service-route
               uri: lb://wallet-service
               predicates:
-                - Path=/api/v1/wallets/**
+                - Path=/api/v1/wallets/**,/api/v1/admin/wallets/**
 
             # 실제 Asset API
             - id: asset-service-route

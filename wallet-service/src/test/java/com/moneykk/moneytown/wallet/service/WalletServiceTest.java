@@ -5,10 +5,18 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
+import com.moneykk.moneytown.wallet.dto.response.CursorPageResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
+import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletHoldStatusResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletStatusResponse;
+import com.moneykk.moneytown.wallet.dto.support.TransactionCursor;
 import com.moneykk.moneytown.wallet.entity.Wallet;
+import com.moneykk.moneytown.wallet.entity.WalletHold;
+import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
@@ -22,13 +30,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -114,9 +126,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC/거래가능상태 요건을 갖춘 사용자의 충전 요청은 WalletTransactionService에 위임한다")
     void deposit_eligibleUser_delegatesToTransactionService() {
-        Wallet wallet = walletWithId(1L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         TransactionResponse expected = TransactionResponse.from(depositTransaction(1L, 1_000L));
         when(walletTransactionService.deposit(investorId, "key-1", 1_000L)).thenReturn(expected);
@@ -129,9 +138,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC 상태가 유효하지 않으면(만료 시각은 유효해도) 충전이 거부된다")
     void deposit_ineligibleByStatus_throwsBusinessException() {
-        Wallet wallet = walletWithId(1L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByStatusResponse());
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -144,9 +150,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC 상태는 유효해도 만료 시각이 지났으면 충전이 거부된다")
     void deposit_ineligibleByExpiry_throwsBusinessException() {
-        Wallet wallet = walletWithId(1L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByExpiryResponse());
 
         BusinessException exception = assertThrows(BusinessException.class,
@@ -157,17 +160,17 @@ class WalletServiceTest {
     }
 
     @Test
-    @DisplayName("같은 멱등키로 이미 처리된 충전이면 KYC 검증 없이 기존 결과를 반환한다")
-    void deposit_duplicateIdempotencyKey_returnsExistingResult() {
+    @DisplayName("KYC가 거부돼도 이미 처리된 멱등키면 재검증 없이 기존 결과를 반환한다 (재시도 계약 유지)")
+    void deposit_ineligibleButAlreadyProcessed_returnsExistingResult() {
         Wallet wallet = walletWithId(1L);
         WalletTransaction existing = depositTransaction(1L, 1_000L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(ineligibleByStatusResponse());
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
 
         TransactionResponse response = walletService.deposit(investorId, "key-1", 1_000L);
 
         assertEquals(TransactionResponse.from(existing), response);
-        verify(userServiceClient, never()).getInvestmentEligibility(any());
         verify(walletTransactionService, never()).deposit(any(), any(), anyLong());
     }
 
@@ -178,6 +181,9 @@ class WalletServiceTest {
         WalletTransaction existing = depositTransaction(1L, 500L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
+        when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
+                .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
 
         assertThrows(BusinessException.class, () -> walletService.deposit(investorId, "key-1", 1_000L));
     }
@@ -189,6 +195,9 @@ class WalletServiceTest {
         WalletTransaction existing = depositTransaction(2L, 1_000L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
+        when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
+                .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.deposit(investorId, "key-1", 1_000L));
@@ -203,6 +212,9 @@ class WalletServiceTest {
         WalletTransaction existing = withdrawTransaction(1L, 1_000L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
         when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(existing));
+        when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
+        when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
+                .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.deposit(investorId, "key-1", 1_000L));
@@ -216,9 +228,7 @@ class WalletServiceTest {
         Wallet wallet = walletWithId(1L);
         WalletTransaction winner = depositTransaction(1L, 1_000L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1"))
-                .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(winner));
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(winner));
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         when(walletTransactionService.deposit(investorId, "key-1", 1_000L))
                 .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
@@ -231,9 +241,6 @@ class WalletServiceTest {
     @Test
     @DisplayName("KYC/거래가능상태 요건을 갖춘 사용자의 출금 요청은 WalletTransactionService에 위임한다")
     void withdraw_eligibleUser_delegatesToTransactionService() {
-        Wallet wallet = walletWithId(1L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         TransactionResponse expected = TransactionResponse.from(withdrawTransaction(1L, 500L));
         when(walletTransactionService.withdraw(investorId, "key-1", 500L)).thenReturn(expected);
@@ -249,9 +256,7 @@ class WalletServiceTest {
         Wallet wallet = walletWithId(1L);
         WalletTransaction winner = withdrawTransaction(1L, 500L);
         when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
-        when(walletTransactionRepository.findByIdempotencyKey("key-1"))
-                .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(winner));
+        when(walletTransactionRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(winner));
         when(userServiceClient.getInvestmentEligibility(investorId)).thenReturn(eligibleResponse());
         when(walletTransactionService.withdraw(investorId, "key-1", 500L))
                 .thenThrow(new DataIntegrityViolationException("duplicate idempotency key"));
@@ -259,6 +264,122 @@ class WalletServiceTest {
         TransactionResponse response = walletService.withdraw(investorId, "key-1", 500L);
 
         assertEquals(TransactionResponse.from(winner), response);
+    }
+
+    @Test
+    @DisplayName("거래 내역을 최신순으로 조회하고, 다음 페이지가 있으면 마지막 거래 기준 커서를 반환한다")
+    void getTransactions_hasNext_returnsNextCursor() {
+        Wallet wallet = walletWithId(1L);
+        WalletTransaction last = depositTransaction(1L, 1_000L);
+        Instant createdAt = Instant.parse("2026-09-13T00:00:00Z");
+        ReflectionTestUtils.setField(last, "createdAt", createdAt);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByWalletId(1L, null, null, null, null, null, PageRequest.of(0, 20)))
+                .thenReturn(new SliceImpl<>(List.of(last), PageRequest.of(0, 20), true));
+
+        CursorPageResponse<TransactionListItemResponse> response =
+                walletService.getTransactions(investorId, null, null, null, null, 20);
+
+        assertEquals(List.of(TransactionListItemResponse.from(last)), response.content());
+        assertEquals(TransactionCursor.encode(createdAt, last.getId()), response.nextCursor());
+        assertEquals(true, response.hasNext());
+    }
+
+    @Test
+    @DisplayName("더 조회할 거래가 없으면 nextCursor는 null이다")
+    void getTransactions_noMore_nextCursorIsNull() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByWalletId(1L, null, null, null, null, null, PageRequest.of(0, 20)))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
+
+        CursorPageResponse<TransactionListItemResponse> response =
+                walletService.getTransactions(investorId, null, null, null, null, 20);
+
+        assertNull(response.nextCursor());
+    }
+
+    @Test
+    @DisplayName("전달받은 커서를 디코딩해서 그 이전 거래만 조회한다")
+    void getTransactions_withCursor_decodesAndQueriesBeforeCursor() {
+        Wallet wallet = walletWithId(1L);
+        Instant cursorCreatedAt = Instant.parse("2026-09-13T00:00:00Z");
+        String cursor = TransactionCursor.encode(cursorCreatedAt, 99L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletTransactionRepository.findByWalletId(1L, null, null, null, cursorCreatedAt, 99L, PageRequest.of(0, 20)))
+                .thenReturn(new SliceImpl<>(List.of(), PageRequest.of(0, 20), false));
+
+        walletService.getTransactions(investorId, null, null, null, cursor, 20);
+
+        verify(walletTransactionRepository).findByWalletId(1L, null, null, null, cursorCreatedAt, 99L, PageRequest.of(0, 20));
+    }
+
+    @Test
+    @DisplayName("지갑이 없으면 거래 내역 조회 시 404를 반환한다")
+    void getTransactions_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getTransactions(investorId, null, null, null, null, 20));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("내 지갑 정보를 조회한다")
+    void getMyWallet_returnsWallet() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+
+        WalletResponse response = walletService.getMyWallet(investorId);
+
+        assertEquals(WalletResponse.from(wallet), response);
+    }
+
+    @Test
+    @DisplayName("내 지갑이 없으면 404를 반환한다")
+    void getMyWallet_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getMyWallet(investorId));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("HELD 상태 동결 건이 있으면 hasActiveHold=true로 조회한다")
+    void getWalletStatus_withActiveHold_returnsTrue() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletHoldRepository.existsByWalletIdAndStatus(1L, WalletHoldStatus.HELD)).thenReturn(true);
+
+        WalletStatusResponse response = walletService.getWalletStatus(investorId);
+
+        assertEquals(WalletStatusResponse.of(wallet, true), response);
+    }
+
+    @Test
+    @DisplayName("HELD 상태 동결 건이 없으면 hasActiveHold=false로 조회한다")
+    void getWalletStatus_withoutActiveHold_returnsFalse() {
+        Wallet wallet = walletWithId(1L);
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        when(walletHoldRepository.existsByWalletIdAndStatus(1L, WalletHoldStatus.HELD)).thenReturn(false);
+
+        WalletStatusResponse response = walletService.getWalletStatus(investorId);
+
+        assertEquals(WalletStatusResponse.of(wallet, false), response);
+    }
+
+    @Test
+    @DisplayName("지갑 상태 조회 시 지갑이 없으면 404를 반환한다")
+    void getWalletStatus_walletNotFound_throwsBusinessException() {
+        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getWalletStatus(investorId));
+
+        assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
     }
 
     @Test
@@ -291,6 +412,31 @@ class WalletServiceTest {
                 () -> walletService.getWalletDetail(1L, "ADMIN"));
 
         assertEquals(WalletErrorCode.WALLET_NOT_FOUND, exception.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("청약에 대한 Hold가 있으면 상태와 금액을 조회한다")
+    void getWalletHoldStatus_holdExists_returnsStatus() {
+        UUID subscriptionId = UUID.randomUUID();
+        WalletHold hold = new WalletHold(1L, subscriptionId, 1_000L);
+        ReflectionTestUtils.setField(hold, "updatedAt", Instant.now());
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.of(hold));
+
+        WalletHoldStatusResponse response = walletService.getWalletHoldStatus(subscriptionId);
+
+        assertEquals(WalletHoldStatusResponse.from(hold), response);
+    }
+
+    @Test
+    @DisplayName("청약에 대한 Hold가 없으면 404를 반환한다")
+    void getWalletHoldStatus_holdNotFound_throwsBusinessException() {
+        UUID subscriptionId = UUID.randomUUID();
+        when(walletHoldRepository.findBySubscriptionId(subscriptionId)).thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> walletService.getWalletHoldStatus(subscriptionId));
+
+        assertEquals(WalletErrorCode.WALLET_HOLD_NOT_FOUND, exception.getErrorCode());
     }
 
     private ApiResponse<UserInvestmentEligibilityResponse> eligibleResponse() {

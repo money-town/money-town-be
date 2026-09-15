@@ -30,17 +30,9 @@ public class SubscriptionEventPublisher {
     private static final String LIMIT_EXCEEDED_EVENT_TYPE = "SubscriptionLimitExceeded";
     private static final String FAILED_EVENT_TYPE = "SubscriptionFailed";
     private static final String POST_FDS_TOPIC = "subscription-events";
+    private static final String WALLET_HOLD_FAILURE_SOURCE = "WALLET_HOLD";
 
     private final OutboxEventStore outboxEventStore;
-
-    /*
-     * TODO: Analysis 담당자 반영 확인
-     * - 외부 eventType은 SubscriptionFailed,
-     *   SubscriptionLimitExceeded 형식 사용
-     * - Analysis EventType.fromEventName() 매핑 추가
-     * - requestedQuantity, maxSubscriptionQuantity,
-     *   failureCode 수신 Payload 반영
-     */
 
     /**
      * 청약금 동결 요청 이벤트를 Outbox에 저장한다.
@@ -244,6 +236,9 @@ public class SubscriptionEventPublisher {
      * 청약 상태 변경, 공모 수량 복원 및 수신 이벤트 처리 이력과
      * 동일한 트랜잭션 안에서 호출해야 한다.
      *
+     * failureSource는 WALLET_HOLD이며,
+     * failureReasonCode에는 WalletHoldFailed.reason을 전달한다.
+     *
      * @param subscription 최종 거절된 청약
      * @param assetId 청약 대상 공모의 자산 ID
      * @param correlationId Wallet HOLD 요청부터 이어진 추적 ID
@@ -267,13 +262,15 @@ public class SubscriptionEventPublisher {
             );
         }
 
-        String failureCode = subscription.getFailureCode();
+        String failureReasonCode =
+                subscription.getWalletHoldFailureCode();
 
-        if (failureCode == null
-                || failureCode.isBlank()
-                || failureCode.length() > 50) {
+        if (failureReasonCode == null
+                || failureReasonCode.isBlank()
+                || failureReasonCode.length() > 50) {
             throw new IllegalStateException(
-                    "failureCode는 필수이며 50자를 초과할 수 없습니다."
+                    "Wallet HOLD 실패 코드는 필수이며 "
+                            + "50자를 초과할 수 없습니다."
             );
         }
 
@@ -282,7 +279,8 @@ public class SubscriptionEventPublisher {
                         subscription.getUserId(),
                         assetId,
                         subscription.getSubscriptionId(),
-                        failureCode
+                        WALLET_HOLD_FAILURE_SOURCE,
+                        failureReasonCode
                 );
 
         EventEnvelope<SubscriptionFailedPayload> envelope =
@@ -305,7 +303,8 @@ public class SubscriptionEventPublisher {
      * 청약 상태에 따라 외부 서비스에 전달할 보상 사유를 결정한다.
      *
      * 공모 중단·모집 미달 보상은 cancellationType을 사용하고,
-     * 예약 만료 보상은 failureCode의 RESERVATION_EXPIRED를 사용한다.
+     * 예약 만료 보상은 subscriptionFailureCode의
+     * RESERVATION_EXPIRED를 사용한다.
      */
     private String resolveCompensationReason(
             Subscription subscription
@@ -315,7 +314,7 @@ public class SubscriptionEventPublisher {
         }
 
         if (RESERVATION_EXPIRED_REASON.equals(
-                subscription.getFailureCode()
+                subscription.getSubscriptionFailureCode()
         )) {
             return RESERVATION_EXPIRED_REASON;
         }

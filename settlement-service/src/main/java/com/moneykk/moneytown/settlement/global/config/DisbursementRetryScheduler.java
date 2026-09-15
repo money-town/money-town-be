@@ -5,6 +5,7 @@ import com.moneykk.moneytown.settlement.command.application.FinalSettlementDisbu
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,6 +29,7 @@ public class DisbursementRetryScheduler {
     private final DividendDisbursementService dividendDisbursementService;
     private final FinalSettlementPayoutRepository finalSettlementPayoutRepository;
     private final FinalSettlementDisbursementService finalSettlementDisbursementService;
+    private final MeterRegistry meterRegistry;
 
     @Scheduled(fixedDelay = RETRY_INTERVAL_MS)
     public void retryStuckDividendPayouts() {
@@ -63,6 +65,7 @@ public class DisbursementRetryScheduler {
         Instant staleBefore = Instant.now().minus(STALE_PROCESSING_THRESHOLD);
         int reclaimed = dividendDisbursementService.reclaimStalledProcessing(staleBefore);
         if (reclaimed > 0) {
+            meterRegistry.counter("settlement.payout.stalled_reclaimed", "type", "dividend").increment(reclaimed);
             log.warn("PROCESSING 상태로 {}분 이상 멈춰있던 배당 지급 건 {}건을 QUEUED로 복구했습니다.",
                     STALE_PROCESSING_THRESHOLD.toMinutes(), reclaimed);
         }
@@ -72,6 +75,7 @@ public class DisbursementRetryScheduler {
         Instant staleBefore = Instant.now().minus(STALE_PROCESSING_THRESHOLD);
         int reclaimed = finalSettlementDisbursementService.reclaimStalledProcessing(staleBefore);
         if (reclaimed > 0) {
+            meterRegistry.counter("settlement.payout.stalled_reclaimed", "type", "final").increment(reclaimed);
             log.warn("PROCESSING 상태로 {}분 이상 멈춰있던 최종 정산 지급 건 {}건을 QUEUED로 복구했습니다.",
                     STALE_PROCESSING_THRESHOLD.toMinutes(), reclaimed);
         }

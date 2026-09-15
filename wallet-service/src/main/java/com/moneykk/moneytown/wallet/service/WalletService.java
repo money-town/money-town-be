@@ -2,17 +2,20 @@ package com.moneykk.moneytown.wallet.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
-import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.wallet.client.UserServiceClient;
 import com.moneykk.moneytown.wallet.client.dto.UserInvestmentEligibilityResponse;
 import com.moneykk.moneytown.wallet.dto.response.AdminWalletDetailResponse;
+import com.moneykk.moneytown.wallet.dto.response.CursorPageResponse;
 import com.moneykk.moneytown.wallet.dto.response.DividendDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.SettlementDepositResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionListItemResponse;
 import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
+import com.moneykk.moneytown.wallet.dto.response.WalletHoldStatusResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletResponse;
 import com.moneykk.moneytown.wallet.dto.response.WalletStatusResponse;
+import com.moneykk.moneytown.wallet.dto.support.TransactionCursor;
 import com.moneykk.moneytown.wallet.entity.Wallet;
+import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
@@ -22,12 +25,13 @@ import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -69,52 +73,82 @@ public class WalletService {
         return WalletStatusResponse.of(wallet, hasActiveHold);
     }
 
-    public PageResponse<TransactionListItemResponse> getTransactions(UUID userId, WalletTransactionType type, Pageable pageable) {
+    public CursorPageResponse<TransactionListItemResponse> getTransactions(UUID userId, WalletTransactionType type,
+                                                                             Instant from, Instant to,
+                                                                             String cursor, int size) {
         Wallet wallet = walletRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
-        Page<WalletTransaction> transactions = walletTransactionRepository.findByWalletId(wallet.getId(), type, pageable);
+        TransactionCursor.Decoded decoded = cursor != null ? TransactionCursor.decode(cursor) : null;
+        Instant cursorCreatedAt = decoded != null ? decoded.createdAt() : null;
+        Long cursorId = decoded != null ? decoded.id() : null;
 
-        return PageResponse.from(transactions, TransactionListItemResponse::from);
+        Slice<WalletTransaction> transactions = walletTransactionRepository.findByWalletId(
+                wallet.getId(), type, from, to, cursorCreatedAt, cursorId, PageRequest.of(0, size));
+
+        return CursorPageResponse.from(transactions, TransactionListItemResponse::from,
+                t -> TransactionCursor.encode(t.getCreatedAt(), t.getId()));
+    }
+
+    // Offering이 관리자 재처리/보상 시 subscriptionId 기준으로 실제 Wallet 처리 상태를 확인하는 내부 조회용
+    public WalletHoldStatusResponse getWalletHoldStatus(UUID subscriptionId) {
+        WalletHold hold = walletHoldRepository.findBySubscriptionId(subscriptionId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_HOLD_NOT_FOUND));
+
+        return WalletHoldStatusResponse.from(hold);
     }
 
     // 클래스 레벨 readOnly 트랜잭션에 합류하면 Feign 호출/UNIQUE 복구가 다시 트랜잭션에 묶인다.
+    // 지갑 조회(락 없음)는 멱등키 재사용/충돌 복구 같은 드문 경로에서만 하고, 정상 경로는
+    // WalletTransactionService의 락 있는 조회 한 번만 타도록 분리했다 (매 요청 중복 조회 제거).
+    // 멱등키 사전조회를 없애고 바로 시도 → 중복이면 UNIQUE 제약 위반을 catch에서 잡아 기존 결과를 반환한다.
+    // 부하테스트로 확인한 결과, 사전조회 자체가 요청당 DB 커넥션 획득을 2번(사전조회+실제처리)으로
+    // 만들어서 풀 경합이 심할 때 대기시간이 배로 쌓이는 원인이었다 (정상 경로엔 어차피 불필요한 조회였음).
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
-        Wallet wallet = walletRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
-        Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing.isPresent()) {
-            return buildIdempotentResponse(existing.get(), wallet.getId(), WalletTransactionType.DEPOSIT, amount);
+        try {
+            requireEligibleForTransaction(userId);
+        } catch (BusinessException e) {
+            return recoverFromIneligibleRetry(e, userId, idempotencyKey, WalletTransactionType.DEPOSIT, amount);
         }
-
-        requireEligibleForTransaction(userId);
 
         try {
             return walletTransactionService.deposit(userId, idempotencyKey, amount);
         } catch (DataIntegrityViolationException e) {
-            return recoverFromConcurrentDuplicate(e, wallet.getId(), WalletTransactionType.DEPOSIT, idempotencyKey, amount);
+            Long walletId = requireWallet(userId).getId();
+            return recoverFromConcurrentDuplicate(e, walletId, WalletTransactionType.DEPOSIT, idempotencyKey, amount);
         }
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
-        Wallet wallet = walletRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
-        Optional<WalletTransaction> existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing.isPresent()) {
-            return buildIdempotentResponse(existing.get(), wallet.getId(), WalletTransactionType.WITHDRAW, amount);
+        try {
+            requireEligibleForTransaction(userId);
+        } catch (BusinessException e) {
+            return recoverFromIneligibleRetry(e, userId, idempotencyKey, WalletTransactionType.WITHDRAW, amount);
         }
-
-        requireEligibleForTransaction(userId);
 
         try {
             return walletTransactionService.withdraw(userId, idempotencyKey, amount);
         } catch (DataIntegrityViolationException e) {
-            return recoverFromConcurrentDuplicate(e, wallet.getId(), WalletTransactionType.WITHDRAW, idempotencyKey, amount);
+            Long walletId = requireWallet(userId).getId();
+            return recoverFromConcurrentDuplicate(e, walletId, WalletTransactionType.WITHDRAW, idempotencyKey, amount);
         }
+    }
+
+    // KYC 거부/User 서비스 장애 상태에서도 "이미 처리된 요청"의 재시도까지 막으면 멱등키 계약(같은 키=같은 결과)이
+    // 깨진다. 정상 경로(신규 요청, KYC 통과)는 이 조회를 안 타므로 성능에는 영향 없다.
+    private TransactionResponse recoverFromIneligibleRetry(BusinessException cause, UUID userId, String idempotencyKey,
+                                                             WalletTransactionType type, long amount) {
+        WalletTransaction existing = walletTransactionRepository.findByIdempotencyKey(idempotencyKey)
+                .orElseThrow(() -> cause);
+        Long walletId = requireWallet(userId).getId();
+        return buildIdempotentResponse(existing, walletId, type, amount);
+    }
+
+    private Wallet requireWallet(UUID userId) {
+        return walletRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
     }
 
     // Settlement가 배당 지급 시 호출하는 내부 API. 사용자 요청이 아니라 시스템 간 호출이라
