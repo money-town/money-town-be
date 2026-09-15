@@ -322,6 +322,7 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/settlement_db
+      SETTLEMENT_REVENUE_POLLING_ENABLED: ${SETTLEMENT_REVENUE_POLLING_ENABLED:-true}
     ports: ["19097:19097"]
     depends_on:
       config-server: { condition: service_healthy }
