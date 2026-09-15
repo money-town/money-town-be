@@ -81,8 +81,8 @@ subscription:
 
 outbox:
   publish:
-    batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
-    fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:500}
+    batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:20}
+    fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:200}
 
     # Kafka 응답 대기 상태를 포함한 인스턴스당 최대 동시 발행 수
     max-in-flight: ${OUTBOX_PUBLISH_MAX_IN_FLIGHT:20}
