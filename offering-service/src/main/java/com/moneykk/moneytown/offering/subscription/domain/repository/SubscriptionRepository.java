@@ -121,6 +121,30 @@ public interface SubscriptionRepository
     );
 
     /**
+     * 최종 확정을 아직 시작할 수 없는 수량 확보 청약이 존재하는지 확인한다.
+     *
+     * 전체 청약을 잠금 조회하기 전에 이 존재 여부를 먼저 확인하여,
+     * Wallet HOLD 결과를 기다리는 동안 동일 공모의 모든 청약을
+     * 반복해서 조회하고 잠그는 것을 방지한다.
+     */
+    @Query(value = """
+        SELECT EXISTS (
+            SELECT 1
+              FROM p_subscriptions s
+             WHERE s.offering_id = :offeringId
+               AND s.quantity_reserved = TRUE
+               AND s.is_deleted = FALSE
+               AND s.subscription_status NOT IN (
+                   'HOLD_SUCCEEDED',
+                   'CONFIRMED'
+               )
+        )
+        """, nativeQuery = true)
+    boolean existsReservedSubscriptionAwaitingHold(
+            @Param("offeringId") UUID offeringId
+    );
+
+    /**
      * SOLD_OUT 공모의 최종 확정을 위해
      * 현재 수량이 확보되어 있는 모든 청약을 잠금 조회한다.
      *
