@@ -15,7 +15,7 @@ public final class FeignExceptionTranslator {
         try {
             return feignCall.get();
         } catch (FeignException.NotFound e) {
-            throw new BusinessException(notFoundError);
+            throw new BusinessException(notFoundError, e);
         }
     }
 
@@ -23,9 +23,9 @@ public final class FeignExceptionTranslator {
         try {
             return feignCall.get();
         } catch (FeignException.NotFound e) {
-            throw new BusinessException(notFoundError);
+            throw new BusinessException(notFoundError, e);
         } catch (FeignException.BadRequest | FeignException.UnprocessableEntity e) {
-            throw new BusinessException(invalidRequestError);
+            throw new BusinessException(invalidRequestError, e);
         }
     }
 }
