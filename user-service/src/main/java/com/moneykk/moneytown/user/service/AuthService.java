@@ -37,6 +37,7 @@ public class AuthService {
 
     private final JwtDecoder jwtDecoder;
     private final UserRepository userRepository;
+    private final RefreshTokenService refreshTokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -44,13 +45,13 @@ public class AuthService {
 
 
     // 로그인
-    @Transactional
     public LoginResponse login(LoginRequest request){
         User user = userRepository
                 .findByEmailAndIsDeletedFalse(request.email())
                 .orElseThrow(()
                         -> new BusinessException(AuthErrorCode.INVALID_CREDENTIALS));
 
+        // DB 조회 트랜잭션이 끝난 다음 BCrypt 실행
         if(!passwordEncoder.matches(request.password(), user.getPassword())){
             throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
 
@@ -66,10 +67,7 @@ public class AuthService {
         IssuedToken refreshToken =
                 jwtTokenProvider.issueRefreshToken(user);
 
-        revokeActiveRefreshTokens(user.getUserId());
-        refreshTokenRepository.save(
-                RefreshToken.create(user.getUserId(), refreshToken)
-        );
+        refreshTokenService.replaceActiveToken(user.getUserId(),refreshToken);
 
         return LoginResponse.from(user,
                                 accessToken,
