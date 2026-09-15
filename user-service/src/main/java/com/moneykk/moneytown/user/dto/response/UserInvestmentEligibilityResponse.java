@@ -15,13 +15,22 @@ public record UserInvestmentEligibilityResponse(
         Instant kycExpiresAt
 ){
     public static UserInvestmentEligibilityResponse from(
-            User user
+            User user,
+            Instant now
     ) {
+        KycStatus effectiveKycStatus = user.getKycStatus();
+
+        if(user.getKycStatus() == KycStatus.VERIFIED &&
+                (user.getKycExpiresAt() == null ||
+                        !now.isBefore(user.getKycExpiresAt()))) {
+            effectiveKycStatus = KycStatus.EXPIRED;
+        }
+
         return new UserInvestmentEligibilityResponse(
                 user.getUserId(),
                 user.getRole().name(),
                 user.getAccountStatus().name(),
-                user.getKycStatus().name(),
+                effectiveKycStatus.name(),
                 user.getKycExpiresAt()
         );
     }
