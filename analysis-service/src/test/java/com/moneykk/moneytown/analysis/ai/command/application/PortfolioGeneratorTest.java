@@ -1,4 +1,4 @@
-package com.moneykk.moneytown.analysis.fds.command.application.ai;
+package com.moneykk.moneytown.analysis.ai.command.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moneykk.moneytown.analysis.ai.command.application.PortfolioGenerator;
