@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moneykk.moneytown.analysis.fds.command.application.PostFdsService;
 import com.moneykk.moneytown.analysis.fds.infrastructure.kafka.event.SubscriptionEventPayload;
+import com.moneykk.moneytown.analysis.fds.infrastructure.kafka.exception.SubscriptionEventDeserializationException;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,9 +32,8 @@ public class SubscriptionEventConsumer {
         try{
             envelope = objectMapper.readValue(message, TYPE);
         }catch (JsonProcessingException e){
-            // TODO: RETRY & DLT
             log.error("subscription 이벤트 역직렬화 실패: {}",message, e);
-            return;
+            throw new SubscriptionEventDeserializationException("역직렬화 실패 : " + message, e);
         }
 
         try {
@@ -41,12 +41,11 @@ public class SubscriptionEventConsumer {
 
             log.info("consume start eventId={} type={}", envelope.eventId(), envelope.eventType());
             try{
-
                 postFdsService.handle(envelope);
                 log.info("consume success eventId={}", envelope.eventId());
             }catch (Exception e){
                 log.error("post-fds 처리 실패 eventId={}", envelope.eventId(), e);
-                // MVP: 로그 후 ack (DLQ/리트라이)
+                throw e;
             }
         } finally {
             MDC.remove("requestId");
