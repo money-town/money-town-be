@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -32,6 +33,9 @@ public class OutboxPublishScheduler {
 
     @Value("${outbox.publish.batch-size:20}")
     private int batchSize;
+
+    @Value("${outbox.publish.completion-timeout-seconds:70}")
+    private long completionTimeoutSeconds;
 
     public OutboxPublishScheduler(
             OutboxPublishService outboxPublishService,
@@ -182,6 +186,10 @@ public class OutboxPublishScheduler {
 
         try {
             publishFuture
+                    .orTimeout(
+                            completionTimeoutSeconds,
+                            TimeUnit.SECONDS
+                    )
                     .handleAsync(
                             (result, failure) -> {
                                 try {

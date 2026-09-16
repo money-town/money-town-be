@@ -587,6 +587,12 @@ class OutboxPublishSchedulerTest {
                 10
         );
 
+        ReflectionTestUtils.setField(
+                createdScheduler,
+                "completionTimeoutSeconds",
+                70L
+        );
+
         return createdScheduler;
     }
 

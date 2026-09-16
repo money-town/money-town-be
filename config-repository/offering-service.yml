@@ -18,6 +18,12 @@ spring:
     postgresql:
       transactional-lock: false
 
+  data:
+    web:
+      pageable:
+        default-page-size: 10
+        max-page-size: 100
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
@@ -81,6 +87,7 @@ subscription:
 
 outbox:
   publish:
+    completion-timeout-seconds: ${OUTBOX_PUBLISH_COMPLETION_TIMEOUT_SECONDS:70}
     batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:20}
     fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:200}
 
