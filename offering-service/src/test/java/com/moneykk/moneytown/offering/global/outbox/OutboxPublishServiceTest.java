@@ -44,6 +44,21 @@ class OutboxPublishServiceTest {
     }
 
     @Test
+    @DisplayName("가장 오래된 PENDING Outbox 이벤트의 대기시간을 반환한다")
+    void getsOldestPendingAge() {
+        when(outboxEventRepository.findOldestPendingAgeSeconds())
+                .thenReturn(12L);
+
+        long result =
+                outboxPublishService.getOldestPendingAgeSeconds();
+
+        assertThat(result).isEqualTo(12L);
+
+        verify(outboxEventRepository)
+                .findOldestPendingAgeSeconds();
+    }
+
+    @Test
     @DisplayName("FAILED 이벤트를 PENDING으로 전환하면 재처리 요청 성공을 반환한다")
     void requeuesFailedEvent() {
         // given

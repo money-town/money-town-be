@@ -219,7 +219,7 @@ class OutboxPublishMonitorTest {
      * PENDING, PROCESSING, FAILED 건수가 각각의 Gauge에 반영되는지 확인한다.
      */
     @Test
-    @DisplayName("DB의 PENDING, PROCESSING, FAILED 이벤트 건수를 Gauge에 반영한다")
+    @DisplayName("DB의 Outbox 상태와 최장 PENDING 대기시간을 Gauge에 반영한다")
     void refreshesOutboxEventCounts() {
         // given
         when(outboxPublishService.countPendingEvents())
@@ -227,6 +227,9 @@ class OutboxPublishMonitorTest {
 
         when(outboxPublishService.countProcessingEvents())
                 .thenReturn(7L);
+
+        when(outboxPublishService.getOldestPendingAgeSeconds())
+                .thenReturn(42L);
 
         when(outboxPublishService.countFailedEvents())
                 .thenReturn(3L);
@@ -241,6 +244,9 @@ class OutboxPublishMonitorTest {
         assertThat(processingGaugeValue())
                 .isEqualTo(7.0);
 
+        assertThat(oldestPendingAgeGaugeValue())
+                .isEqualTo(42.0);
+
         assertThat(failedGaugeValue())
                 .isEqualTo(3.0);
 
@@ -249,6 +255,9 @@ class OutboxPublishMonitorTest {
 
         verify(outboxPublishService)
                 .countProcessingEvents();
+
+        verify(outboxPublishService)
+                .getOldestPendingAgeSeconds();
 
         verify(outboxPublishService)
                 .countFailedEvents();
@@ -423,6 +432,13 @@ class OutboxPublishMonitorTest {
     private double processingGaugeValue() {
         return meterRegistry
                 .get("outbox.events.processing")
+                .gauge()
+                .value();
+    }
+
+    private double oldestPendingAgeGaugeValue() {
+        return meterRegistry
+                .get("outbox.events.oldest.pending.age")
                 .gauge()
                 .value();
     }

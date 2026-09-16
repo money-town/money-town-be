@@ -187,6 +187,17 @@ public class OutboxPublishService {
     }
 
     /**
+     * 가장 오래 발행을 기다린 PENDING 이벤트의 대기시간을 조회한다.
+     */
+    @Transactional(readOnly = true)
+    public long getOldestPendingAgeSeconds() {
+        return Math.max(
+                0L,
+                outboxEventRepository.findOldestPendingAgeSeconds()
+        );
+    }
+
+    /**
      * 현재 DB에서 발행 처리 중인 Outbox 이벤트 수를 조회한다.
      *
      * OutboxPublishMonitor가 PROCESSING 건수 Gauge를 갱신할 때 사용한다.

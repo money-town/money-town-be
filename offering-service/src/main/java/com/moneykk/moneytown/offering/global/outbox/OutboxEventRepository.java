@@ -177,4 +177,24 @@ public interface OutboxEventRepository
      */
     long countByEventStatus(OutboxEventStatus eventStatus);
 
+    /**
+     * 가장 오래된 PENDING 이벤트가 생성된 뒤 지난 시간을 초 단위로 조회한다.
+     * PENDING 이벤트가 없으면 0을 반환한다.
+     */
+    @Query(value = """
+            SELECT COALESCE(
+                       CAST(
+                           EXTRACT(
+                               EPOCH FROM (
+                                   CURRENT_TIMESTAMP - MIN(created_at)
+                               )
+                           ) AS BIGINT
+                       ),
+                       0
+                   )
+              FROM p_outbox_events
+             WHERE event_status = 'PENDING'
+            """, nativeQuery = true)
+    long findOldestPendingAgeSeconds();
+
 }
