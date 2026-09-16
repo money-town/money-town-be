@@ -21,3 +21,15 @@ outbox:
     max-failed-attempts: ${OUTBOX_PUBLISH_MAX_FAILED_ATTEMPTS:3}
     retry-delay-seconds: ${OUTBOX_PUBLISH_RETRY_DELAY_SECONDS:30}
     processing-timeout-seconds: ${OUTBOX_PUBLISH_PROCESSING_TIMEOUT_SECONDS:300}
+
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests:
+          - 100ms
+          - 300ms
+          - 500ms
+          - 1s
