@@ -9,7 +9,6 @@ import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
-import com.moneykk.moneytown.settlement.domain.repository.HoldingSnapshotRepository;
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.service.DividendDistributionCalculator;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
@@ -19,9 +18,8 @@ import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueRespons
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.exception.ConstraintViolationException;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -38,19 +36,19 @@ public class SettlementCommandService {
     private static final String ADMIN_ROLE = "ADMIN";
 
     private final SettlementBatchRepository settlementBatchRepository;
-    private final HoldingSnapshotRepository holdingSnapshotRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
     private final AssetServiceClient assetServiceClient;
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
+    private final SettlementBatchWriter settlementBatchWriter;
 
     // 수익 폴링 스케줄러가 자동으로 개시할 때 사용 — 사람의 요청이 아니므로 ADMIN 검사X
     // 배당 기준일을 직접 지정할 ADMIN 입력도 없으므로 항상 periodEnd로 대체
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SettlementBatchResponse openBatchAutomatically(UUID assetId, UUID revenueId) {
         return openBatchInternal(assetId, revenueId, null);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SettlementBatchResponse openBatch(String role, UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
         validateAdmin(role);
         try {
@@ -88,34 +86,11 @@ public class SettlementCommandService {
                 .map(allocation -> DividendPayout.queue(batch.getId(), allocation.investorId(), allocation.shareRatio(), allocation.amount()))
                 .toList();
 
-        saveNewBatch(batch);
-        holdingSnapshotRepository.save(snapshot);
-        dividendPayoutRepository.saveAll(payouts);
+        settlementBatchWriter.persist(batch, snapshot, payouts);
 
         log.info("정산 회차 개시 완료 (assetId={}, revenueId={}, settlementBatchId={}, recordDate={}, totalAmount={}, payoutCount={})",
                 assetId, revenueId, batch.getId(), recordDate, totalAmount, payouts.size());
         return SettlementBatchResponse.of(batch, payouts.size());
-    }
-
-    private void saveNewBatch(SettlementBatch batch) {
-        try {
-            settlementBatchRepository.saveAndFlush(batch);
-        } catch (DataIntegrityViolationException e) {
-            String constraintName = extractConstraintName(e);
-            if ("uk_settlement_batches_revenue_id".equals(constraintName)) {
-                throw new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
-            }
-            if ("uk_settlement_batches_asset_in_progress".equals(constraintName)) {
-                throw new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
-            }
-            throw e;
-        }
-    }
-
-    private String extractConstraintName(DataIntegrityViolationException e) {
-        return e.getCause() instanceof ConstraintViolationException constraintViolation
-                ? constraintViolation.getConstraintName()
-                : null;
     }
 
     @Transactional
