@@ -35,25 +35,23 @@ public class KycService {
 
 
     // 내 kyc 현재 상태 조회
-    @Transactional
+    @Transactional(readOnly = true)
     public KycResponse getCurrent(UUID userId){
-        expireIfNeeded(userId);
-
-
         Kyc kyc = kycRepository.findFirstByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId)
                 .orElseThrow(() -> new BusinessException(KycErrorCode.KYC_NOT_FOUND));
 
-        return KycResponse.from(kyc);
+        return KycResponse.from(kyc, Instant.now());
     }
 
     // 내 kyc 이력 조회
-    @Transactional
+    @Transactional(readOnly = true)
     public List<KycResponse> getHistory(UUID userId){
-        expireIfNeeded(userId);
-        List<Kyc> kyc = kycRepository.findAllByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId);
+        Instant now = Instant.now();
 
-        return kyc.stream()
-                .map(KycResponse::from)
+        return kycRepository
+                .findAllByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId)
+                .stream()
+                .map(kyc -> KycResponse.from(kyc, now))
                 .toList();
 
     }
@@ -64,10 +62,11 @@ public class KycService {
     // kyc 신청
     @Transactional
     public KycResponse apply(UUID userId, KycApplyRequest request) {
-        expireIfNeeded(userId);
 
         User user = userRepository.findByUserIdForUpdate(userId).
                 orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        expireIfNeeded(user, Instant.now());
 
         validateAccountStatus(user);
         validateKycStatus(user);
@@ -92,7 +91,7 @@ public class KycService {
         Kyc savedKyc = kycRepository.save(kyc);
         user.submitKyc();
 
-        return KycResponse.from(savedKyc);
+        return KycResponse.from(savedKyc, Instant.now());
 
     }
 
@@ -125,7 +124,7 @@ public class KycService {
         // 사용자 현재 상태 반영
         user.verifyKyc(expiresAt);
 
-        return KycResponse.from(kyc);
+        return KycResponse.from(kyc, Instant.now());
     }
 
     // 관리자 KYC 거절
@@ -143,7 +142,7 @@ public class KycService {
         kyc.reject(adminId, request.rejectionReason());
         user.rejectKyc();
 
-        return KycResponse.from(kyc);
+        return KycResponse.from(kyc, Instant.now());
     }
 
 
@@ -155,6 +154,7 @@ public class KycService {
             Pageable pageable
     ) {
         Page<Kyc> kycPage;
+        Instant now = Instant.now();
 
         if (status == null) {
             kycPage = kycRepository.findAllByIsDeletedFalse(pageable);
@@ -162,7 +162,7 @@ public class KycService {
             kycPage = kycRepository.findAllByStatusAndIsDeletedFalse(status, pageable);
         }
 
-        return PageResponse.from(kycPage, KycResponse::from);
+        return PageResponse.from(kycPage, kyc -> KycResponse.from(kyc, now));
     }
 
     // KYC 만료 및 사용자 현재 상태 반영
@@ -197,26 +197,24 @@ public class KycService {
 
 
     // 검증 로직
-
-    @Transactional
-    public void expireIfNeeded(UUID userId){
-        Instant now = Instant.now();
-
-        User user = userRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-        if(user.getKycStatus() != KycStatus.VERIFIED
+    private void expireIfNeeded(User user, Instant now){
+        if (user.getKycStatus() != KycStatus.VERIFIED
                 || user.getKycExpiresAt() == null
-                || user.getKycExpiresAt().isAfter(now)){
+                || user.getKycExpiresAt().isAfter(now)) {
             return;
         }
-        Kyc kyc = kycRepository.findTopByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(userId)
-                .orElseThrow(() -> new BusinessException(KycErrorCode.KYC_NOT_FOUND));
+
+        Kyc kyc = kycRepository
+                .findTopByUserIdAndIsDeletedFalseOrderByAttemptNoDesc(
+                        user.getUserId()
+                )
+                .orElseThrow(() ->
+                        new BusinessException(
+                                KycErrorCode.KYC_NOT_FOUND
+                        ));
 
         kyc.expire(now);
         user.expireKyc(now);
-
-
     }
 
     // 신청 사용자 잠금 조회
@@ -255,10 +253,11 @@ public class KycService {
     }
 
 
+    @Transactional(readOnly = true)
     public KycResponse getReview(UUID kycId) {
         Kyc kyc = kycRepository.findByIdAndIsDeletedFalse(kycId)
                 .orElseThrow(() -> new BusinessException(KycErrorCode.KYC_NOT_FOUND));
 
-        return KycResponse.from(kyc);
+        return KycResponse.from(kyc, Instant.now());
     }
 }

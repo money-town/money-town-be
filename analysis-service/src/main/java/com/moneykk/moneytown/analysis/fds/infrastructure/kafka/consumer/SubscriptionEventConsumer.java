@@ -11,6 +11,7 @@ import com.moneykk.moneytown.analysis.fds.infrastructure.kafka.exception.Subscri
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -35,8 +36,11 @@ public class SubscriptionEventConsumer {
             throw new SubscriptionEventDeserializationException("역직렬화 실패 : " + message, e);
         }
 
-        log.info("consume start eventId={} type={}", envelope.eventId(), envelope.eventType());
-        try{
+        try {
+            MDC.put("requestId", envelope.correlationId());
+
+            log.info("consume start eventId={} type={}", envelope.eventId(), envelope.eventType());
+            try{
 
             postFdsService.handle(envelope);
             log.info("consume success eventId={}", envelope.eventId());

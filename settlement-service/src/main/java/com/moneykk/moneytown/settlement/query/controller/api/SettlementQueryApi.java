@@ -80,7 +80,7 @@ public interface SettlementQueryApi {
 
     @Operation(
             summary = "정산 회차 정합성 검증",
-            description = "ADMIN 권한으로 배당 총액(totalAmount - remainderAmount)과 지급 내역 전체 합계를 대사한다. "
+            description = "ADMIN 권한으로 배당 총액(totalAmount)과 지급 내역 전체 합계를 대사한다. "
                     + "두 값이 다르면(reconciled=false) 지급 건 누락·중복 등 데이터 정합성 문제를 의심할 수 있다. "
                     + "paidAmount는 PAID 상태 건만 합산한 참고값으로, 회차가 아직 완전히 지급되지 않은 정상적인 진행 상태와는 구분된다."
     )

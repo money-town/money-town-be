@@ -5,8 +5,10 @@ import com.moneykk.moneytown.asset.dto.request.RevenueTransferStatusRequest;
 import com.moneykk.moneytown.asset.dto.response.RevenueDetailResponse;
 import com.moneykk.moneytown.asset.dto.response.RevenueListResponse;
 import com.moneykk.moneytown.asset.dto.response.RevenueTransferStatusResponse;
+import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.service.RevenueCommandService;
 import com.moneykk.moneytown.asset.service.RevenueQueryService;
+import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,8 +42,16 @@ public class RevenueController {
     @GetMapping("/{assetId}/revenues/{revenueId}")
     public ApiResponse<RevenueDetailResponse> getRevenue(
             @PathVariable UUID assetId,
-            @PathVariable UUID revenueId
+            @PathVariable UUID revenueId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role
     ) {
+        // 정산 시스템만 수익 단건 조회 가능
+        if (!"SYSTEM".equals(role)) {
+            throw new BusinessException(
+                    AssetErrorCode.REVENUE_READ_ACCESS_DENIED
+            );
+        }
+
         RevenueDetailResponse response =
                 revenueQueryService.getRevenue(assetId, revenueId);
 

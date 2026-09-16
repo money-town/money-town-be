@@ -28,7 +28,15 @@ public record UserResponse(
         Instant kycExpiresAt,
         Instant createdAt
 ) {
-    public static UserResponse from(User user){
+    public static UserResponse from(User user, Instant now){
+        KycStatus effectiveKycStatus = user.getKycStatus();
+
+        if (user.getKycStatus() == KycStatus.VERIFIED
+                && (user.getKycExpiresAt() == null
+                || !now.isBefore(user.getKycExpiresAt()))) {
+            effectiveKycStatus = KycStatus.EXPIRED;
+        }
+
         return new UserResponse(
         user.getUserId(),
         user.getEmail(),
@@ -36,7 +44,7 @@ public record UserResponse(
         user.getPhone(),
         user.getRole(),
         user.getAccountStatus(),
-        user.getKycStatus(),
+        effectiveKycStatus,
         user.getKycExpiresAt(),
         user.getCreatedAt());
 

@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
@@ -39,21 +40,31 @@ public class FinalSettlementDisbursementService {
         payoutWriter.markDisbursing(finalSettlementBatchId);
 
         List<FinalSettlementPayout> claimedPayouts = payoutWriter.claimPendingPayouts(finalSettlementBatchId);
+        log.info("최종 정산 지급 처리 시작 (finalSettlementBatchId={}, 대상 건수={})", finalSettlementBatchId, claimedPayouts.size());
         claimedPayouts.forEach(payout -> attempt(finalSettlementBatchId, payout));
 
-        payoutWriter.updateBatchStatus(finalSettlementBatchId).ifPresent(batch -> {
-            if (batch.getStatus() == SettlementStatus.COMPLETED) {
-                notifyAssetTerminationCompleted(finalSettlementBatchId, batch.getAssetId());
-            } else if (FAILURE_STATUSES.contains(batch.getStatus())) {
-                settlementFailureNotifier.notifyFinalSettlementBatchFailed(batch);
-            }
-        });
+        payoutWriter.updateBatchStatus(finalSettlementBatchId).ifPresentOrElse(
+                batch -> {
+                    log.info("최종 정산 지급 처리 마감 (finalSettlementBatchId={}, status={})", finalSettlementBatchId, batch.getStatus());
+                    if (batch.getStatus() == SettlementStatus.COMPLETED) {
+                        notifyAssetTerminationCompleted(finalSettlementBatchId, batch.getAssetId());
+                    } else if (FAILURE_STATUSES.contains(batch.getStatus())) {
+                        settlementFailureNotifier.notifyFinalSettlementBatchFailed(batch);
+                    }
+                },
+                () -> log.debug("최종 정산 지급 처리 중 — 아직 진행 중인 건이 남아있어 회차 상태를 확정하지 않음 (finalSettlementBatchId={})",
+                        finalSettlementBatchId)
+        );
     }
 
     // COMPLETED로 확정됐지만 자산 서비스 통보에 아직 성공하지 못한 회차를 재호출한다. 자산 서비스 API는 멱등하다.
     public void retryPendingAssetTerminationNotifications() {
-        payoutWriter.findCompletedBatchesPendingTerminationNotification()
-                .forEach(batch -> notifyAssetTerminationCompleted(batch.getId(), batch.getAssetId()));
+        List<FinalSettlementBatch> pending = payoutWriter.findCompletedBatchesPendingTerminationNotification();
+        if (pending.isEmpty()) {
+            return;
+        }
+        log.info("자산 종료 완료 통보가 아직 안 된 최종 정산 회차 {}건을 재통보합니다.", pending.size());
+        pending.forEach(batch -> notifyAssetTerminationCompleted(batch.getId(), batch.getAssetId()));
     }
 
     public int reclaimStalledProcessing(Instant staleBefore) {
@@ -93,6 +104,7 @@ public class FinalSettlementDisbursementService {
 
             payoutWriter.markPaid(payout.getId());
         } catch (Exception e) {
+            log.error("최종 정산 지급 처리 중 예외 발생. payoutId={}", payout.getId(), e);
             payoutWriter.markFailedAttempt(payout.getId());
         }
     }

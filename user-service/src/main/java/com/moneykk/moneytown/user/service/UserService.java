@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.user.service;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
 import com.moneykk.moneytown.user.dto.response.UserInvestmentEligibilityResponse;
@@ -11,71 +12,76 @@ import com.moneykk.moneytown.user.event.UserAccountEventWriter;
 import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import org.springframework.data.domain.Pageable;
+
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
     private final UserRepository userRepository;
-    private final KycService kycService;
     private final UserAccountEventWriter userAccountEventWriter;
 
-   //
-    @Transactional
+    // 내부 투자 자격 조회
+    @Transactional(readOnly = true)
     public UserInvestmentEligibilityResponse getInvestmentEligibility(
             UUID userId
     ){
-        kycService.expireIfNeeded(userId);
+
 
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        return UserInvestmentEligibilityResponse.from(user);
+        return UserInvestmentEligibilityResponse.from(user, Instant.now());
     }
 
 
     // 사용자 목록 및 이름 검색
     @Transactional(readOnly = true)
-    public List<UserListResponse> userList(String name){
-        List<User> users;
+    public PageResponse<UserListResponse> userList(String name,
+                                                   Pageable pageable){
+        Instant now = Instant.now();
+
+        Page<User> users;
         if (name == null || name.isBlank()) {
-            users = userRepository.findAllByIsDeletedFalse();
+            users = userRepository.findAllByIsDeletedFalse(pageable);
         } else {
             users = userRepository
-                    .findAllByNameContainingAndIsDeletedFalse(name.trim());
+                    .findAllByNameContainingAndIsDeletedFalse(name.trim(), pageable);
         }
 
 
-        return users.stream()
-                .map(UserListResponse::from)
-                .toList();
-
+        return PageResponse.from(
+                users,
+                user -> UserListResponse.from(user, now)
+        );
     }
 
     // 회원 단일 조회
-    @Transactional
+    @Transactional(readOnly = true)
     public UserResponse getUser(UUID userId){
-        kycService.expireIfNeeded(userId);
+
 
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId).
                 orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        return UserResponse.from(user);
+        return UserResponse.from(user, Instant.now());
     }
 
     // 내 정보 조회
-    @Transactional
+    @Transactional(readOnly = true)
     public UserResponse getUserMe(UUID userId){
-        kycService.expireIfNeeded(userId);
+
 
         User user = userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        return UserResponse.from(user);
+        return UserResponse.from(user, Instant.now());
 
     }
 
@@ -90,7 +96,7 @@ public class UserService {
 
         user.updateProfile(request.name(), request.phone());
 
-        return UserResponse.from(user);
+        return UserResponse.from(user,Instant.now());
 
     }
 
@@ -120,7 +126,7 @@ public class UserService {
                 correlationId
         );
 
-        return UserResponse.from(user);
+        return UserResponse.from(user,Instant.now());
     }
 
 
@@ -137,7 +143,7 @@ public class UserService {
                 request.accountStatus(),
                 request.role());
 
-        return UserResponse.from(user);
+        return UserResponse.from(user,Instant.now());
 
     }
 
