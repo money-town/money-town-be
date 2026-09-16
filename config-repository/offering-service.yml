@@ -84,6 +84,18 @@ outbox:
     batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:20}
     fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:200}
 
+    # 최초 발행을 포함한 최대 실패 허용 횟수
+    max-failed-attempts: ${OUTBOX_PUBLISH_MAX_FAILED_ATTEMPTS:3}
+
+    # 실패 횟수에 따라 10초, 20초 순서로 재시도한다.
+    initial-retry-delay-seconds: ${OUTBOX_PUBLISH_INITIAL_RETRY_DELAY_SECONDS:10}
+    retry-multiplier: ${OUTBOX_PUBLISH_RETRY_MULTIPLIER:2.0}
+    max-retry-delay-seconds: ${OUTBOX_PUBLISH_MAX_RETRY_DELAY_SECONDS:60}
+
+    # Kafka 결과가 확정되지 않은 PROCESSING 이벤트의 만료 및 복구 주기
+    processing-timeout-seconds: ${OUTBOX_PUBLISH_PROCESSING_TIMEOUT_SECONDS:300}
+    recovery-delay-ms: ${OUTBOX_PUBLISH_RECOVERY_DELAY_MS:30000}
+
     # Kafka 응답 대기 상태를 포함한 인스턴스당 최대 동시 발행 수
     max-in-flight: ${OUTBOX_PUBLISH_MAX_IN_FLIGHT:20}
 
