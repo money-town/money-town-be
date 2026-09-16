@@ -41,12 +41,14 @@ public class SubscriptionEventConsumer {
 
             log.info("consume start eventId={} type={}", envelope.eventId(), envelope.eventType());
             try{
-
-            postFdsService.handle(envelope);
-            log.info("consume success eventId={}", envelope.eventId());
-        }catch (Exception e){
-            log.error("post-fds 처리 실패 eventId={}", envelope.eventId(), e);
-            throw e;
+                postFdsService.handle(envelope);
+                log.info("consume success eventId={}", envelope.eventId());
+            }catch (Exception e){
+                log.error("post-fds 처리 실패 eventId={}", envelope.eventId(), e);
+                throw e;
+            }
+        } finally {
+            MDC.remove("requestId");
         }
     }
 }
