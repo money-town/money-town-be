@@ -86,6 +86,7 @@ public class SettlementCommandService {
                 .map(allocation -> DividendPayout.queue(batch.getId(), allocation.investorId(), allocation.shareRatio(), allocation.amount()))
                 .toList();
 
+        log.info("[진단]holdings 페이징 완료, persist 호출 시작 (assetId={}, revenueId={})", assetId, revenueId);
         settlementBatchWriter.persist(batch, snapshot, payouts);
 
         log.info("정산 회차 개시 완료 (assetId={}, revenueId={}, settlementBatchId={}, recordDate={}, totalAmount={}, payoutCount={})",

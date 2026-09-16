@@ -9,6 +9,7 @@ import com.moneykk.moneytown.settlement.domain.repository.HoldingSnapshotReposit
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ import java.util.List;
 // 트랜잭션(=DB 커넥션 점유 구간)이 holdings 페이징 100회 왕복과 겹치지 않고 최대한 짧게 끝나도록 분리
 @Component
 @RequiredArgsConstructor
+@Slf4j
 class SettlementBatchWriter {
 
     private final SettlementBatchRepository settlementBatchRepository;
@@ -32,9 +34,11 @@ class SettlementBatchWriter {
     // 실측 후 (batch_size 적용 + 필요시 reWriteBatchedInserts=true 등을 반영한) 근거 있는 값으로 되돌릴 것.
     @Transactional(timeout = 60)
     public void persist(SettlementBatch batch, HoldingSnapshot snapshot, List<DividendPayout> payouts) {
+        log.info("[진단]persist 진입 — 커넥션 획득 완료 (batchId={})", batch.getId());
         saveNewBatch(batch);
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
+        log.info("[진단]persist 완료 — 저장 종료 (batchId={}, payoutCount={})", batch.getId(), payouts.size());
     }
 
     private void saveNewBatch(SettlementBatch batch) {
