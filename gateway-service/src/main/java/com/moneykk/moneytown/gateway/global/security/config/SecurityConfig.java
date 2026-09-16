@@ -67,7 +67,8 @@ public class SecurityConfig {
                                         "/webjars/**",
                                         "/v3/api-docs/**",
                                         "/api-docs/**",
-                                        "/actuator/health"
+                                        "/actuator/health",
+                                        "/actuator/prometheus"
                                 ).permitAll()
 
                                 // 내 정보 조회·수정·탈퇴
