@@ -27,8 +27,10 @@ class SettlementBatchWriter {
     private final HoldingSnapshotRepository holdingSnapshotRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
 
-    // 커넥션 획득 이후 실제 처리가 예상 못 하게 늘어지는 경우에도 오래 붙잡지 않게 한다.
-    @Transactional(timeout = 5)
+    // ⚠️ 임시 진단용: 원래 5였으나(wallet의 단일행 기준을 그대로 가져온 값), 부하테스트에서
+    // 실제 소요시간을 모른 채로는 적정값을 정할 수 없어 60으로 넉넉히 풀어 실측 중이다.
+    // 실측 후 (batch_size 적용 + 필요시 reWriteBatchedInserts=true 등을 반영한) 근거 있는 값으로 되돌릴 것.
+    @Transactional(timeout = 60)
     public void persist(SettlementBatch batch, HoldingSnapshot snapshot, List<DividendPayout> payouts) {
         saveNewBatch(batch);
         holdingSnapshotRepository.save(snapshot);
