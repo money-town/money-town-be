@@ -3,12 +3,15 @@ package com.moneykk.moneytown.analysis.ai.infrastructure.client;
 import com.moneykk.moneytown.analysis.ai.infrastructure.client.dto.OfferingSummary;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.response.PageResponse;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 @FeignClient(name = "offering-service")
 public interface OfferingServiceClient {
+
+    @Retry(name = "offeringService")
     @GetMapping("/api/v1/offerings")
     ApiResponse<PageResponse<OfferingSummary>> getOpenOfferings(
             @RequestParam("offeringStatus") String offeringStatus,   // "OPEN"
