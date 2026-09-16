@@ -8,6 +8,7 @@ import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
+import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.producer.WalletCompensationResultReadyEvent;
 import com.moneykk.moneytown.wallet.producer.WalletHoldResultReadyEvent;
 import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepository;
@@ -208,7 +209,9 @@ class WalletHoldServiceTest {
 
         assertEquals(0L, wallet.getHoldBalance());
         assertEquals(1_000L, wallet.getAvailableBalance());
-        verify(walletTransactionRepository).save(any());
+        ArgumentCaptor<WalletTransaction> transactionCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(transactionCaptor.capture());
+        assertEquals("OFFERING_UNDERFILLED", transactionCaptor.getValue().getReason());
         ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
         verify(applicationEventPublisher).publishEvent(captor.capture());
         assertEquals("WalletCompensationSucceeded", captor.getValue().event().eventType());
@@ -231,6 +234,9 @@ class WalletHoldServiceTest {
 
         assertEquals(1_000L, wallet.getBalance());
         assertEquals(WalletHoldStatus.REFUNDED, hold.getStatus());
+        ArgumentCaptor<WalletTransaction> transactionCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(transactionCaptor.capture());
+        assertEquals("OFFERING_UNDERFILLED", transactionCaptor.getValue().getReason());
         ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
         verify(applicationEventPublisher).publishEvent(captor.capture());
         assertEquals("REFUND", captor.getValue().event().payload().compensationType());

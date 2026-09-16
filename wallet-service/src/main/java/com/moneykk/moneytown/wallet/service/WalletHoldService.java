@@ -157,9 +157,10 @@ public class WalletHoldService {
         Wallet wallet = walletRepository.findByUserIdForUpdate(event.userId())
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
+        String reason = event.payload().reason();
         switch (hold.getStatus()) {
-            case HELD -> releaseHold(aggregateId, event.userId(), event.correlationId(), wallet, hold); // UNHOLD
-            case COMMITTED -> refundHold(aggregateId, event.userId(), event.correlationId(), wallet, hold); // REFUND
+            case HELD -> releaseHold(aggregateId, event.userId(), event.correlationId(), wallet, hold, reason); // UNHOLD
+            case COMMITTED -> refundHold(aggregateId, event.userId(), event.correlationId(), wallet, hold, reason); // REFUND
             case RELEASED, REFUNDED -> applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(
                     WalletCompensationResultPayload.succeeded(
                             aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
@@ -177,14 +178,14 @@ public class WalletHoldService {
         throw e;
     }
 
-    private void releaseHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
+    private void releaseHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold, String reason) {
         long balanceBefore = wallet.getBalance();
         wallet.releaseHold(hold.getAmount());
         hold.release();
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
                 wallet.getId(), WalletTransactionType.UNHOLD, hold.getAmount(), balanceBefore, wallet.getBalance(),
-                "UNHOLD:" + subscriptionId, subscriptionId
+                "UNHOLD:" + subscriptionId, subscriptionId, reason
         ));
         recordTransactionMetric(WalletTransactionType.UNHOLD);
 
@@ -192,14 +193,14 @@ public class WalletHoldService {
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "RELEASE", transaction.getId(), hold.getAmount())));
     }
 
-    private void refundHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
+    private void refundHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold, String reason) {
         long balanceBefore = wallet.getBalance();
         wallet.deposit(hold.getAmount());
         hold.refund();
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
                 wallet.getId(), WalletTransactionType.REFUND, hold.getAmount(), balanceBefore, wallet.getBalance(),
-                "REFUND:" + subscriptionId, subscriptionId
+                "REFUND:" + subscriptionId, subscriptionId, reason
         ));
         recordTransactionMetric(WalletTransactionType.REFUND);
 
