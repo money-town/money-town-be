@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -84,6 +85,26 @@ class AssetEntityTest {
         BusinessException exception = assertThrows(BusinessException.class, () -> revenue(null, LocalDate.now()));
 
         assertEquals(AssetErrorCode.INVALID_REVENUE_AMOUNT, exception.getErrorCode());
+    }
+
+    @Test
+    void revenueRejectsNegativeDistributableAmount() {
+        BusinessException exception = assertThrows(BusinessException.class, () -> new Revenue(
+                UUID.randomUUID(), UUID.randomUUID(), RevenueSourceType.PROPERTY_MANAGER,
+                "source-1", RevenueType.RENTAL_INCOME,
+                BigDecimal.valueOf(100), BigDecimal.valueOf(70), BigDecimal.valueOf(31),
+                "KRW", LocalDate.now(), LocalDate.now(), Map.of()));
+
+        assertEquals(AssetErrorCode.INVALID_REVENUE_AMOUNT, exception.getErrorCode());
+    }
+
+    @Test
+    void revenueAllowsZeroDistributableAmount() {
+        assertDoesNotThrow(() -> new Revenue(
+                UUID.randomUUID(), UUID.randomUUID(), RevenueSourceType.PROPERTY_MANAGER,
+                "source-1", RevenueType.RENTAL_INCOME,
+                BigDecimal.valueOf(100), BigDecimal.valueOf(70), BigDecimal.valueOf(30),
+                "KRW", LocalDate.now(), LocalDate.now(), Map.of()));
     }
 
     @Test

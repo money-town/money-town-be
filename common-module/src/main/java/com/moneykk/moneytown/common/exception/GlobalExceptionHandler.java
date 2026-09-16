@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.common.exception;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -20,8 +21,35 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
-        return response(exception.getErrorCode());
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(
+            BusinessException exception,
+            HttpServletRequest request
+    ) {
+        ErrorCode errorCode = exception.getErrorCode();
+        HttpStatus status = errorCode.getStatus();
+
+        if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
+            log.error(
+                    "서버 내부 비즈니스 예외. "
+                            + "method={}, uri={}, status={}, code={}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    status.value(),
+                    errorCode.getCode(),
+                    exception
+            );
+        } else if (status.is5xxServerError()) {
+            log.warn(
+                    "서버 오류 응답. "
+                            + "method={}, uri={}, status={}, code={}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    status.value(),
+                    errorCode.getCode()
+            );
+        }
+
+        return response(errorCode);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -58,13 +86,59 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
+    public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(
+            Exception exception,
+            HttpServletRequest request
+    ) {
         if (exception instanceof ErrorResponse errorResponse) {
-            HttpStatus status = HttpStatus.valueOf(errorResponse.getStatusCode().value());
+            HttpStatus status =
+                    HttpStatus.valueOf(errorResponse.getStatusCode().value());
+
+            if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
+                log.error(
+                        "Spring 서버 내부 예외. method={}, uri={}, status={}, code={}",
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        status.value(),
+                        "COMMON_" + status.value(),
+                        exception
+                );
+
+                return response(CommonErrorCode.INTERNAL_SERVER_ERROR);
+            }
+
+            if (status.is5xxServerError()) {
+                log.warn(
+                        "Spring 서버 오류 응답. method={}, uri={}, status={}, code={}",
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        status.value(),
+                        "COMMON_" + status.value()
+                );
+
+                return response(
+                        status,
+                        "COMMON_" + status.value(),
+                        "요청을 처리할 수 없습니다."
+                );
+            }
+
             String detail = errorResponse.getBody().getDetail();
-            return response(status, "COMMON_" + status.value(), detail != null ? detail : "요청을 처리할 수 없습니다.");
+
+            return response(
+                    status,
+                    "COMMON_" + status.value(),
+                    detail != null ? detail : "요청을 처리할 수 없습니다."
+            );
         }
-        log.error("Unhandled exception", exception);
+
+        log.error(
+                "처리되지 않은 예외. method={}, uri={}",
+                request.getMethod(),
+                request.getRequestURI(),
+                exception
+        );
+
         return response(CommonErrorCode.INTERNAL_SERVER_ERROR);
     }
 

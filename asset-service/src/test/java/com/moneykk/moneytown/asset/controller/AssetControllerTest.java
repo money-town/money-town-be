@@ -58,6 +58,31 @@ class AssetControllerTest {
     }
 
     @Test
+    @DisplayName("예상 수익률이 음수이면 자산 등록을 거부한다")
+    void rejectsNegativeExpectedReturnRate() throws Exception {
+        mvc.perform(post("/api/v1/assets")
+                        .header("X-User-Id", userId)
+                        .header("X-User-Role", "ISSUER")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "assetName": "테스트 자산",
+                                  "type": "REAL_ESTATE",
+                                  "description": "테스트 설명",
+                                  "valuationAmount": 100000000,
+                                  "expectedReturnRate": -1.5,
+                                  "detailData": {},
+                                  "totalShareQuantity": 10000
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("COMMON_400"));
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
     @DisplayName("PATCH 요청 필드와 사용자 헤더를 서비스에 전달한다")
     void updatesAsset() throws Exception {
         mvc.perform(request("""

@@ -81,6 +81,26 @@ public class SubscriptionBatchConfirmationService {
         }
 
         /*
+         * 공모 잠금이 이미 획득된 상태에서 미완료 청약의 존재 여부만 먼저 확인한다.
+         *
+         * PROCESSING 등 아직 Wallet HOLD 결과를 기다리는 청약이 있으면
+         * 전체 청약 엔티티를 조회하거나 행 잠금을 획득하지 않는다.
+         */
+        boolean hasPendingHold = subscriptionRepository
+                .existsReservedSubscriptionAwaitingHold(
+                        offering.getOfferingId()
+                );
+
+        if (hasPendingHold) {
+            log.debug(
+                    "일부 청약의 Wallet HOLD 결과 대기 중. offeringId={}",
+                    offering.getOfferingId()
+            );
+
+            return 0;
+        }
+
+        /*
          * 현재 수량을 확보하고 있는 모든 청약을 잠근다.
          *
          * Hold 실패 후 수량이 복원된 REJECTED 청약은

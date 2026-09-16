@@ -40,38 +40,24 @@ public class SettlementBatch extends BaseUpdatableEntity {
     @Column(name = "status", nullable = false, length = 20)
     private SettlementStatus status;
 
-    @Column(name = "carried_in_amount", nullable = false)
-    private Long carriedInAmount;
-
-    @Column(name = "remainder_amount", nullable = false)
-    private Long remainderAmount;
-
-    @Column(name = "carried_out_to_batch_id")
-    private UUID carriedOutToBatchId;
-
-    private SettlementBatch(UUID assetId, UUID revenueId, LocalDate recordDate,
-                             Long distributableAmount, Long carriedInAmount) {
+    private SettlementBatch(UUID assetId, UUID revenueId, LocalDate recordDate, Long totalAmount) {
         this.id = UUID.randomUUID();
         this.assetId = assetId;
         this.revenueId = revenueId;
         this.recordDate = recordDate;
-        this.carriedInAmount = carriedInAmount;
-        this.totalAmount = distributableAmount + carriedInAmount;
-        this.remainderAmount = 0L;
+        this.totalAmount = totalAmount;
         this.status = SettlementStatus.PENDING;
     }
 
-    public static SettlementBatch open(UUID assetId, UUID revenueId, LocalDate recordDate,
-                                        Long distributableAmount, Long carriedInAmount) {
-        return new SettlementBatch(assetId, revenueId, recordDate, distributableAmount, carriedInAmount);
+    public static SettlementBatch open(UUID assetId, UUID revenueId, LocalDate recordDate, Long totalAmount) {
+        return new SettlementBatch(assetId, revenueId, recordDate, totalAmount);
     }
 
     public void markSnapshotTaken() {
         this.status = SettlementStatus.SNAPSHOT_TAKEN;
     }
 
-    public void markCalculated(Long remainderAmount) {
-        this.remainderAmount = remainderAmount;
+    public void markCalculated() {
         this.status = SettlementStatus.CALCULATED;
     }
 
@@ -89,10 +75,5 @@ public class SettlementBatch extends BaseUpdatableEntity {
 
     public void markFailed() {
         this.status = SettlementStatus.FAILED;
-    }
-
-    // 이 배치의 remainderAmount가 targetBatchId로 이월되었음을 기록해, 이후 이월 대상 조회에 다시 후보가 되지 않도록 차단
-    public void markCarriedOut(UUID targetBatchId) {
-        this.carriedOutToBatchId = targetBatchId;
     }
 }

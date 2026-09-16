@@ -238,7 +238,7 @@ class DividendDisbursementServiceTest {
     }
 
     private SettlementBatch batchWithStatus(UUID batchId, SettlementStatus status) {
-        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L, 0L);
+        SettlementBatch batch = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L);
         ReflectionTestUtils.setField(batch, "id", batchId);
         ReflectionTestUtils.setField(batch, "status", status);
         return batch;

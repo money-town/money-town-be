@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.user.controller;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
+import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.user.dto.request.AdminUpdateUserRequest;
 import com.moneykk.moneytown.user.dto.request.UpdateMyInfoRequest;
@@ -13,9 +14,11 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.UUID;
 
 @Tag(
@@ -87,15 +90,23 @@ public class UserController {
             security = @SecurityRequirement(name = "bearerAuth")
     )
     @GetMapping("/users")
-    public ApiResponse<List<UserListResponse>> userList(@Parameter(
+    public ApiResponse<PageResponse<UserListResponse>> userList(@Parameter(
             description = "사용자 이름 검색어",
             example = "홍길동"
     )
-            @RequestParam(name = "name", required = false) String name
-    ){
+            @RequestParam(name = "name", required = false) String name,
+                                                                @PageableDefault(
+                                                                size = 10,
+                                                                sort = "createdAt",
+                                                                direction = Sort.Direction.DESC
+                                                        )
+                                                        Pageable pageable
+    )
+    {
 
-        return ApiResponse.success(userService.userList(name),
-                "사용자 목록 조회 성공");
+        return ApiResponse.success(userService.userList(name, pageable),
+                "사용자 목록 조회 성공"
+        );
 
     }
 

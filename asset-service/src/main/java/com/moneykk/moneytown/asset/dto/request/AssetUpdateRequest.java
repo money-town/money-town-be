@@ -6,7 +6,9 @@ import jakarta.validation.constraints.Size;
 
 import java.util.Map;
 
-/** 자산 정보 수정 요청 */
+/**
+ * 자산 정보 수정 요청
+ */
 public record AssetUpdateRequest(
 
         // 수정할 자산명
@@ -17,6 +19,10 @@ public record AssetUpdateRequest(
         String name,
 
         // 수정할 설명
+        @Size(
+                max = 5000,
+                message = "자산 설명은 5000자 이하여야 합니다."
+        )
         @Pattern(regexp = "(?s).*\\S.*",
                 message = "자산 설명은 공백일 수 없습니다.")
         String description,

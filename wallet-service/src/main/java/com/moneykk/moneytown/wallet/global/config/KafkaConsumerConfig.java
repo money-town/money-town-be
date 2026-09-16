@@ -12,6 +12,12 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.KafkaOperations;
+import org.springframework.kafka.listener.CommonErrorHandler;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 
 // 이벤트는 전부 EventEnvelope<T>로 오므로 payload 타입별 JavaType으로 바인딩한다.
@@ -28,9 +34,10 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> userAccountEventKafkaListenerContainerFactory(
-            ConsumerFactory<String, EventEnvelope<Object>> userAccountEventConsumerFactory
+            ConsumerFactory<String, EventEnvelope<Object>> userAccountEventConsumerFactory,
+            CommonErrorHandler kafkaConsumerErrorHandler
     ) {
-        return containerFactory(userAccountEventConsumerFactory);
+        return containerFactory(userAccountEventConsumerFactory, kafkaConsumerErrorHandler);
     }
 
     @Bean
@@ -42,9 +49,10 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<SubscriptionReservedPayload>> subscriptionReservedKafkaListenerContainerFactory(
-            ConsumerFactory<String, EventEnvelope<SubscriptionReservedPayload>> subscriptionReservedConsumerFactory
+            ConsumerFactory<String, EventEnvelope<SubscriptionReservedPayload>> subscriptionReservedConsumerFactory,
+            CommonErrorHandler kafkaConsumerErrorHandler
     ) {
-        return containerFactory(subscriptionReservedConsumerFactory);
+        return containerFactory(subscriptionReservedConsumerFactory, kafkaConsumerErrorHandler);
     }
 
     @Bean
@@ -54,9 +62,10 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> subscriptionConfirmedKafkaListenerContainerFactory(
-            ConsumerFactory<String, EventEnvelope<Object>> subscriptionConfirmedConsumerFactory
+            ConsumerFactory<String, EventEnvelope<Object>> subscriptionConfirmedConsumerFactory,
+            CommonErrorHandler kafkaConsumerErrorHandler
     ) {
-        return containerFactory(subscriptionConfirmedConsumerFactory);
+        return containerFactory(subscriptionConfirmedConsumerFactory, kafkaConsumerErrorHandler);
     }
 
     @Bean
@@ -68,16 +77,37 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<SubscriptionCompensationRequestedPayload>> subscriptionCompensationRequestedKafkaListenerContainerFactory(
-            ConsumerFactory<String, EventEnvelope<SubscriptionCompensationRequestedPayload>> subscriptionCompensationRequestedConsumerFactory
+            ConsumerFactory<String, EventEnvelope<SubscriptionCompensationRequestedPayload>> subscriptionCompensationRequestedConsumerFactory,
+            CommonErrorHandler kafkaConsumerErrorHandler
     ) {
-        return containerFactory(subscriptionCompensationRequestedConsumerFactory);
+        return containerFactory(subscriptionCompensationRequestedConsumerFactory, kafkaConsumerErrorHandler);
+    }
+
+    // 1초→2초→4초 간격 3회 재시도, 그래도 실패하면 "{원본토픽}-dlt"로 보내고 다음 메시지로 넘어간다.
+    @Bean
+    public CommonErrorHandler kafkaConsumerErrorHandler(KafkaOperations<Object, Object> kafkaOperations) {
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaOperations);
+
+        ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(3);
+        backOff.setInitialInterval(1_000L);
+        backOff.setMultiplier(2.0);
+        backOff.setMaxInterval(10_000L);
+
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
+        // UUID.fromString(aggregateId) 실패처럼 같은 메시지를 다시 처리해도 결과가 바뀌지 않는 예외는 재시도 없이 바로 DLT로 보낸다.
+        errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
+
+        return errorHandler;
     }
 
     private <T> ConsumerFactory<String, EventEnvelope<T>> envelopeConsumerFactory(KafkaProperties kafkaProperties, Class<T> payloadType) {
         JavaType javaType = TypeFactory.defaultInstance().constructParametricType(EventEnvelope.class, payloadType);
-        JsonDeserializer<EventEnvelope<T>> deserializer = new JsonDeserializer<>(javaType);
-        deserializer.addTrustedPackages(CONSUMER_DTO_PACKAGE, COMMON_EVENT_PACKAGE);
-        deserializer.setUseTypeHeaders(false);
+        JsonDeserializer<EventEnvelope<T>> jsonDeserializer = new JsonDeserializer<>(javaType);
+        jsonDeserializer.addTrustedPackages(CONSUMER_DTO_PACKAGE, COMMON_EVENT_PACKAGE);
+        jsonDeserializer.setUseTypeHeaders(false);
+
+        // 역직렬화 실패는 poll() 중 바로 터져서 DefaultErrorHandler/DLQ를 못 타므로 감싸서 넘긴다.
+        ErrorHandlingDeserializer<EventEnvelope<T>> deserializer = new ErrorHandlingDeserializer<>(jsonDeserializer);
 
         return new DefaultKafkaConsumerFactory<>(
                 kafkaProperties.buildConsumerProperties(null),
@@ -86,9 +116,11 @@ public class KafkaConsumerConfig {
         );
     }
 
-    private <T> ConcurrentKafkaListenerContainerFactory<String, T> containerFactory(ConsumerFactory<String, T> consumerFactory) {
+    private <T> ConcurrentKafkaListenerContainerFactory<String, T> containerFactory(ConsumerFactory<String, T> consumerFactory,
+                                                                                     CommonErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, T> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
+        factory.setCommonErrorHandler(errorHandler);
 
         return factory;
     }

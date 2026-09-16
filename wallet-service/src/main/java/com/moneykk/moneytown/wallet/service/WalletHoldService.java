@@ -11,7 +11,8 @@ import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
-import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
+import com.moneykk.moneytown.wallet.producer.WalletCompensationResultReadyEvent;
+import com.moneykk.moneytown.wallet.producer.WalletHoldResultReadyEvent;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
 import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepository;
@@ -22,6 +23,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +41,7 @@ public class WalletHoldService {
     private final WalletHoldRepository walletHoldRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final WalletExpiredReservationRepository walletExpiredReservationRepository;
-    private final WalletEventPublisher walletEventPublisher;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final EntityManager entityManager;
     private final MeterRegistry meterRegistry;
 
@@ -70,8 +72,8 @@ public class WalletHoldService {
 
         Optional<Wallet> walletOpt = walletRepository.findByUserIdForUpdate(event.userId());
         if (walletOpt.isEmpty()) {
-            walletEventPublisher.publishHoldResult(WalletHoldResultPayload.failed(
-                    aggregateId, event.userId(), event.correlationId(), null, WalletErrorCode.WALLET_NOT_FOUND.name()));
+            applicationEventPublisher.publishEvent(new WalletHoldResultReadyEvent(WalletHoldResultPayload.failed(
+                    aggregateId, event.userId(), event.correlationId(), null, WalletErrorCode.WALLET_NOT_FOUND.name())));
             return;
         }
 
@@ -83,8 +85,8 @@ public class WalletHoldService {
             wallet.hold(amount);
         } catch (BusinessException e) {
             // PostFDS 연동을 위해 Offering이 이 reason을 그대로 저장·전달하기로 확정 — 실제 실패 원인 그대로 전달
-            walletEventPublisher.publishHoldResult(WalletHoldResultPayload.failed(
-                    aggregateId, event.userId(), event.correlationId(), wallet.getId(), errorCodeName(e)));
+            applicationEventPublisher.publishEvent(new WalletHoldResultReadyEvent(WalletHoldResultPayload.failed(
+                    aggregateId, event.userId(), event.correlationId(), wallet.getId(), errorCodeName(e))));
             return;
         } // 예외 X, 결과를 이벤트로만 알림
 
@@ -96,8 +98,8 @@ public class WalletHoldService {
 
         WalletHold hold = walletHoldRepository.save(new WalletHold(wallet.getId(), subscriptionId, amount));
 
-        walletEventPublisher.publishHoldResult(
-                WalletHoldResultPayload.succeeded(aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId()));
+        applicationEventPublisher.publishEvent(new WalletHoldResultReadyEvent(
+                WalletHoldResultPayload.succeeded(aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId())));
     }
 
     @Transactional
@@ -141,13 +143,13 @@ public class WalletHoldService {
         if (holdOpt.isEmpty()) {
             if (REASON_RESERVATION_EXPIRED.equals(event.payload().reason())) {
                 recordExpiredReservation(subscriptionId, event.payload().reason());
-                walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
-                        aggregateId, event.userId(), event.correlationId(), null, null, "NONE", null, null));
+                applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.succeeded(
+                        aggregateId, event.userId(), event.correlationId(), null, null, "NONE", null, null)));
                 return;
             }
 
-            walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.failed(
-                    aggregateId, event.userId(), event.correlationId(), null, null, "HOLD_NOT_FOUND"));
+            applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.failed(
+                    aggregateId, event.userId(), event.correlationId(), null, null, "HOLD_NOT_FOUND")));
             return;
         }
 
@@ -155,12 +157,14 @@ public class WalletHoldService {
         Wallet wallet = walletRepository.findByUserIdForUpdate(event.userId())
                 .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
+        String reason = event.payload().reason();
         switch (hold.getStatus()) {
-            case HELD -> releaseHold(aggregateId, event.userId(), event.correlationId(), wallet, hold); // UNHOLD
-            case COMMITTED -> refundHold(aggregateId, event.userId(), event.correlationId(), wallet, hold); // REFUND
-            case RELEASED, REFUNDED -> walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
-                    aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
-            ); // 이미 처리됨 (재전송된 보상 요청)
+            case HELD -> releaseHold(aggregateId, event.userId(), event.correlationId(), wallet, hold, reason); // UNHOLD
+            case COMMITTED -> refundHold(aggregateId, event.userId(), event.correlationId(), wallet, hold, reason); // REFUND
+            case RELEASED, REFUNDED -> applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(
+                    WalletCompensationResultPayload.succeeded(
+                            aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
+            )); // 이미 처리됨 (재전송된 보상 요청)
         }
     }
 
@@ -174,34 +178,34 @@ public class WalletHoldService {
         throw e;
     }
 
-    private void releaseHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
+    private void releaseHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold, String reason) {
         long balanceBefore = wallet.getBalance();
         wallet.releaseHold(hold.getAmount());
         hold.release();
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
                 wallet.getId(), WalletTransactionType.UNHOLD, hold.getAmount(), balanceBefore, wallet.getBalance(),
-                "UNHOLD:" + subscriptionId, subscriptionId
+                "UNHOLD:" + subscriptionId, subscriptionId, reason
         ));
         recordTransactionMetric(WalletTransactionType.UNHOLD);
 
-        walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
-                subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "RELEASE", transaction.getId(), hold.getAmount()));
+        applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.succeeded(
+                subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "RELEASE", transaction.getId(), hold.getAmount())));
     }
 
-    private void refundHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold) {
+    private void refundHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold, String reason) {
         long balanceBefore = wallet.getBalance();
         wallet.deposit(hold.getAmount());
         hold.refund();
 
         WalletTransaction transaction = walletTransactionRepository.save(new WalletTransaction(
                 wallet.getId(), WalletTransactionType.REFUND, hold.getAmount(), balanceBefore, wallet.getBalance(),
-                "REFUND:" + subscriptionId, subscriptionId
+                "REFUND:" + subscriptionId, subscriptionId, reason
         ));
         recordTransactionMetric(WalletTransactionType.REFUND);
 
-        walletEventPublisher.publishCompensationResult(WalletCompensationResultPayload.succeeded(
-                subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "REFUND", transaction.getId(), hold.getAmount()));
+        applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.succeeded(
+                subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "REFUND", transaction.getId(), hold.getAmount())));
     }
 
     // subscriptionId 기준으로 processReservation()/confirmHold()/compensateHold()를 직렬화한다.

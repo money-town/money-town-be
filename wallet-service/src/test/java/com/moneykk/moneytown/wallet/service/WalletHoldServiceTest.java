@@ -8,9 +8,9 @@ import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
-import com.moneykk.moneytown.wallet.producer.WalletEventPublisher;
-import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
-import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
+import com.moneykk.moneytown.wallet.entity.WalletTransaction;
+import com.moneykk.moneytown.wallet.producer.WalletCompensationResultReadyEvent;
+import com.moneykk.moneytown.wallet.producer.WalletHoldResultReadyEvent;
 import com.moneykk.moneytown.wallet.repository.WalletExpiredReservationRepository;
 import com.moneykk.moneytown.wallet.repository.WalletHoldRepository;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
@@ -25,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -55,7 +56,7 @@ class WalletHoldServiceTest {
     @Mock
     private WalletExpiredReservationRepository walletExpiredReservationRepository;
     @Mock
-    private WalletEventPublisher walletEventPublisher;
+    private ApplicationEventPublisher applicationEventPublisher;
     // pg_advisory_xact_lock 네이티브 쿼리 체인만 통과시키면 되므로 deep stub으로 처리
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private EntityManager entityManager;
@@ -80,10 +81,10 @@ class WalletHoldServiceTest {
 
         verify(walletHoldRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishHoldResult(captor.capture());
-        assertEquals("WalletHoldFailed", captor.getValue().eventType());
-        assertEquals("INSUFFICIENT_AVAILABLE_BALANCE", captor.getValue().payload().reason());
+        ArgumentCaptor<WalletHoldResultReadyEvent> captor = ArgumentCaptor.forClass(WalletHoldResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("WalletHoldFailed", captor.getValue().event().eventType());
+        assertEquals("INSUFFICIENT_AVAILABLE_BALANCE", captor.getValue().event().payload().reason());
     }
 
     @Test
@@ -97,9 +98,9 @@ class WalletHoldServiceTest {
 
         verify(walletHoldRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishHoldResult(captor.capture());
-        assertEquals("INVALID_AMOUNT", captor.getValue().payload().reason());
+        ArgumentCaptor<WalletHoldResultReadyEvent> captor = ArgumentCaptor.forClass(WalletHoldResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("INVALID_AMOUNT", captor.getValue().event().payload().reason());
     }
 
     @Test
@@ -115,9 +116,9 @@ class WalletHoldServiceTest {
 
         verify(walletHoldRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishHoldResult(captor.capture());
-        assertEquals("BALANCE_OVERFLOW", captor.getValue().payload().reason());
+        ArgumentCaptor<WalletHoldResultReadyEvent> captor = ArgumentCaptor.forClass(WalletHoldResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("BALANCE_OVERFLOW", captor.getValue().event().payload().reason());
     }
 
     @Test
@@ -130,9 +131,9 @@ class WalletHoldServiceTest {
 
         verify(walletHoldRepository, never()).save(any());
         verify(walletTransactionRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletHoldResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishHoldResult(captor.capture());
-        assertEquals("WALLET_NOT_FOUND", captor.getValue().payload().reason());
+        ArgumentCaptor<WalletHoldResultReadyEvent> captor = ArgumentCaptor.forClass(WalletHoldResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("WALLET_NOT_FOUND", captor.getValue().event().payload().reason());
     }
 
     @Test
@@ -149,7 +150,7 @@ class WalletHoldServiceTest {
                 () -> walletHoldService.processReservation(reservedEvent(1_000L)));
 
         assertSame(unexpected, thrown);
-        verifyNoInteractions(walletEventPublisher);
+        verifyNoInteractions(applicationEventPublisher);
     }
 
     @Test
@@ -160,7 +161,7 @@ class WalletHoldServiceTest {
 
         walletHoldService.processReservation(reservedEvent(1_000L));
 
-        verifyNoInteractions(walletRepository, walletTransactionRepository, walletEventPublisher);
+        verifyNoInteractions(walletRepository, walletTransactionRepository, applicationEventPublisher);
     }
 
     @Test
@@ -172,7 +173,7 @@ class WalletHoldServiceTest {
 
         walletHoldService.confirmHold(confirmedEvent());
 
-        verifyNoInteractions(walletRepository, walletTransactionRepository, walletEventPublisher);
+        verifyNoInteractions(walletRepository, walletTransactionRepository, applicationEventPublisher);
     }
 
     @Test
@@ -208,11 +209,13 @@ class WalletHoldServiceTest {
 
         assertEquals(0L, wallet.getHoldBalance());
         assertEquals(1_000L, wallet.getAvailableBalance());
-        verify(walletTransactionRepository).save(any());
-        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishCompensationResult(captor.capture());
-        assertEquals("WalletCompensationSucceeded", captor.getValue().eventType());
-        assertEquals("RELEASE", captor.getValue().payload().compensationType());
+        ArgumentCaptor<WalletTransaction> transactionCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(transactionCaptor.capture());
+        assertEquals("OFFERING_UNDERFILLED", transactionCaptor.getValue().getReason());
+        ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("WalletCompensationSucceeded", captor.getValue().event().eventType());
+        assertEquals("RELEASE", captor.getValue().event().payload().compensationType());
     }
 
     @Test
@@ -231,9 +234,12 @@ class WalletHoldServiceTest {
 
         assertEquals(1_000L, wallet.getBalance());
         assertEquals(WalletHoldStatus.REFUNDED, hold.getStatus());
-        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishCompensationResult(captor.capture());
-        assertEquals("REFUND", captor.getValue().payload().compensationType());
+        ArgumentCaptor<WalletTransaction> transactionCaptor = ArgumentCaptor.forClass(WalletTransaction.class);
+        verify(walletTransactionRepository).save(transactionCaptor.capture());
+        assertEquals("OFFERING_UNDERFILLED", transactionCaptor.getValue().getReason());
+        ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("REFUND", captor.getValue().event().payload().compensationType());
     }
 
     @Test
@@ -252,9 +258,9 @@ class WalletHoldServiceTest {
 
         assertEquals(0L, wallet.getBalance());
         verify(walletTransactionRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishCompensationResult(captor.capture());
-        assertEquals("NONE", captor.getValue().payload().compensationType());
+        ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("NONE", captor.getValue().event().payload().compensationType());
     }
 
     @Test
@@ -267,10 +273,10 @@ class WalletHoldServiceTest {
 
         verify(walletExpiredReservationRepository).save(any());
         verifyNoInteractions(walletRepository, walletTransactionRepository);
-        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishCompensationResult(captor.capture());
-        assertEquals("WalletCompensationSucceeded", captor.getValue().eventType());
-        assertEquals("NONE", captor.getValue().payload().compensationType());
+        ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("WalletCompensationSucceeded", captor.getValue().event().eventType());
+        assertEquals("NONE", captor.getValue().event().payload().compensationType());
     }
 
     @Test
@@ -282,9 +288,9 @@ class WalletHoldServiceTest {
         walletHoldService.compensateHold(compensationEvent("RESERVATION_EXPIRED"));
 
         verify(walletExpiredReservationRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishCompensationResult(captor.capture());
-        assertEquals("NONE", captor.getValue().payload().compensationType());
+        ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("NONE", captor.getValue().event().payload().compensationType());
     }
 
     @Test
@@ -295,10 +301,10 @@ class WalletHoldServiceTest {
         walletHoldService.compensateHold(compensationEvent("OFFERING_UNDERFILLED"));
 
         verify(walletExpiredReservationRepository, never()).save(any());
-        ArgumentCaptor<EventEnvelope<WalletCompensationResultPayload>> captor = ArgumentCaptor.forClass(EventEnvelope.class);
-        verify(walletEventPublisher).publishCompensationResult(captor.capture());
-        assertEquals("WalletCompensationFailed", captor.getValue().eventType());
-        assertEquals("HOLD_NOT_FOUND", captor.getValue().payload().reason());
+        ArgumentCaptor<WalletCompensationResultReadyEvent> captor = ArgumentCaptor.forClass(WalletCompensationResultReadyEvent.class);
+        verify(applicationEventPublisher).publishEvent(captor.capture());
+        assertEquals("WalletCompensationFailed", captor.getValue().event().eventType());
+        assertEquals("HOLD_NOT_FOUND", captor.getValue().event().payload().reason());
     }
 
     @Test
@@ -308,7 +314,7 @@ class WalletHoldServiceTest {
 
         walletHoldService.processReservation(reservedEvent(1_000L));
 
-        verifyNoInteractions(walletRepository, walletHoldRepository, walletTransactionRepository, walletEventPublisher);
+        verifyNoInteractions(walletRepository, walletHoldRepository, walletTransactionRepository, applicationEventPublisher);
     }
 
     private Wallet walletWithId(Long id, long depositAmount) {

@@ -88,7 +88,16 @@ public class AssetQueryRepositoryImpl implements AssetQueryRepository {
             Instant cursorCreatedAt = queryFactory
                     .select(asset.createdAt)
                     .from(asset)
-                    .where(asset.id.eq(cursor))
+                    .where(
+                            asset.id.eq(cursor),
+                            asset.isDeleted.isFalse(),
+                            ownerId == null
+                                    ? null
+                                    : asset.userId.eq(ownerId),
+                            status == null
+                                    ? null
+                                    : asset.status.eq(status)
+                    )
                     .fetchOne();
 
             if (cursorCreatedAt == null) {
