@@ -40,11 +40,13 @@ public class AssetTerminationRequestedEventConsumer {
 
             FinalSettlementBatchResponse response =
                     finalSettlementCommandService.openFinalSettlement(SYSTEM_ROLE, toRequest(event.payload()));
-            // uk_final_settlement_batches_asset_id로 이미 자연 멱등이 보장되므로
-            // 재수신돼도 새로 생성된 경우에만 지급을 시작한다 — 기존 배치는 이미 지급이 진행 중이거나 끝났다.
-            if (response.newlyCreated()) {
-                finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
-            }
+            // newlyCreated 여부와 무관하게 항상 지급을 호출
+            // openFinalSettlement가 배치 저장까지 끝낸 뒤 재기동/재전달로 이 메서드가 다시 불리면
+            // newlyCreated=false로 기존 배치를 반환하는데, 그때 지급 호출을 건너뛰면 disburseAsync가
+            // 한 번도 안 불린 채 메시지만 정상 처리돼 최대 3분지연이 생김
+            // disburseAsync → claimPendingPayouts가 QUEUED/RETRYING만 원자적으로
+            // 선점하므로 이미 처리된 배치에 또 호출해도 안전하다 — 게이트를 걸 이유가 없다
+            finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
         } finally {
             MDC.remove("requestId");
         }
