@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
@@ -19,7 +20,11 @@ import java.util.UUID;
 @Entity
 @Table(name = "p_dividend_payouts",
         uniqueConstraints = @UniqueConstraint(name = "uk_dividend_payouts_batch_investor",
-                columnNames = {"settlement_batch_id", "investor_id"}))
+                columnNames = {"settlement_batch_id", "investor_id"}),
+        // 실제 정의는 V15__add_dividend_payouts_investor_index.sql(WHERE is_deleted = false 부분 인덱스)이 유일한 근거다.
+        // @Index는 partial index 조건을 표현할 수 없어 컬럼 구성만 문서화한 것
+        indexes = @Index(name = "idx_dividend_payouts_investor",
+                columnList = "investor_id, updated_at DESC, dividend_payout_id ASC"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DividendPayout extends BaseUpdatableEntity {
 

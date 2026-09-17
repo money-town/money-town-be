@@ -587,6 +587,12 @@ class OutboxPublishSchedulerTest {
                 10
         );
 
+        ReflectionTestUtils.setField(
+                createdScheduler,
+                "completionTimeoutSeconds",
+                70L
+        );
+
         return createdScheduler;
     }
 
@@ -675,6 +681,53 @@ class OutboxPublishSchedulerTest {
 
         verify(offeringSchedulerMetrics)
                 .recordOutboxRecoveryFailure();
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 Outbox 이벤트는 즉시 영구 실패로 기록한다")
+    void marksUnsupportedEventAsPermanentFailure() {
+        UUID eventId = UUID.randomUUID();
+
+        String envelopeJson = """
+            {
+              "eventId": "%s",
+              "eventType": "UnsupportedEvent",
+              "userId": "%s"
+            }
+            """.formatted(
+                eventId,
+                UUID.randomUUID()
+        );
+
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        eventId,
+                        "subscription-events",
+                        envelopeJson,
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("Kafka key 규칙이 정의되지 않은 이벤트")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("Kafka key 규칙이 정의되지 않은 이벤트")
+                );
+
+        verify(outboxPublishService, never())
+                .markFailedAttempt(any(), anyString());
+
+        verify(outboxKafkaPublisher, never())
+                .publish(any(), anyString());
     }
 
     private OutboxPublishService.ClaimedEvent createEvent(

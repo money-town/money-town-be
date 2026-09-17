@@ -57,6 +57,22 @@ public class SubscriptionLifecycleMetrics {
                                     "청약 생성부터 결과 상태 전환까지 소요 시간"
                             )
                             .tag("result", tagValue)
+                            .maximumExpectedValue(
+                                    Duration.ofDays(7)
+                            )
+                            .serviceLevelObjectives(
+                                    Duration.ofSeconds(1),
+                                    Duration.ofSeconds(5),
+                                    Duration.ofSeconds(30),
+                                    Duration.ofMinutes(1),
+                                    Duration.ofMinutes(5),
+                                    Duration.ofMinutes(15),
+                                    Duration.ofHours(1),
+                                    Duration.ofHours(6),
+                                    Duration.ofDays(1),
+                                    Duration.ofDays(3),
+                                    Duration.ofDays(7)
+                            )
                             .publishPercentileHistogram()
                             .register(meterRegistry)
             );

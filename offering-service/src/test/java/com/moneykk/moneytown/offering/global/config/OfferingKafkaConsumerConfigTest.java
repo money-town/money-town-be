@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.support.SendResult;
+import org.springframework.util.backoff.BackOffExecution;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -92,5 +93,26 @@ class OfferingKafkaConsumerConfigTest {
 
         assertThat(deadLetterRecord.value())
                 .isEqualTo("invalid-event");
+    }
+
+    @Test
+    @DisplayName("Kafka Consumer는 1초, 2초, 4초 간격으로 세 번 재시도한다")
+    void appliesExponentialBackOff() {
+        // given
+        OfferingKafkaConsumerConfig config =
+                new OfferingKafkaConsumerConfig();
+
+        BackOffExecution execution =
+                config.kafkaConsumerBackOff().start();
+
+        // when & then
+        assertThat(execution.nextBackOff())
+                .isEqualTo(1_000L);
+        assertThat(execution.nextBackOff())
+                .isEqualTo(2_000L);
+        assertThat(execution.nextBackOff())
+                .isEqualTo(4_000L);
+        assertThat(execution.nextBackOff())
+                .isEqualTo(BackOffExecution.STOP);
     }
 }

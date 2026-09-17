@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.analysis.notification.infrastructure.slack;
 
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,23 +25,25 @@ public class SlackNotificationSender {
         this.restClient = RestClient.builder().requestFactory(factory).build();
     }
 
+    @Retry(name = "slackNotification", fallbackMethod = "sendFallback")
     public SlackSendResult send(String title, String message){
         String text = "*" + title + "*\n" + message;
-        try{
-            ResponseEntity<String> response = restClient.post()
-                    .uri(webhookUrl)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("text", text))
-                    .retrieve()
-                    .toEntity(String.class);
+        ResponseEntity<String> response = restClient.post()
+                .uri(webhookUrl)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("text", text))
+                .retrieve()
+                .toEntity(String.class);
 
-            String body = response.getBody() == null ? "" : response.getBody().trim();
-            if(response.getStatusCode().is2xxSuccessful() && "ok".equals(body)){
-                return SlackSendResult.ok();
-            }
-            return SlackSendResult.fail("Slack 응답 비정상: " + response.getStatusCode() + "/" + body);
-        }catch (Exception e){
-            return SlackSendResult.fail(e.getClass().getSimpleName() + ":" + e.getMessage());
+        String body = response.getBody() == null ? "" : response.getBody().trim();
+        if(response.getStatusCode().is2xxSuccessful() && "ok".equals(body)){
+            return SlackSendResult.ok();
         }
+        throw new SlackSendFailedException("Slack 응답 비정상: " + response.getStatusCode() + "/" + body);
+
+    }
+    
+    private SlackSendResult sendFallback(String title, String message, Throwable t){
+        return SlackSendResult.fail(t.getClass().getSimpleName() + ":" + t.getMessage());
     }
 }
