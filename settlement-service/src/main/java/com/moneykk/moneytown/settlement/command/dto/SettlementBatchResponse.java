@@ -16,10 +16,12 @@ public record SettlementBatchResponse(
         @Schema(description = "배당 총액") Long totalAmount,
         @Schema(description = "정산 회차 상태") SettlementStatus status,
         @Schema(description = "생성된 지급(DividendPayout) 건수") int payoutCount,
-        @Schema(description = "회차 생성 시각") Instant createdAt
+        @Schema(description = "회차 생성 시각") Instant createdAt,
+        @Schema(description = "이번 요청으로 새로 생성된 회차인지 여부. false면 이미 존재하던 회차를 그대로 반환한 것(멱등 재요청/재시도)이라 후속 처리를 다시 시작할 필요가 없다.")
+        boolean newlyCreated
 ) {
 
-    public static SettlementBatchResponse of(SettlementBatch batch, int payoutCount) {
+    public static SettlementBatchResponse of(SettlementBatch batch, int payoutCount, boolean newlyCreated) {
         return new SettlementBatchResponse(
                 batch.getId(),
                 batch.getAssetId(),
@@ -28,7 +30,8 @@ public record SettlementBatchResponse(
                 batch.getTotalAmount(),
                 batch.getStatus(),
                 payoutCount,
-                batch.getCreatedAt()
+                batch.getCreatedAt(),
+                newlyCreated
         );
     }
 }
