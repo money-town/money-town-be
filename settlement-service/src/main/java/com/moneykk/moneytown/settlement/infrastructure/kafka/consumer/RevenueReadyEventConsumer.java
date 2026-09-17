@@ -54,7 +54,10 @@ public class RevenueReadyEventConsumer {
                 if (!response.newlyCreated()) {
                     meterRegistry.counter("settlement.batch.auto_open", "result", "recovered_existing").increment();
                 }
-                revenueTransferStatusNotifier.notifyTransferred(response.revenueId());
+                // notifyTransferredOrThrow(실패를 삼키지 않음) —
+                // 실패하면 이 메시지는 여기서 예외로 끝나 Kafka 재시도(DLT 전 3회) 대상이 되고,
+                // 지급(disburseAsync)도 통보가 성공한 뒤에만 시작된다.
+                revenueTransferStatusNotifier.notifyTransferredOrThrow(response.revenueId());
                 dividendDisbursementService.disburseAsync(response.settlementBatchId());
             } catch (BusinessException e) {
                 if (e.getErrorCode() != SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET) {

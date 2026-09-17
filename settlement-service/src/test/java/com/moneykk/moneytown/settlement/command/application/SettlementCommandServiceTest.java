@@ -213,6 +213,22 @@ class SettlementCommandServiceTest {
         }
 
         @Test
+        @DisplayName("기존 배치가 요청한 assetId와 다른 자산 소속이면 예외 (revenueId만으로 조회한 배치를 그대로 신뢰하지 않는다)")
+        void rejectsWhenExistingBatchBelongsToDifferentAsset() {
+            UUID otherAssetId = UUID.randomUUID();
+            SettlementBatch existingForOtherAsset = SettlementBatch.open(otherAssetId, REVENUE_ID, RECORD_DATE, 10_000_000L);
+            when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID))
+                    .thenReturn(Optional.of(existingForOtherAsset));
+
+            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.REVENUE_ASSET_MISMATCH);
+
+            verifyNoInteractions(assetServiceClient, dividendPayoutRepository);
+        }
+
+        @Test
         @DisplayName("자산에 이미 진행 중인 회차가 있으면 예외")
         void rejectsWhenAssetHasBatchInProgress() {
             when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.empty());

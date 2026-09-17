@@ -65,7 +65,7 @@ public class SettlementCommandService {
         // 같은 revenueId로 이 메서드가 반복 호출될 수 있다 — 기존 배치가 있으면 예외 대신 그대로 반환
         Optional<SettlementBatch> existingByRevenue = settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(revenueId);
         if (existingByRevenue.isPresent()) {
-            return existingBatchResponse(existingByRevenue.get());
+            return existingBatchResponse(existingByRevenue.get(), assetId);
         }
 
         guardAgainstConcurrentBatchForAsset(assetId);
@@ -108,7 +108,7 @@ public class SettlementCommandService {
                     .orElseThrow(() -> e);
             log.info("[진단]persist 경합 발생 — 기존 배치로 대체 반환 (loserBatchId={}, winnerBatchId={})",
                     batch.getId(), winnerBatch.getId());
-            return existingBatchResponse(winnerBatch);
+            return existingBatchResponse(winnerBatch, assetId);
         }
         log.info("[진단]persist 완료 — 저장 종료 (batchId={}, payoutCount={})", batch.getId(), payouts.size());
 
@@ -117,7 +117,10 @@ public class SettlementCommandService {
         return SettlementBatchResponse.of(batch, payouts.size(), true);
     }
 
-    private SettlementBatchResponse existingBatchResponse(SettlementBatch batch) {
+    private SettlementBatchResponse existingBatchResponse(SettlementBatch batch, UUID assetId) {
+        if (!batch.getAssetId().equals(assetId)) {
+            throw new BusinessException(SettlementErrorCode.REVENUE_ASSET_MISMATCH);
+        }
         log.info("정산 회차 개시 멱등 재조회 (assetId={}, revenueId={}, settlementBatchId={})",
                 batch.getAssetId(), batch.getRevenueId(), batch.getId());
         long payoutCount = dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(batch.getId());
