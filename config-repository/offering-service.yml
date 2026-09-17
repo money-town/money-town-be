@@ -85,6 +85,12 @@ subscription:
     holding-allocation-stuck-seconds: ${HOLDING_ALLOCATION_STUCK_SECONDS:300}
     compensation-stuck-seconds: ${COMPENSATION_STUCK_SECONDS:300}
 
+offering:
+  ai-candidates:
+    cache:
+      ttl-seconds: ${OFFERING_AI_CANDIDATES_CACHE_TTL_SECONDS:5}
+      maximum-size: ${OFFERING_AI_CANDIDATES_CACHE_MAXIMUM_SIZE:20}
+
 outbox:
   publish:
     completion-timeout-seconds: ${OUTBOX_PUBLISH_COMPLETION_TIMEOUT_SECONDS:70}

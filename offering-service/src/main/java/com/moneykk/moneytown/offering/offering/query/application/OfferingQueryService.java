@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.offering.query.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.offering.global.config.OfferingCacheConfig;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
@@ -18,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.Cacheable;
 
 import java.time.Instant;
 import java.util.List;
@@ -102,6 +104,12 @@ public class OfferingQueryService {
      * 현재 모집 중이고 잔여 수량이 있는 공모를
      * 마감 임박순으로 지정된 개수만큼 반환한다.
      */
+    @Cacheable(
+            cacheNames =
+                    OfferingCacheConfig.AI_PORTFOLIO_CANDIDATES,
+            key = "#limit",
+            sync = true
+    )
     public List<AiPortfolioCandidateResponse> getAiPortfolioCandidates(
             int limit
     ) {
