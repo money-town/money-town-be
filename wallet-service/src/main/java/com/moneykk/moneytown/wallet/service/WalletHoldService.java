@@ -100,6 +100,8 @@ public class WalletHoldService {
 
         applicationEventPublisher.publishEvent(new WalletHoldResultReadyEvent(
                 WalletHoldResultPayload.succeeded(aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId())));
+        log.info("HOLD 처리 완료: subscriptionId={}, holdId={}, walletId={}, amount={}",
+                subscriptionId, hold.getId(), wallet.getId(), amount);
     }
 
     @Transactional
@@ -128,6 +130,8 @@ public class WalletHoldService {
                 "DEDUCT:" + subscriptionId, subscriptionId.toString()
         ));
         recordTransactionMetric(WalletTransactionType.DEDUCT);
+        log.info("DEDUCT 처리 완료: subscriptionId={}, holdId={}, walletId={}, amount={}",
+                subscriptionId, hold.getId(), wallet.getId(), hold.getAmount());
     }
 
     @Transactional
@@ -145,11 +149,13 @@ public class WalletHoldService {
                 recordExpiredReservation(subscriptionId, event.payload().reason());
                 applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.succeeded(
                         aggregateId, event.userId(), event.correlationId(), null, null, "NONE", null, null)));
+                log.info("보상 처리 완료(NONE, 만료 tombstone): subscriptionId={}", subscriptionId);
                 return;
             }
 
             applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.failed(
                     aggregateId, event.userId(), event.correlationId(), null, null, "HOLD_NOT_FOUND")));
+            log.warn("보상 처리 실패(HOLD_NOT_FOUND): subscriptionId={}", subscriptionId);
             return;
         }
 
@@ -161,10 +167,13 @@ public class WalletHoldService {
         switch (hold.getStatus()) {
             case HELD -> releaseHold(aggregateId, event.userId(), event.correlationId(), wallet, hold, reason); // UNHOLD
             case COMMITTED -> refundHold(aggregateId, event.userId(), event.correlationId(), wallet, hold, reason); // REFUND
-            case RELEASED, REFUNDED -> applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(
-                    WalletCompensationResultPayload.succeeded(
-                            aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
-            )); // 이미 처리됨 (재전송된 보상 요청)
+            case RELEASED, REFUNDED -> {
+                applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(
+                        WalletCompensationResultPayload.succeeded(
+                                aggregateId, event.userId(), event.correlationId(), hold.getId(), wallet.getId(), "NONE", null, null)
+                )); // 이미 처리됨 (재전송된 보상 요청)
+                log.info("보상 처리 스킵(이미 {} 상태): subscriptionId={}", hold.getStatus(), subscriptionId);
+            }
         }
     }
 
@@ -191,6 +200,8 @@ public class WalletHoldService {
 
         applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.succeeded(
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "RELEASE", transaction.getId(), hold.getAmount())));
+        log.info("UNHOLD 처리 완료: subscriptionId={}, holdId={}, walletId={}, amount={}, reason={}",
+                subscriptionId, hold.getId(), wallet.getId(), hold.getAmount(), reason);
     }
 
     private void refundHold(String subscriptionId, UUID userId, String correlationId, Wallet wallet, WalletHold hold, String reason) {
@@ -206,6 +217,8 @@ public class WalletHoldService {
 
         applicationEventPublisher.publishEvent(new WalletCompensationResultReadyEvent(WalletCompensationResultPayload.succeeded(
                 subscriptionId, userId, correlationId, hold.getId(), wallet.getId(), "REFUND", transaction.getId(), hold.getAmount())));
+        log.info("REFUND 처리 완료: subscriptionId={}, holdId={}, walletId={}, amount={}, reason={}",
+                subscriptionId, hold.getId(), wallet.getId(), hold.getAmount(), reason);
     }
 
     // subscriptionId 기준으로 processReservation()/confirmHold()/compensateHold()를 직렬화한다.
