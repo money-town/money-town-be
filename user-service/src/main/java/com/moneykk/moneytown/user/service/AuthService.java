@@ -15,6 +15,7 @@ import com.moneykk.moneytown.user.global.exception.AuthErrorCode;
 import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.global.security.jwt.IssuedToken;
 import com.moneykk.moneytown.user.global.security.jwt.JwtTokenProvider;
+import com.moneykk.moneytown.user.monitoring.LoginMetrics;
 import com.moneykk.moneytown.user.repository.RefreshTokenRepository;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.UUID;
+
+import static com.moneykk.moneytown.user.monitoring.LoginMetrics.Stage.*;
 
 
 @Service
@@ -42,36 +45,39 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserAccountEventWriter userAccountEventWriter;
+    private final LoginMetrics loginMetrics;
 
 
     // 로그인
     public LoginResponse login(LoginRequest request){
-        User user = userRepository
+        User user = loginMetrics.record(USER_LOOKUP, () -> userRepository
                 .findByEmailAndIsDeletedFalse(request.email())
-                .orElseThrow(()
-                        -> new BusinessException(AuthErrorCode.INVALID_CREDENTIALS));
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_CREDENTIALS)));
 
         // DB 조회 트랜잭션이 끝난 다음 BCrypt 실행
-        if(!passwordEncoder.matches(request.password(), user.getPassword())){
-            throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
-
-        }
+        loginMetrics.record(PASSWORD_VERIFY, () -> {
+            if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+                throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
+            }
+        });
 
         if(user.getAccountStatus() != AccountStatus.ACTIVE) {
             throw new BusinessException(UserErrorCode.ACCOUNT_UNAVAILABLE);
         }
 
-        IssuedToken accessToken =
-                jwtTokenProvider.issueAccessToken(user);
+        LoginTokens tokens = loginMetrics.record(TOKEN_ISSUE, () -> new LoginTokens(
+                jwtTokenProvider.issueAccessToken(user),
+                jwtTokenProvider.issueRefreshToken(user)
+        ));
 
-        IssuedToken refreshToken =
-                jwtTokenProvider.issueRefreshToken(user);
+        // 다른 Bean의 트랜잭션 프록시 호출 전체를 측정하므로 커밋 시간도 포함된다.
+        loginMetrics.record(REFRESH_TOKEN_REPLACE, () ->
+                refreshTokenService.replaceActiveToken(user.getUserId(), tokens.refreshToken()));
 
-        refreshTokenService.replaceActiveToken(user.getUserId(),refreshToken);
+        return LoginResponse.from(user, tokens.accessToken(), tokens.refreshToken());
+    }
 
-        return LoginResponse.from(user,
-                                accessToken,
-                                refreshToken);
+    private record LoginTokens(IssuedToken accessToken, IssuedToken refreshToken) {
     }
 
     // 해당 사용자의 모든 Refresh Token 폐기
