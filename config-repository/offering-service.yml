@@ -86,7 +86,7 @@ subscription:
 
   confirmation:
     batch-size: ${SUBSCRIPTION_CONFIRMATION_BATCH_SIZE:100}
-    fixed-delay-ms: ${SUBSCRIPTION_CONFIRMATION_FIXED_DELAY_MS:200}
+    fixed-delay-ms: ${SUBSCRIPTION_CONFIRMATION_FIXED_DELAY_MS:1000}
 
   monitoring:
     refresh-delay-ms: ${SUBSCRIPTION_METRICS_REFRESH_DELAY_MS:10000}

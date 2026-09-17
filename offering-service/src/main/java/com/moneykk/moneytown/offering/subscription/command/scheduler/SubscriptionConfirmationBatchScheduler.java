@@ -26,7 +26,7 @@ public class SubscriptionConfirmationBatchScheduler {
      */
     @Scheduled(
             fixedDelayString =
-                    "${subscription.confirmation.fixed-delay-ms:200}"
+                    "${subscription.confirmation.fixed-delay-ms:1000}"
     )
     public void confirmNextBatch() {
         try {
