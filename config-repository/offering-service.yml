@@ -13,6 +13,8 @@ management:
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/offering_db}
+    hikari:
+      connection-timeout: ${OFFERING_DB_CONNECTION_TIMEOUT:2000}
 
   flyway:
     postgresql:
