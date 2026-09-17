@@ -1,7 +1,12 @@
 package com.moneykk.moneytown.offering.global.config;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.actuate.metrics.cache.CacheMetricsRegistrar;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
@@ -44,5 +49,24 @@ public class OfferingCacheConfig {
         );
 
         return cacheManager;
+    }
+
+    @Bean
+    public ApplicationRunner offeringCacheMetricsBinder(
+            @Qualifier("offeringCacheManager")
+            CacheManager cacheManager,
+            ObjectProvider<CacheMetricsRegistrar> registrarProvider
+    ) {
+        return args -> registrarProvider.ifAvailable(
+                registrar -> {
+                    Cache cache = cacheManager.getCache(
+                            AI_PORTFOLIO_CANDIDATES
+                    );
+
+                    if (cache != null) {
+                        registrar.bindCacheToRegistry(cache);
+                    }
+                }
+        );
     }
 }
