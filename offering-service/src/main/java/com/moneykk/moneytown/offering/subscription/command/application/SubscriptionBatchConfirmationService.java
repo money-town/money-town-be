@@ -6,6 +6,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionBatchConfirmationMetrics;
 import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -25,6 +27,8 @@ public class SubscriptionBatchConfirmationService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
+    private final SubscriptionBatchConfirmationMetrics
+            subscriptionBatchConfirmationMetrics;
 
     /**
      * 매진된 공모에서 수량을 확보한 모든 청약의
@@ -79,6 +83,8 @@ public class SubscriptionBatchConfirmationService {
 
             return 0;
         }
+
+        long batchStartedNanos = System.nanoTime();
 
         /*
          * 공모 잠금이 이미 획득된 상태에서 미완료 청약의 존재 여부만 먼저 확인한다.
@@ -190,6 +196,19 @@ public class SubscriptionBatchConfirmationService {
                 offering.getOfferingId(),
                 confirmedCount
         );
+
+        if (confirmedCount > 0) {
+            subscriptionBatchConfirmationMetrics.publish(
+                    Duration.ofNanos(
+                            Math.max(
+                                    0L,
+                                    System.nanoTime()
+                                            - batchStartedNanos
+                            )
+                    ),
+                    confirmedCount
+            );
+        }
 
         return confirmedCount;
     }

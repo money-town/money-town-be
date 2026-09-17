@@ -6,6 +6,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionBatchConfirmationMetrics;
 import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -34,6 +36,10 @@ class SubscriptionBatchConfirmationServiceTest {
 
     @Mock
     private SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
+
+    @Mock
+    private SubscriptionBatchConfirmationMetrics
+            subscriptionBatchConfirmationMetrics;
 
     @InjectMocks
     private SubscriptionBatchConfirmationService service;
@@ -108,6 +114,12 @@ class SubscriptionBatchConfirmationServiceTest {
                         eq(firstSubscription),
                         eq(SubscriptionLifecycleMetrics.Result.CONFIRMED),
                         any(Instant.class)
+                );
+
+        verify(subscriptionBatchConfirmationMetrics)
+                .publish(
+                        any(Duration.class),
+                        eq(2)
                 );
 
         verify(subscriptionLifecycleMetrics)

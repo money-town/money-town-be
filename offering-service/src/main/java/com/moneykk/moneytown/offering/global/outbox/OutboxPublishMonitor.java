@@ -36,6 +36,9 @@ public class OutboxPublishMonitor {
     // DB에서 Kafka 발행을 기다리는 PENDING 이벤트 수
     private final AtomicLong pendingEventCount = new AtomicLong();
 
+    // 가장 오래된 PENDING 이벤트가 발행을 기다린 시간(초)
+    private final AtomicLong oldestPendingAgeSeconds = new AtomicLong();
+
     // 처리 기한을 초과하여 복구된 Outbox 이벤트 누적 수
     private final Counter recoveredEventCounter;
 
@@ -80,6 +83,17 @@ public class OutboxPublishMonitor {
                 .description(
                         "DB에서 Kafka 발행을 기다리는 PENDING Outbox 이벤트 수"
                 )
+                .register(meterRegistry);
+
+        Gauge.builder(
+                        "outbox.events.oldest.pending.age",
+                        oldestPendingAgeSeconds,
+                        AtomicLong::get
+                )
+                .description(
+                        "가장 오래된 PENDING Outbox 이벤트의 대기시간"
+                )
+                .baseUnit("seconds")
                 .register(meterRegistry);
 
         // DB에서 PROCESSING 상태인 Outbox 이벤트 수
@@ -271,6 +285,18 @@ public class OutboxPublishMonitor {
         } catch (Exception e) {
             log.warn(
                     "Outbox PENDING 건수 메트릭 갱신 실패",
+                    e
+            );
+        }
+
+        try {
+            oldestPendingAgeSeconds.set(
+                    outboxPublishService
+                            .getOldestPendingAgeSeconds()
+            );
+        } catch (Exception e) {
+            log.warn(
+                    "Outbox 최장 PENDING 대기시간 메트릭 갱신 실패",
                     e
             );
         }

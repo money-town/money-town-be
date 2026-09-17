@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -30,8 +31,11 @@ public class OutboxPublishScheduler {
     private final OutboxPublishMonitor outboxPublishMonitor;
     private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
-    @Value("${outbox.publish.batch-size:10}")
+    @Value("${outbox.publish.batch-size:20}")
     private int batchSize;
+
+    @Value("${outbox.publish.completion-timeout-seconds:70}")
+    private long completionTimeoutSeconds;
 
     public OutboxPublishScheduler(
             OutboxPublishService outboxPublishService,
@@ -55,7 +59,7 @@ public class OutboxPublishScheduler {
         this.offeringSchedulerMetrics = offeringSchedulerMetrics;
     }
 
-    @Scheduled(fixedDelayString = "${outbox.publish.fixed-delay-ms:1000}")
+    @Scheduled(fixedDelayString = "${outbox.publish.fixed-delay-ms:200}")
     public void publishPendingEvents() {
 
         // Kafka 응답 대기 중인 이벤트까지 고려하여 발행 슬롯을 먼저 확보한다.
@@ -146,7 +150,7 @@ public class OutboxPublishScheduler {
             messageKey = resolveMessageKey(event);
         } catch (Exception e) {
             try {
-                recordFailure(event, e);
+                recordPermanentFailure(event, e);
             } finally {
                 outboxPublishMonitor.completeFailure(attempt);
             }
@@ -182,6 +186,10 @@ public class OutboxPublishScheduler {
 
         try {
             publishFuture
+                    .orTimeout(
+                            completionTimeoutSeconds,
+                            TimeUnit.SECONDS
+                    )
                     .handleAsync(
                             (result, failure) -> {
                                 try {
@@ -341,14 +349,64 @@ public class OutboxPublishScheduler {
         ).toString();
     }
 
+    private String formatFailure(Throwable failure) {
+        String exceptionName =
+                failure.getClass().getSimpleName();
+
+        String message =
+                failure.getMessage();
+
+        if (message == null || message.isBlank()) {
+            return exceptionName;
+        }
+
+        return exceptionName + ": " + message;
+    }
+
+    private void recordPermanentFailure(
+            OutboxPublishService.ClaimedEvent event,
+            Throwable failure
+    ) {
+        log.error(
+                "재시도할 수 없는 Outbox 메시지 오류. eventId={}",
+                event.eventId(),
+                failure
+        );
+
+        String lastError =
+                formatFailure(failure);
+
+        try {
+            boolean updated =
+                    outboxPublishService.markPermanentFailure(
+                            event,
+                            lastError
+                    );
+
+            if (!updated) {
+                log.warn(
+                        "Outbox 영구 실패 결과 미반영: "
+                                + "상태 또는 시도 변경. eventId={}",
+                        event.eventId()
+                );
+            }
+        } catch (Exception e) {
+            log.error(
+                    "Outbox 영구 실패 결과 저장 실패. eventId={}",
+                    event.eventId(),
+                    e
+            );
+        }
+    }
+
     private void recordFailure(
             OutboxPublishService.ClaimedEvent event,
             Throwable failure
     ) {
         log.warn("Outbox 발행 시도 실패. eventId={}", event.eventId(), failure);
 
-        String lastError = failure.getClass().getSimpleName()
-                + ": " + failure.getMessage();
+        String lastError =
+                formatFailure(failure);
 
         try {
             boolean updated =

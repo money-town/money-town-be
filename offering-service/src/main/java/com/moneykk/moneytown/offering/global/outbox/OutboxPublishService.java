@@ -19,8 +19,14 @@ public class OutboxPublishService {
     @Value("${outbox.publish.max-failed-attempts:3}")
     private int maxFailedAttempts;
 
-    @Value("${outbox.publish.retry-delay-seconds:30}")
-    private long retryDelaySeconds;
+    @Value("${outbox.publish.initial-retry-delay-seconds:10}")
+    private long initialRetryDelaySeconds;
+
+    @Value("${outbox.publish.retry-multiplier:2.0}")
+    private double retryMultiplier;
+
+    @Value("${outbox.publish.max-retry-delay-seconds:60}")
+    private long maxRetryDelaySeconds;
 
     @Value("${outbox.publish.processing-timeout-seconds:300}")
     private long processingTimeoutSeconds;
@@ -86,29 +92,47 @@ public class OutboxPublishService {
             String lastError
     ) {
         validateClaimedEvent(event);
-
-        if (maxFailedAttempts <= 0 || retryDelaySeconds <= 0) {
-            throw new IllegalStateException(
-                    "발행 실패 한도와 재시도 간격은 1 이상이어야 합니다."
-            );
-        }
+        validateRetryPolicy();
 
         String errorMessage =
-                lastError == null || lastError.isBlank()
-                        ? "Kafka 발행 중 원인을 확인할 수 없는 오류가 발생했습니다."
-                        : lastError;
+                normalizeLastError(lastError);
 
-        Instant nextRetryAt = outboxEventRepository
-                .getCurrentDatabaseTime()
-                .plusSeconds(retryDelaySeconds);
+        int updatedRows =
+                outboxEventRepository.markFailedAttempt(
+                        event.eventId(),
+                        event.processingStartedAt(),
+                        errorMessage,
+                        maxFailedAttempts,
+                        initialRetryDelaySeconds,
+                        retryMultiplier,
+                        maxRetryDelaySeconds
+                );
 
-        int updatedRows = outboxEventRepository.markFailedAttempt(
-                event.eventId(),
-                event.processingStartedAt(),
-                errorMessage,
-                maxFailedAttempts,
-                nextRetryAt
-        );
+        return updatedRows == 1;
+    }
+
+    /**
+     * 다시 처리해도 성공할 수 없는 Outbox 메시지를
+     * 재시도 없이 즉시 FAILED 상태로 전환한다.
+     *
+     * @return 현재 발행 시도에 실패 결과가 반영됐으면 true
+     */
+    @Transactional
+    public boolean markPermanentFailure(
+            ClaimedEvent event,
+            String lastError
+    ) {
+        validateClaimedEvent(event);
+
+        String errorMessage =
+                normalizeLastError(lastError);
+
+        int updatedRows =
+                outboxEventRepository.markPermanentFailure(
+                        event.eventId(),
+                        event.processingStartedAt(),
+                        errorMessage
+                );
 
         return updatedRows == 1;
     }
@@ -126,26 +150,26 @@ public class OutboxPublishService {
             );
         }
 
-        if (processingTimeoutSeconds <= 0
-                || maxFailedAttempts <= 0
-                || retryDelaySeconds <= 0) {
+        validateRetryPolicy();
+
+        if (processingTimeoutSeconds <= 0) {
             throw new IllegalStateException(
-                    "처리 제한 시간, 실패 한도, 재시도 간격은 1 이상이어야 합니다."
+                    "처리 제한 시간은 1 이상이어야 합니다."
             );
         }
 
-        Instant now = outboxEventRepository.getCurrentDatabaseTime();
+        Instant now =
+                outboxEventRepository.getCurrentDatabaseTime();
 
         Instant expiredBefore =
                 now.minusSeconds(processingTimeoutSeconds);
 
-        Instant nextRetryAt =
-                now.plusSeconds(retryDelaySeconds);
-
         return outboxEventRepository.recoverExpiredProcessing(
                 expiredBefore,
                 maxFailedAttempts,
-                nextRetryAt,
+                initialRetryDelaySeconds,
+                retryMultiplier,
+                maxRetryDelaySeconds,
                 batchSize
         );
     }
@@ -187,6 +211,17 @@ public class OutboxPublishService {
     }
 
     /**
+     * 가장 오래 발행을 기다린 PENDING 이벤트의 대기시간을 조회한다.
+     */
+    @Transactional(readOnly = true)
+    public long getOldestPendingAgeSeconds() {
+        return Math.max(
+                0L,
+                outboxEventRepository.findOldestPendingAgeSeconds()
+        );
+    }
+
+    /**
      * 현재 DB에서 발행 처리 중인 Outbox 이벤트 수를 조회한다.
      *
      * OutboxPublishMonitor가 PROCESSING 건수 Gauge를 갱신할 때 사용한다.
@@ -209,6 +244,40 @@ public class OutboxPublishService {
         return outboxEventRepository.countByEventStatus(
                 OutboxEventStatus.FAILED
         );
+    }
+
+    private String normalizeLastError(String lastError) {
+        if (lastError == null || lastError.isBlank()) {
+            return "Kafka 발행 중 원인을 확인할 수 없는 오류가 발생했습니다.";
+        }
+
+        return lastError;
+    }
+
+    private void validateRetryPolicy() {
+        if (maxFailedAttempts <= 0) {
+            throw new IllegalStateException(
+                    "발행 실패 한도는 1 이상이어야 합니다."
+            );
+        }
+
+        if (initialRetryDelaySeconds <= 0) {
+            throw new IllegalStateException(
+                    "최초 재시도 간격은 1초 이상이어야 합니다."
+            );
+        }
+
+        if (retryMultiplier < 1.0) {
+            throw new IllegalStateException(
+                    "재시도 간격 배수는 1.0 이상이어야 합니다."
+            );
+        }
+
+        if (maxRetryDelaySeconds < initialRetryDelaySeconds) {
+            throw new IllegalStateException(
+                    "최대 재시도 간격은 최초 재시도 간격 이상이어야 합니다."
+            );
+        }
     }
 
     private void validateClaimedEvent(ClaimedEvent event) {
