@@ -132,6 +132,50 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     Optional<Offering> findNextConfirmationTargetForUpdate();
 
     /**
+     * 관리자 중단 보상 배치를 처리할 공모 한 건을 선점한다.
+     *
+     * 다음 조건을 모두 만족하는 공모만 조회한다.
+     *
+     * 1. CANCELLING 상태
+     * 2. ADMIN_CANCELLED 유형
+     * 3. 아직 보상 시작 전인 청약이 존재
+     *
+     * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가
+     * 동시에 실행되어도 이미 다른 인스턴스가 처리 중인 공모는
+     * 기다리지 않고 다음 공모를 선택한다.
+     *
+     * 반환된 Offering은 현재 트랜잭션이 끝날 때까지 잠긴다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT o.*
+          FROM p_offerings o
+         WHERE o.is_deleted = FALSE
+           AND o.offering_status = 'CANCELLING'
+           AND o.cancellation_type = 'ADMIN_CANCELLED'
+           AND EXISTS (
+               SELECT 1
+                 FROM p_subscriptions s
+                WHERE s.offering_id = o.offering_id
+                  AND s.subscription_status IN (
+                      'PROCESSING',
+                      'HOLD_SUCCEEDED',
+                      'CONFIRMED'
+                  )
+                  AND s.is_deleted = FALSE
+           )
+         ORDER BY o.updated_at ASC,
+                  o.offering_id ASC
+         LIMIT 1
+         FOR UPDATE OF o SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    Optional<Offering>
+    findNextAdminCancellationTargetForUpdate();
+
+    /**
      * 시작 시간이 도래한 'SCHEDULED 공모를 OPEN'으로 일괄 전환한다.
      *
      * 스케줄러에서 주기적으로 호출하며,

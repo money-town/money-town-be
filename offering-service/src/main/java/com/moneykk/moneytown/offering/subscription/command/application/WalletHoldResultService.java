@@ -6,7 +6,9 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
+import com.moneykk.moneytown.offering.offering.command.application.OfferingCompensationCompletionService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CompensationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
@@ -38,6 +40,7 @@ public class WalletHoldResultService {
     private final OfferingRepository offeringRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final SubscriptionCompensationRepository subscriptionCompensationRepository;
+    private final OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     // 매진 공모의 전체 Wallet HOLD 성공 여부 확인과 청약 일괄 확정을 담당한다.
     private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
@@ -284,6 +287,12 @@ public class WalletHoldResultService {
         if (subscription.getSubscriptionStatus()
                 == SubscriptionStatus.REJECTED
                 && !subscription.isQuantityReserved()) {
+
+            completeOfferingCancellationIfReady(
+                    offering,
+                    offeringId
+            );
+
             log.info(
                     "이미 거절된 청약의 동결 실패 이벤트. "
                             + "subscriptionId={}, eventId={}",
@@ -336,6 +345,17 @@ public class WalletHoldResultService {
                 subscription,
                 SubscriptionLifecycleMetrics.Result.REJECTED,
                 Instant.now()
+        );
+
+        /*
+         * 관리자 중단 중 Wallet HOLD 실패로 청약이 REJECTED가 되면
+         * 이 청약은 더 이상 보상 배치 대상이 아니다.
+         *
+         * 마지막 미해결 청약이었다면 공모를 CANCELLED로 완료한다.
+         */
+        completeOfferingCancellationIfReady(
+                offering,
+                offeringId
         );
     }
 
@@ -508,5 +528,19 @@ public class WalletHoldResultService {
                     e
             );
         }
+    }
+
+    private void completeOfferingCancellationIfReady(
+            Offering offering,
+            UUID offeringId
+    ) {
+        if (offering.getOfferingStatus()
+                != OfferingStatus.CANCELLING) {
+            return;
+        }
+
+        offeringCompensationCompletionService.completeIfReady(
+                offeringId
+        );
     }
 }

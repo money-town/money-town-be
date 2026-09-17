@@ -106,7 +106,6 @@ public interface SubscriptionRepository
             @Param("subscriptionId") UUID subscriptionId
     );
 
-
     /**
      * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
      *
@@ -118,6 +117,42 @@ public interface SubscriptionRepository
     List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
             UUID offeringId,
             List<SubscriptionStatus> subscriptionStatuses
+    );
+
+    /**
+     * 공모 취소 시 보상을 시작할 청약 한 배치를 잠금 조회한다.
+     *
+     * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 상태이면서
+     * 삭제되지 않은 청약만 subscriptionId 순서로 조회한다.
+     *
+     * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가
+     * 동시에 실행되어도 이미 처리 중인 청약은 기다리지 않고
+     * 다음 청약을 조회한다.
+     *
+     * 호출 서비스는 반드시 트랜잭션 안에서 먼저 Offering을
+     * 잠근 후 이 메서드를 호출해야 한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT s.*
+          FROM p_subscriptions s
+         WHERE s.offering_id = :offeringId
+           AND s.subscription_status IN (
+               'PROCESSING',
+               'HOLD_SUCCEEDED',
+               'CONFIRMED'
+           )
+           AND s.is_deleted = FALSE
+         ORDER BY s.subscription_id ASC
+         LIMIT :batchSize
+         FOR UPDATE OF s SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<Subscription> findCompensationBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
+            @Param("batchSize") int batchSize
     );
 
     /**

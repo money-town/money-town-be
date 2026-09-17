@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
+import com.moneykk.moneytown.offering.offering.command.application.OfferingCompensationCompletionService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -69,6 +70,9 @@ class WalletHoldResultServiceTest {
 
     @Mock
     private SubscriptionCompensationRepository subscriptionCompensationRepository;
+
+    @Mock
+    private OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     @Mock
     private SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
@@ -559,6 +563,96 @@ class WalletHoldResultServiceTest {
                         any(),
                         any()
                 );
+    }
+
+    @Test
+    @DisplayName(
+            "관리자 중단 중 Wallet HOLD 실패로 청약이 해결되면 "
+                    + "공모 취소 완료 여부를 확인한다"
+    )
+    void completesCancellingOfferingAfterHoldFailure() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+        stubSubscription(subscription);
+
+        Offering offering =
+                stubOfferingForFailure(subscription);
+
+        when(offering.getOfferingStatus())
+                .thenReturn(OfferingStatus.CANCELLING);
+
+        when(offering.getAssetId())
+                .thenReturn(assetId);
+
+        when(offeringRepository.restoreQuantity(
+                offeringId,
+                subscription.getQuantity(),
+                JpaAuditingConfig.SYSTEM_USER_ID
+        )).thenReturn(1);
+
+        boolean result =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
+
+        assertThat(result).isTrue();
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.REJECTED);
+
+        assertThat(subscription.isQuantityReserved())
+                .isFalse();
+
+        verify(offeringCompensationCompletionService)
+                .completeIfReady(offeringId);
+    }
+
+    @Test
+    @DisplayName(
+            "이미 거절된 청약의 동결 실패가 재수신되면 "
+                    + "공모 취소 완료 여부를 다시 확인한다"
+    )
+    void rechecksCancellingOfferingForAlreadyRejectedSubscription() {
+        Subscription subscription = newSubscription();
+
+        subscription.startHoldFailureCompensation(
+                "INSUFFICIENT_AVAILABLE_BALANCE"
+        );
+        subscription.completeHoldFailureRejection();
+
+        executeBusinessAction();
+        stubSubscription(subscription);
+
+        Offering offering =
+                stubOfferingForFailure(subscription);
+
+        when(offering.getOfferingStatus())
+                .thenReturn(OfferingStatus.CANCELLING);
+
+        boolean result =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
+
+        assertThat(result).isTrue();
+
+        verify(offeringRepository, never())
+                .restoreQuantity(
+                        any(),
+                        any(),
+                        any()
+                );
+
+        verify(offeringCompensationCompletionService)
+                .completeIfReady(offeringId);
+
+        verifyNoInteractions(
+                subscriptionEventPublisher,
+                subscriptionCompensationRepository
+        );
     }
 
     // =========================================================

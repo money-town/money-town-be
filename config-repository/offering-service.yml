@@ -88,12 +88,22 @@ subscription:
     batch-size: ${SUBSCRIPTION_CONFIRMATION_BATCH_SIZE:100}
     fixed-delay-ms: ${SUBSCRIPTION_CONFIRMATION_FIXED_DELAY_MS:1000}
 
+  compensation:
+    recovery:
+      stuck-seconds: ${SUBSCRIPTION_COMPENSATION_RECOVERY_STUCK_SECONDS:300}
+      batch-size: ${SUBSCRIPTION_COMPENSATION_RECOVERY_BATCH_SIZE:100}
+      fixed-delay-ms: ${SUBSCRIPTION_COMPENSATION_RECOVERY_FIXED_DELAY_MS:30000}
+
   monitoring:
     refresh-delay-ms: ${SUBSCRIPTION_METRICS_REFRESH_DELAY_MS:10000}
     holding-allocation-stuck-seconds: ${HOLDING_ALLOCATION_STUCK_SECONDS:300}
     compensation-stuck-seconds: ${COMPENSATION_STUCK_SECONDS:300}
 
 offering:
+  cancellation:
+    batch-size: ${OFFERING_CANCELLATION_BATCH_SIZE:100}
+    fixed-delay-ms: ${OFFERING_CANCELLATION_FIXED_DELAY_MS:1000}
+
   ai-candidates:
     cache:
       ttl-seconds: ${OFFERING_AI_CANDIDATES_CACHE_TTL_SECONDS:5}
