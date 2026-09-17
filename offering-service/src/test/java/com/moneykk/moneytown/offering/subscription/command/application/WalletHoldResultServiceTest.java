@@ -117,7 +117,7 @@ class WalletHoldResultServiceTest {
 
         // 공모 상태와 전체 청약 검증은 공통 서비스에 위임한다.
         verify(subscriptionBatchConfirmationService)
-                .confirmAllIfReady(
+                .confirmNextBatchIfReady(
                         offering,
                         CORRELATION_ID
                 );
@@ -166,7 +166,7 @@ class WalletHoldResultServiceTest {
 
         // 중복 성공 이벤트에서도 전체 확정 조건을 다시 확인한다.
         verify(subscriptionBatchConfirmationService)
-                .confirmAllIfReady(
+                .confirmNextBatchIfReady(
                         offering,
                         CORRELATION_ID
                 );

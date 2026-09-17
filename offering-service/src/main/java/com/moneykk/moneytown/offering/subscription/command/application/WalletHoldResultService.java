@@ -171,7 +171,7 @@ public class WalletHoldResultService {
          *
          * 현재 ProcessedEventService가 시작한 트랜잭션 안에서 호출된다.
          */
-        subscriptionBatchConfirmationService.confirmAllIfReady(
+        subscriptionBatchConfirmationService.confirmNextBatchIfReady(
                 offering,
                 envelope.correlationId()
         );

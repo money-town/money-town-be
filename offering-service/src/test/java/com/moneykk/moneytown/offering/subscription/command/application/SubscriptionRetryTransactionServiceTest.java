@@ -227,7 +227,7 @@ class SubscriptionRetryTransactionServiceTest {
 
         // 전체 HOLD 성공 여부 확인과 일괄 확정을 공통 서비스에 위임한다.
         verify(subscriptionBatchConfirmationService)
-                .confirmAllIfReady(
+                .confirmNextBatchIfReady(
                         offering,
                         correlationId
                 );

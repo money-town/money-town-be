@@ -3,7 +3,6 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionBatchConfirmationMetrics;
@@ -14,6 +13,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -46,10 +47,10 @@ class SubscriptionBatchConfirmationServiceTest {
 
     @Test
     @DisplayName(
-            "매진 공모의 모든 청약이 HOLD_SUCCEEDED이면 "
-                    + "전체 청약을 확정하고 이벤트를 발행한다"
+            "모든 Wallet HOLD가 완료되면 "
+                    + "HOLD_SUCCEEDED 청약 한 배치를 확정한다"
     )
-    void confirmsAllSubscriptionsWhenEveryHoldSucceeded() {
+    void confirmsNextSubscriptionBatchWhenEveryHoldCompleted() {
         // given
         UUID offeringId = UUID.randomUUID();
         UUID assetId = UUID.randomUUID();
@@ -67,24 +68,22 @@ class SubscriptionBatchConfirmationServiceTest {
         Subscription secondSubscription =
                 mock(Subscription.class);
 
-        when(firstSubscription.getSubscriptionStatus())
-                .thenReturn(SubscriptionStatus.HOLD_SUCCEEDED);
-
-        when(secondSubscription.getSubscriptionStatus())
-                .thenReturn(SubscriptionStatus.HOLD_SUCCEEDED);
-
         when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(offeringId))
+                .findHoldSucceededBatchForUpdate(
+                        eq(offeringId),
+                        eq(PageRequest.of(0, 100))
+                ))
                 .thenReturn(List.of(
                         firstSubscription,
                         secondSubscription
                 ));
 
         // when
-        int confirmedCount = service.confirmAllIfReady(
-                offering,
-                correlationId
-        );
+        int confirmedCount =
+                service.confirmNextBatchIfReady(
+                        offering,
+                        correlationId
+                );
 
         // then
         assertThat(confirmedCount).isEqualTo(2);
@@ -112,7 +111,20 @@ class SubscriptionBatchConfirmationServiceTest {
         verify(subscriptionLifecycleMetrics)
                 .publishOutcome(
                         eq(firstSubscription),
-                        eq(SubscriptionLifecycleMetrics.Result.CONFIRMED),
+                        eq(
+                                SubscriptionLifecycleMetrics
+                                        .Result.CONFIRMED
+                        ),
+                        any(Instant.class)
+                );
+
+        verify(subscriptionLifecycleMetrics)
+                .publishOutcome(
+                        eq(secondSubscription),
+                        eq(
+                                SubscriptionLifecycleMetrics
+                                        .Result.CONFIRMED
+                        ),
                         any(Instant.class)
                 );
 
@@ -121,19 +133,12 @@ class SubscriptionBatchConfirmationServiceTest {
                         any(Duration.class),
                         eq(2)
                 );
-
-        verify(subscriptionLifecycleMetrics)
-                .publishOutcome(
-                        eq(secondSubscription),
-                        eq(SubscriptionLifecycleMetrics.Result.CONFIRMED),
-                        any(Instant.class)
-                );
     }
 
     @Test
     @DisplayName(
             "PROCESSING 청약이 하나라도 남아 있으면 "
-                    + "청약을 확정하지 않는다"
+                    + "확정 배치를 조회하지 않는다"
     )
     void doesNotConfirmWhenProcessingSubscriptionRemains() {
         // given
@@ -144,94 +149,75 @@ class SubscriptionBatchConfirmationServiceTest {
                 mockFinalizableOffering(offeringId);
 
         when(subscriptionRepository
-                .existsReservedSubscriptionAwaitingHold(offeringId))
+                .existsReservedSubscriptionAwaitingHold(
+                        offeringId
+                ))
                 .thenReturn(true);
 
         // when
-        int confirmedCount = service.confirmAllIfReady(
-                offering,
-                correlationId
-        );
+        int confirmedCount =
+                service.confirmNextBatchIfReady(
+                        offering,
+                        correlationId
+                );
 
         // then
         assertThat(confirmedCount).isZero();
 
         verify(subscriptionRepository, never())
-                .findAllReservedByOfferingIdForUpdate(any(UUID.class));
+                .findHoldSucceededBatchForUpdate(
+                        any(UUID.class),
+                        any(Pageable.class)
+                );
 
-        verifyNoInteractions(subscriptionEventPublisher);
+        verifyNoInteractions(
+                subscriptionEventPublisher,
+                subscriptionLifecycleMetrics,
+                subscriptionBatchConfirmationMetrics
+        );
     }
 
     @Test
     @DisplayName(
-            "이미 CONFIRMED인 청약은 건너뛰고 "
-                    + "HOLD_SUCCEEDED 청약만 확정한다"
+            "확정할 HOLD_SUCCEEDED 청약이 남아 있지 않으면 "
+                    + "이벤트를 생성하지 않는다"
     )
-    void skipsAlreadyConfirmedSubscription() {
+    void returnsZeroWhenNoHoldSucceededSubscriptionRemains() {
         // given
         UUID offeringId = UUID.randomUUID();
-        UUID assetId = UUID.randomUUID();
         String correlationId = "correlation-id";
 
         Offering offering =
                 mockFinalizableOffering(offeringId);
 
-        when(offering.getAssetId())
-                .thenReturn(assetId);
-
-        Subscription confirmedSubscription =
-                mock(Subscription.class);
-
-        Subscription holdSucceededSubscription =
-                mock(Subscription.class);
-
-        when(confirmedSubscription.getSubscriptionStatus())
-                .thenReturn(SubscriptionStatus.CONFIRMED);
-
-        when(holdSucceededSubscription.getSubscriptionStatus())
-                .thenReturn(SubscriptionStatus.HOLD_SUCCEEDED);
-
         when(subscriptionRepository
-                .findAllReservedByOfferingIdForUpdate(offeringId))
-                .thenReturn(List.of(
-                        confirmedSubscription,
-                        holdSucceededSubscription
-                ));
+                .findHoldSucceededBatchForUpdate(
+                        eq(offeringId),
+                        eq(PageRequest.of(0, 100))
+                ))
+                .thenReturn(List.of());
 
         // when
-        int confirmedCount = service.confirmAllIfReady(
-                offering,
-                correlationId
-        );
-
-        // then
-        assertThat(confirmedCount).isEqualTo(1);
-
-        verify(confirmedSubscription, never())
-                .confirm(any(Instant.class));
-
-        verify(subscriptionEventPublisher, never())
-                .publishConfirmed(
-                        eq(confirmedSubscription),
-                        eq(assetId),
-                        eq(correlationId)
-                );
-
-        verify(holdSucceededSubscription)
-                .confirm(any(Instant.class));
-
-        verify(subscriptionEventPublisher)
-                .publishConfirmed(
-                        holdSucceededSubscription,
-                        assetId,
+        int confirmedCount =
+                service.confirmNextBatchIfReady(
+                        offering,
                         correlationId
                 );
+
+        // then
+        assertThat(confirmedCount).isZero();
+
+        verifyNoInteractions(
+                subscriptionEventPublisher,
+                subscriptionLifecycleMetrics,
+                subscriptionBatchConfirmationMetrics
+        );
     }
 
     @Test
     @DisplayName(
-            "공모가 매진 상태가 아니면 "
-                    + "청약 일괄 확정을 시작하지 않는다"
+            "공모가 최종 확정 조건을 만족하지 않으면 "
+                    + "청약 확정을 시작하지 않는다"
     )
     void doesNotConfirmWhenOfferingIsNotFinalizable() {
         // given
@@ -249,23 +235,23 @@ class SubscriptionBatchConfirmationServiceTest {
                 .thenReturn(10L);
 
         // when
-        int confirmedCount = service.confirmAllIfReady(
-                offering,
-                "correlation-id"
-        );
+        int confirmedCount =
+                service.confirmNextBatchIfReady(
+                        offering,
+                        "correlation-id"
+                );
 
         // then
         assertThat(confirmedCount).isZero();
 
         verifyNoInteractions(
                 subscriptionRepository,
-                subscriptionEventPublisher
+                subscriptionEventPublisher,
+                subscriptionLifecycleMetrics,
+                subscriptionBatchConfirmationMetrics
         );
     }
 
-    /**
-     * 청약 일괄 확정 조건을 만족하는 매진 공모를 생성한다.
-     */
     private Offering mockFinalizableOffering(
             UUID offeringId
     ) {
