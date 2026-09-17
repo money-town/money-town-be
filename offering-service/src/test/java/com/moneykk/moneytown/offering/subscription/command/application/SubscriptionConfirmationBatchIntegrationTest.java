@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.subscription.command.config.SubscriptionConfirmationProperties;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionBatchConfirmationMetrics;
@@ -47,7 +48,8 @@ import static org.mockito.Mockito.verify;
 @Testcontainers
 @Import({
         SubscriptionBatchConfirmationService.class,
-        SubscriptionConfirmationBatchTransactionService.class
+        SubscriptionConfirmationBatchTransactionService.class,
+        SubscriptionConfirmationProperties.class
 })
 class SubscriptionConfirmationBatchIntegrationTest {
 

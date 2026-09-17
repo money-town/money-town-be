@@ -86,6 +86,7 @@ subscription:
 
   confirmation:
     batch-size: ${SUBSCRIPTION_CONFIRMATION_BATCH_SIZE:100}
+    max-batches-per-run: ${SUBSCRIPTION_CONFIRMATION_MAX_BATCHES_PER_RUN:2}
     fixed-delay-ms: ${SUBSCRIPTION_CONFIRMATION_FIXED_DELAY_MS:1000}
 
   compensation:

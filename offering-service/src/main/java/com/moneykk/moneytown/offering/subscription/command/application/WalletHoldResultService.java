@@ -42,9 +42,6 @@ public class WalletHoldResultService {
     private final SubscriptionCompensationRepository subscriptionCompensationRepository;
     private final OfferingCompensationCompletionService offeringCompensationCompletionService;
 
-    // 매진 공모의 전체 Wallet HOLD 성공 여부 확인과 청약 일괄 확정을 담당한다.
-    private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
-
     private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
 
     /**
@@ -168,16 +165,6 @@ public class WalletHoldResultService {
             return;
         }
 
-        /*
-         * 공모 상태 확인, 전체 확보 청약 잠금, HOLD 성공 여부 확인,
-         * 청약 일괄 확정 및 Outbox 저장을 공통 서비스에 위임한다.
-         *
-         * 현재 ProcessedEventService가 시작한 트랜잭션 안에서 호출된다.
-         */
-        subscriptionBatchConfirmationService.confirmNextBatchIfReady(
-                offering,
-                envelope.correlationId()
-        );
     }
 
     private void validateSucceededEvent(

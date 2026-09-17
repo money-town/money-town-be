@@ -40,8 +40,6 @@ public class SubscriptionRetryTransactionService {
     private final SubscriptionRepository subscriptionRepository;
     private final IdempotencyRequestRepository idempotencyRequestRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
-    private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
-
     @Value("${subscription.reservation-timeout-minutes:10}")
     private long reservationTimeoutMinutes;
 
@@ -269,17 +267,6 @@ public class SubscriptionRetryTransactionService {
 
         subscription.restartHoldSucceeded();
 
-        /*
-         * 매진 공모의 모든 Wallet HOLD가 성공했다면
-         * 공통 배치 확정 서비스를 통해 최대 설정 건수를 확정한다.
-         *
-         * 남은 HOLD_SUCCEEDED 청약은 확정 스케줄러가
-         * 후속 배치로 계속 처리한다.
-         */
-        subscriptionBatchConfirmationService.confirmNextBatchIfReady(
-                offering,
-                correlationId
-        );
     }
 
     /**

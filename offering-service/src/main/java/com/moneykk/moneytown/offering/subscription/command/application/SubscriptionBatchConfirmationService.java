@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
+import com.moneykk.moneytown.offering.subscription.command.config.SubscriptionConfirmationProperties;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
@@ -12,28 +13,24 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class SubscriptionBatchConfirmationService {
 
-    private static final int DEFAULT_CONFIRMATION_BATCH_SIZE = 100;
-
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
     private final SubscriptionBatchConfirmationMetrics subscriptionBatchConfirmationMetrics;
-
-    @Value("${subscription.confirmation.batch-size:100}")
-    private int confirmationBatchSize = DEFAULT_CONFIRMATION_BATCH_SIZE;
+    private final SubscriptionConfirmationProperties confirmationProperties;
 
     /**
      * 최종 확정 조건을 만족한 공모의 청약을 제한된 크기로 확정한다.
@@ -44,7 +41,7 @@ public class SubscriptionBatchConfirmationService {
      *
      * SOLD_OUT 또는 CLOSED 상태이고 잔여 수량이 0이며,
      * 수량을 확보한 모든 청약의 Wallet HOLD 처리가 끝난 경우에만
-     * HOLD_SUCCEEDED 청약을 최대 confirmationBatchSize건 확정한다.
+     * HOLD_SUCCEEDED 청약을 최대 설정된 배치 크기만큼 확정한다.
      *
      * 이미 CONFIRMED인 청약은 조회하지 않으므로 재실행해도
      * 같은 청약에 대한 확정 이벤트를 중복 생성하지 않는다.
@@ -112,7 +109,7 @@ public class SubscriptionBatchConfirmationService {
 
         /*
          * 아직 확정되지 않은 HOLD_SUCCEEDED 청약 중
-         * subscriptionId 순서로 최대 confirmationBatchSize건만 잠근다.
+         * subscriptionId 순서로 최대 설정된 배치 크기만큼만 잠근다.
          *
          * 이미 CONFIRMED인 청약은 조회하지 않으므로
          * 재실행해도 같은 청약의 확정 이벤트를 중복 생성하지 않는다.
@@ -123,7 +120,7 @@ public class SubscriptionBatchConfirmationService {
                                 offering.getOfferingId(),
                                 PageRequest.of(
                                         0,
-                                        confirmationBatchSize
+                                        confirmationProperties.getBatchSize()
                                 )
                         );
 
@@ -142,19 +139,38 @@ public class SubscriptionBatchConfirmationService {
 
         Instant confirmedAt = Instant.now();
 
-        for (Subscription subscription : confirmationBatch) {
-            subscription.confirm(confirmedAt);
+        List<UUID> subscriptionIds = confirmationBatch.stream()
+                .map(Subscription::getSubscriptionId)
+                .toList();
 
-            subscriptionEventPublisher.publishConfirmed(
-                    subscription,
-                    offering.getAssetId(),
-                    correlationId
-            );
+        try {
+            for (Subscription subscription : confirmationBatch) {
+                subscription.confirm(confirmedAt);
 
-            subscriptionLifecycleMetrics.publishOutcome(
-                    subscription,
-                    SubscriptionLifecycleMetrics.Result.CONFIRMED,
-                    confirmedAt
+                subscriptionEventPublisher.publishConfirmed(
+                        subscription,
+                        offering.getAssetId(),
+                        correlationId
+                );
+
+                subscriptionLifecycleMetrics.publishOutcome(
+                        subscription,
+                        SubscriptionLifecycleMetrics.Result.CONFIRMED,
+                        confirmedAt
+                );
+            }
+
+            /*
+             * 상태 변경 또는 Outbox 저장의 제약조건 오류가
+             * 트랜잭션 커밋 때까지 늦게 발생하지 않도록 명시적으로
+             * flush하여 현재 배치의 청약 ID와 함께 전달한다.
+             */
+            subscriptionRepository.flush();
+        } catch (RuntimeException e) {
+            throw new SubscriptionConfirmationBatchException(
+                    offering.getOfferingId(),
+                    subscriptionIds,
+                    e
             );
         }
 
@@ -165,7 +181,7 @@ public class SubscriptionBatchConfirmationService {
                         + "offeringId={}, confirmedCount={}, batchSize={}",
                 offering.getOfferingId(),
                 confirmedCount,
-                confirmationBatchSize
+                confirmationProperties.getBatchSize()
         );
 
         subscriptionBatchConfirmationMetrics.publish(

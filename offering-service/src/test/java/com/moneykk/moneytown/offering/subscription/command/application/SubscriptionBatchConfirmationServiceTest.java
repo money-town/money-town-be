@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
+import com.moneykk.moneytown.offering.subscription.command.config.SubscriptionConfirmationProperties;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -41,6 +44,10 @@ class SubscriptionBatchConfirmationServiceTest {
     @Mock
     private SubscriptionBatchConfirmationMetrics
             subscriptionBatchConfirmationMetrics;
+
+    @Spy
+    private SubscriptionConfirmationProperties confirmationProperties =
+            new SubscriptionConfirmationProperties();
 
     @InjectMocks
     private SubscriptionBatchConfirmationService service;
@@ -252,6 +259,66 @@ class SubscriptionBatchConfirmationServiceTest {
         );
     }
 
+    @Test
+    @DisplayName(
+            "flush에서 확정 배치가 실패하면 "
+                    + "공모와 청약 ID를 예외에 보존한다"
+    )
+    void preservesBatchTargetsWhenFlushFails() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+
+        Offering offering =
+                mockFinalizableOffering(offeringId);
+
+        when(offering.getAssetId())
+                .thenReturn(UUID.randomUUID());
+
+        Subscription subscription =
+                mock(Subscription.class);
+
+        when(subscription.getSubscriptionId())
+                .thenReturn(subscriptionId);
+
+        when(subscriptionRepository
+                .findHoldSucceededBatchForUpdate(
+                        eq(offeringId),
+                        eq(PageRequest.of(0, 100))
+                ))
+                .thenReturn(List.of(subscription));
+
+        doThrow(new org.springframework.dao.DataIntegrityViolationException(
+                "flush failure"
+        ))
+                .when(subscriptionRepository)
+                .flush();
+
+        // when & then
+        assertThatThrownBy(
+                () -> service.confirmNextBatchIfReady(
+                        offering,
+                        "correlation-id"
+                )
+        )
+                .isInstanceOf(
+                        SubscriptionConfirmationBatchException.class
+                )
+                .satisfies(throwable -> {
+                    SubscriptionConfirmationBatchException exception =
+                            (SubscriptionConfirmationBatchException)
+                                    throwable;
+
+                    assertThat(exception.getOfferingId())
+                            .isEqualTo(offeringId);
+
+                    assertThat(exception.getSubscriptionIds())
+                            .containsExactly(subscriptionId);
+                });
+
+        verify(subscriptionBatchConfirmationMetrics, never())
+                .publish(any(Duration.class), any(Integer.class));
+    }
     private Offering mockFinalizableOffering(
             UUID offeringId
     ) {
