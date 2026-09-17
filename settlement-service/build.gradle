@@ -1,3 +1,7 @@
 dependencies {
     implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
+
+    // Repository 슬라이스 테스트(@DataJpaTest)에서 실제 Postgres 방언/제약조건을 검증하기 위함
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
