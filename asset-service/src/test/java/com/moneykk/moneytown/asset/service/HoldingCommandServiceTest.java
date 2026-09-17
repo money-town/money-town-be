@@ -16,6 +16,7 @@ import com.moneykk.moneytown.asset.entity.HoldingHistoryType;
 import com.moneykk.moneytown.asset.entity.HoldingSubscriptionState;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
+import com.moneykk.moneytown.asset.repository.AssetRepository;
 import com.moneykk.moneytown.asset.repository.HoldingHistoryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingQueryRepository;
 import com.moneykk.moneytown.asset.repository.HoldingRepository;
@@ -52,6 +53,9 @@ class HoldingCommandServiceTest {
 
     @Mock
     private AssetQueryRepository assetQueryRepository;
+
+    @Mock
+    private AssetRepository assetRepository;
 
     @Mock
     private HoldingRepository holdingRepository;
@@ -100,17 +104,18 @@ class HoldingCommandServiceTest {
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
         )).thenReturn(Optional.empty());
-        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
-        when(holdingRepository.findByAssetIdAndUserId(assetId, userId))
+        when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.of(asset));
+        when(holdingRepository.findByAssetIdAndUserIdForUpdate(assetId, userId))
                 .thenReturn(Optional.of(holding));
-        when(holdingRepository.save(holding)).thenReturn(holding);
+        when(assetRepository.allocateSharesAtomically(assetId, 10)).thenReturn(1);
 
         HoldingAllocationResponse response = holdingCommandService.allocate(request);
 
         assertEquals(HoldingAllocationResult.ALLOCATED, response.result());
         assertEquals(10, response.quantity());
         assertEquals(15, holding.getQuantity());
-        assertEquals(10, asset.getAllocatedQuantity());
+        verify(holdingRepository).insertIfAbsent(assetId, userId);
+        verify(assetRepository).allocateSharesAtomically(assetId, 10);
 
         ArgumentCaptor<HoldingHistory> historyCaptor =
                 ArgumentCaptor.forClass(HoldingHistory.class);
@@ -148,12 +153,13 @@ class HoldingCommandServiceTest {
         assertEquals(HoldingAllocationResult.ALREADY_PROCESSED, response.result());
         assertEquals(10, holding.getQuantity());
         verifyNoInteractions(assetQueryRepository);
+        verifyNoInteractions(assetRepository);
         verify(holdingRepository, never()).save(any(Holding.class));
         verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
     }
 
     @Test
-    void duplicateCompletedWhileWaitingForAssetLockIsNotAllocatedAgain() {
+    void rejectsWhenAtomicAssetAllocationLosesRace() {
         UUID subscriptionId = UUID.randomUUID();
         UUID assetId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -162,25 +168,26 @@ class HoldingCommandServiceTest {
                 new HoldingAllocationRequest(subscriptionId, assetId, userId, 10);
 
         Asset asset = approvedAsset(assetId);
-        Holding holding = new Holding(assetId, userId, 10);
+        Holding holding = new Holding(assetId, userId, 0);
         ReflectionTestUtils.setField(holding, "id", holdingId);
-        HoldingHistory history = new HoldingHistory(
-                holdingId, subscriptionId, HoldingHistoryType.ALLOCATE,
-                10, 0, 10, "ALLOCATE:" + subscriptionId, null
-        );
 
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
-        )).thenReturn(Optional.empty(), Optional.of(history));
-        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.of(asset));
-        when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
+        )).thenReturn(Optional.empty());
+        when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.of(asset));
+        when(holdingRepository.findByAssetIdAndUserIdForUpdate(assetId, userId))
+                .thenReturn(Optional.of(holding));
+        when(assetRepository.allocateSharesAtomically(assetId, 10)).thenReturn(0);
 
-        HoldingAllocationResponse response = holdingCommandService.allocate(request);
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> holdingCommandService.allocate(request)
+        );
 
-        assertEquals(HoldingAllocationResult.ALREADY_PROCESSED, response.result());
-        assertEquals(0, asset.getAllocatedQuantity());
-        verify(holdingRepository, never()).save(any(Holding.class));
-        verify(holdingHistoryRepository, never()).save(any(HoldingHistory.class));
+        assertEquals(
+                AssetErrorCode.SHARE_QUANTITY_EXCEEDED,
+                exception.getErrorCode()
+        );
     }
 
     @Test
@@ -193,7 +200,7 @@ class HoldingCommandServiceTest {
         when(holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
                 subscriptionId, HoldingHistoryType.ALLOCATE
         )).thenReturn(Optional.empty());
-        when(assetQueryRepository.findActiveByIdForUpdate(assetId)).thenReturn(Optional.empty());
+        when(assetQueryRepository.findActiveById(assetId)).thenReturn(Optional.empty());
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -235,7 +242,8 @@ class HoldingCommandServiceTest {
                 .thenReturn(Optional.of(assetId));
         when(assetQueryRepository.findActiveByIdForUpdate(assetId))
                 .thenReturn(Optional.of(asset));
-        when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
+        when(holdingQueryRepository.findByIdForUpdate(holdingId))
+                .thenReturn(Optional.of(holding));
         when(holdingRepository.save(holding)).thenReturn(holding);
 
         HoldingRevocationResponse response =
@@ -350,6 +358,8 @@ class HoldingCommandServiceTest {
                 .thenReturn(Optional.of(holding));
         when(holdingQueryRepository.findAssetIdByHoldingId(holdingId))
                 .thenReturn(Optional.of(assetId));
+        when(holdingQueryRepository.findByIdForUpdate(holdingId))
+                .thenReturn(Optional.of(holding));
         when(assetQueryRepository.findActiveByIdForUpdate(assetId))
                 .thenReturn(Optional.of(asset));
         when(holdingRepository.save(holding)).thenReturn(holding);
@@ -525,7 +535,10 @@ class HoldingCommandServiceTest {
                 .thenReturn(Optional.of(assetId));
         when(assetQueryRepository.findActiveByIdForUpdate(assetId))
                 .thenReturn(Optional.of(asset));
-        when(holdingRepository.findById(holdingId)).thenReturn(Optional.of(holding));
+        when(holdingQueryRepository.findByIdForUpdate(holdingId))
+                .thenReturn(Optional.of(holding));
+        when(holdingRepository.findById(holdingId))
+                .thenReturn(Optional.of(holding));
 
         HoldingRevocationResponse response =
                 holdingCommandService.revoke(holdingId, request);
