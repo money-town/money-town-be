@@ -88,6 +88,7 @@ public class SettlementCommandService {
 
         log.info("[진단]holdings 페이징 완료, persist 호출 시작 (assetId={}, revenueId={})", assetId, revenueId);
         settlementBatchWriter.persist(batch, snapshot, payouts);
+        log.info("[진단]persist 완료 — 저장 종료 (batchId={}, payoutCount={})", batch.getId(), payouts.size());
 
         log.info("정산 회차 개시 완료 (assetId={}, revenueId={}, settlementBatchId={}, recordDate={}, totalAmount={}, payoutCount={})",
                 assetId, revenueId, batch.getId(), recordDate, totalAmount, payouts.size());
