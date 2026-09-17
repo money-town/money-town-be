@@ -28,6 +28,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -115,6 +116,24 @@ class RevenuePollingSchedulerTest {
     }
 
     @Test
+    @DisplayName("기존 배치를 멱등 재사용해도(newlyCreated=false) 후속 처리(통보·지급)는 그대로 호출한다 (kafka.md 4-2절)")
+    void stillNotifiesAndDisbursesWhenBatchIsRecoveredExisting() {
+        RevenueResponse revenue = revenue(UUID.randomUUID(), UUID.randomUUID());
+        SettlementBatchResponse response = existingBatchResponse(revenue);
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
+                .thenReturn(ApiResponse.success(page(List.of(revenue), null, false), null));
+        when(settlementCommandService.openBatchAutomatically(revenue.assetId(), revenue.revenueId()))
+                .thenReturn(response);
+
+        revenuePollingScheduler.pollReadyRevenues();
+
+        verify(revenueTransferStatusNotifier).notifyTransferred(revenue.revenueId());
+        verify(dividendDisbursementService).disburseAsync(response.settlementBatchId());
+        assertThat(meterRegistry.counter("settlement.batch.auto_open", "result", "recovered_existing").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
     @DisplayName("대기 중인 수익이 없으면 아무 것도 시도하지 않는다")
     void doesNothingWhenNoReadyRevenues() {
         when(assetServiceClient.getReadyRevenues("SYSTEM", null))
@@ -137,6 +156,11 @@ class RevenuePollingSchedulerTest {
 
     private SettlementBatchResponse batchResponse(RevenueResponse revenue) {
         return new SettlementBatchResponse(UUID.randomUUID(), revenue.assetId(), revenue.revenueId(),
-                LocalDate.of(2026, 9, 1), 1_000_000L, SettlementStatus.CALCULATED, 1, Instant.now());
+                LocalDate.of(2026, 9, 1), 1_000_000L, SettlementStatus.CALCULATED, 1, Instant.now(), true);
+    }
+
+    private SettlementBatchResponse existingBatchResponse(RevenueResponse revenue) {
+        return new SettlementBatchResponse(UUID.randomUUID(), revenue.assetId(), revenue.revenueId(),
+                LocalDate.of(2026, 9, 1), 1_000_000L, SettlementStatus.CALCULATED, 1, Instant.now(), false);
     }
 }

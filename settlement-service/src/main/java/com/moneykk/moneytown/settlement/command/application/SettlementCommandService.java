@@ -26,6 +26,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -60,7 +61,14 @@ public class SettlementCommandService {
     }
 
     private SettlementBatchResponse openBatchInternal(UUID assetId, UUID revenueId, LocalDate recordDateOverride) {
-        guardAgainstDuplicateOrConcurrentBatch(assetId, revenueId);
+        // 전환 기간(폴링+Kafka 이중 트리거)·Kafka at-least-once 재전송 양쪽 다
+        // 같은 revenueId로 이 메서드가 반복 호출될 수 있다 — 기존 배치가 있으면 예외 대신 그대로 반환
+        Optional<SettlementBatch> existingByRevenue = settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(revenueId);
+        if (existingByRevenue.isPresent()) {
+            return existingBatchResponse(existingByRevenue.get(), assetId);
+        }
+
+        guardAgainstConcurrentBatchForAsset(assetId);
 
         RevenueResponse revenue = fetchAndValidateRevenue(assetId, revenueId);
         // 배당 기준일은 정산 회차가 자체적으로 관리하는 값(ADMIN이 명시하면 그 값을 쓰고, 미지정 시에만 수익 발생 기간 종료일로 대체)
@@ -87,12 +95,36 @@ public class SettlementCommandService {
                 .toList();
 
         log.info("[진단]holdings 페이징 완료, persist 호출 시작 (assetId={}, revenueId={})", assetId, revenueId);
-        settlementBatchWriter.persist(batch, snapshot, payouts);
+        try {
+            settlementBatchWriter.persist(batch, snapshot, payouts);
+        } catch (BusinessException e) {
+            if (e.getErrorCode() != SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE) {
+                throw e;
+            }
+            // 위 findByRevenueIdAndIsDeletedFalse 조회를 폴링과 Kafka Consumer가 동시에 통과하면 둘 다 insert 시도
+            // 진 쪽은 uk_settlement_batches_revenue_id 위반으로 여기서 잡힘
+            // 이긴 쪽이 만든 배치를 새로 조회해 돌려준다.
+            SettlementBatch winnerBatch = settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(revenueId)
+                    .orElseThrow(() -> e);
+            log.info("[진단]persist 경합 발생 — 기존 배치로 대체 반환 (loserBatchId={}, winnerBatchId={})",
+                    batch.getId(), winnerBatch.getId());
+            return existingBatchResponse(winnerBatch, assetId);
+        }
         log.info("[진단]persist 완료 — 저장 종료 (batchId={}, payoutCount={})", batch.getId(), payouts.size());
 
         log.info("정산 회차 개시 완료 (assetId={}, revenueId={}, settlementBatchId={}, recordDate={}, totalAmount={}, payoutCount={})",
                 assetId, revenueId, batch.getId(), recordDate, totalAmount, payouts.size());
-        return SettlementBatchResponse.of(batch, payouts.size());
+        return SettlementBatchResponse.of(batch, payouts.size(), true);
+    }
+
+    private SettlementBatchResponse existingBatchResponse(SettlementBatch batch, UUID assetId) {
+        if (!batch.getAssetId().equals(assetId)) {
+            throw new BusinessException(SettlementErrorCode.REVENUE_ASSET_MISMATCH);
+        }
+        log.info("정산 회차 개시 멱등 재조회 (assetId={}, revenueId={}, settlementBatchId={})",
+                batch.getAssetId(), batch.getRevenueId(), batch.getId());
+        long payoutCount = dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(batch.getId());
+        return SettlementBatchResponse.of(batch, (int) payoutCount, false);
     }
 
     @Transactional
@@ -116,7 +148,7 @@ public class SettlementCommandService {
             dividendPayoutRepository.saveAll(deadLetterPayouts);
 
             log.info("정산 회차 재시도 개시 (settlementBatchId={}, 재처리 건수={})", settlementBatchId, deadLetterPayouts.size());
-            return SettlementBatchResponse.of(batch, deadLetterPayouts.size());
+            return SettlementBatchResponse.of(batch, deadLetterPayouts.size(), false);
         } catch (BusinessException e) {
             log.warn("정산 회차 재시도 실패 (settlementBatchId={}, reason={})", settlementBatchId, e.getErrorCode());
             throw e;
@@ -133,10 +165,7 @@ public class SettlementCommandService {
         }
     }
 
-    private void guardAgainstDuplicateOrConcurrentBatch(UUID assetId, UUID revenueId) {
-        if (settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(revenueId)) {
-            throw new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
-        }
+    private void guardAgainstConcurrentBatchForAsset(UUID assetId) {
         if (settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(assetId, SettlementStatus.COMPLETED)) {
             throw new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
         }

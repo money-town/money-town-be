@@ -30,6 +30,8 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
 
     List<DividendPayout> findBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId);
 
+    long countBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId);
+
     Page<DividendPayout> findBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId, Pageable pageable);
 
     Page<DividendPayout> findBySettlementBatchIdAndStatusAndIsDeletedFalse(UUID settlementBatchId, PayoutStatus status, Pageable pageable);

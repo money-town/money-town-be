@@ -34,8 +34,9 @@ public class RevenuePollingScheduler {
     private static final String SYSTEM_ROLE = "SYSTEM";
 
     // 폴링 중 자연스럽게 발생할 수 있는, 재시도가 필요 없는 상태 — 경고 없이 건너뛴다.
+    // SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE는 openBatchAutomatically가 멱등하게
+    // 바뀌면서더 이상 예외로 던져지지 않는다 — 이제 여기 남겨두면 진짜 장애를 조용히 삼킬 위험만 있음
     private static final Set<SettlementErrorCode> EXPECTED_SKIP_REASONS = Set.of(
-            SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE,
             SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET
     );
 
@@ -83,6 +84,11 @@ public class RevenuePollingScheduler {
         try {
             SettlementBatchResponse response =
                     settlementCommandService.openBatchAutomatically(revenue.assetId(), revenue.revenueId());
+            // newlyCreated는 게이트가 아니라 관측 전용이다 — 기존 배치를 재사용한 경우에도 notifyTransferred는 반드시 호출
+            // 그렇지 않으면 revenue가 TRANSFERRED로 못 넘어가는 걸 복구할 스케줄러가 없음
+            if (!response.newlyCreated()) {
+                meterRegistry.counter("settlement.batch.auto_open", "result", "recovered_existing").increment();
+            }
             revenueTransferStatusNotifier.notifyTransferred(response.revenueId());
             dividendDisbursementService.disburseAsync(response.settlementBatchId());
         } catch (BusinessException e) {
