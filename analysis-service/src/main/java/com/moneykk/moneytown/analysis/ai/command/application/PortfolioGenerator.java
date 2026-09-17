@@ -200,12 +200,12 @@ public class PortfolioGenerator {
     // Feign 헬퍼
     private List<OfferingSummary> fetchOpenOfferings(){
         try{
-            ApiResponse<PageResponse<OfferingSummary>> resp =
-                    offeringServiceClient.getOpenOfferings("OPEN", 10, "endAt,asc");
+            ApiResponse<List<OfferingSummary>> resp =
+                    offeringServiceClient.getAiPortfolioCandidates("SYSTEM", 10);
             if(resp == null || !resp.success() || resp.data() == null){
                 return List.of();
             }
-            return resp.data().content();
+            return resp.data();
         }catch (FeignException e){
             throw new IllegalArgumentException("공모 목록 조회 실패" , e);
         }
@@ -244,11 +244,12 @@ public class PortfolioGenerator {
                     ? (int) Math.round((total - remaining) * 100.0 / total)
                     : 0;
             long raise = price * total;
+            long sinceOpen = Math.max(0, Duration.between(o.startAt(), now).toDays());
             long days = Math.max(0, Duration.between(now, o.endAt()).toDays());
 
             return new PortfolioCandidate(
                     o.offeringId(), o.title(), price, total, remaining,
-                    ratePercent, raise, days, o.endAt(),
+                    ratePercent, raise,sinceOpen, days, o.endAt(),
                     a != null ? a.assetType() : null,
                     a != null ? a.expectedReturnRate() : null,
                     a != null ? a.valuationAmount() : null,
