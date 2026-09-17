@@ -342,6 +342,7 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/analysis_db
+      DB_POOL_MAX_SIZE: 15
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
     ports: ["19098:19098"]

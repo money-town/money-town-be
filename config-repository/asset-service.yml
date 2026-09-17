@@ -24,6 +24,8 @@ spring:
 
     listener:
       ack-mode: record
+      # 토픽 파티션 6개로 늘림
+      concurrency: ${ASSET_KAFKA_CONCURRENCY:6}
 
   servlet:
     multipart:
