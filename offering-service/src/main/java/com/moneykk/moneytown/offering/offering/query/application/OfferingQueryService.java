@@ -7,6 +7,7 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchCondition;
+import com.moneykk.moneytown.offering.offering.query.dto.response.AiPortfolioCandidateResponse;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingDetailResponse;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingListItemResponse;
 import com.moneykk.moneytown.offering.offering.query.repository.OfferingQueryRepository;
@@ -18,12 +19,17 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class OfferingQueryService {
+
+    private static final int MIN_AI_PORTFOLIO_CANDIDATE_LIMIT = 1;
+    private static final int MAX_AI_PORTFOLIO_CANDIDATE_LIMIT = 20;
 
     private final OfferingRepository offeringRepository;
     private final OfferingQueryRepository offeringQueryRepository;
@@ -87,6 +93,25 @@ public class OfferingQueryService {
         return PageResponse.from(
                 offerings,
                 OfferingListItemResponse::from
+        );
+    }
+
+    /**
+     * AI 포트폴리오 생성에 사용할 공모 후보를 조회한다.
+     *
+     * 현재 모집 중이고 잔여 수량이 있는 공모를
+     * 마감 임박순으로 지정된 개수만큼 반환한다.
+     */
+    public List<AiPortfolioCandidateResponse> getAiPortfolioCandidates(
+            int limit
+    ) {
+        validateAiPortfolioCandidateLimit(limit);
+
+        Instant now = Instant.now();
+
+        return offeringQueryRepository.findAiPortfolioCandidates(
+                now,
+                limit
         );
     }
 
@@ -248,5 +273,17 @@ public class OfferingQueryService {
         return role != null
                 && "ADMIN".equalsIgnoreCase(role);
 
+    }
+
+    /**
+     * AI 포트폴리오 후보 조회 개수를 검증한다.
+     */
+    private void validateAiPortfolioCandidateLimit(int limit) {
+        if (limit < MIN_AI_PORTFOLIO_CANDIDATE_LIMIT
+                || limit > MAX_AI_PORTFOLIO_CANDIDATE_LIMIT) {
+            throw new BusinessException(
+                    OfferingErrorCode.INVALID_OFFERING_SEARCH_CONDITION
+            );
+        }
     }
 }
