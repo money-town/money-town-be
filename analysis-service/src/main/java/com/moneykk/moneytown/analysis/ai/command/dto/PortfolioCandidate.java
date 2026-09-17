@@ -13,6 +13,7 @@ public record PortfolioCandidate(
         long remainingQuantity,
         int subscriptionRatePercent,
         long totalRaiseAmount,
+        long daysSinceOpen,
         long daysToClose,
         Instant endAt,
         String assetType,              // asset 누락 시 null
