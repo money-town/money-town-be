@@ -12,7 +12,6 @@ import com.moneykk.moneytown.analysis.ai.infrastructure.client.OfferingServiceCl
 import com.moneykk.moneytown.analysis.ai.infrastructure.client.dto.OfferingSummary;
 import com.moneykk.moneytown.analysis.global.prompt.PortfolioPromptFactory;
 import com.moneykk.moneytown.common.response.ApiResponse;
-import com.moneykk.moneytown.common.response.PageResponse;
 import feign.FeignException;
 import feign.Request;
 import feign.Response;
@@ -92,16 +91,13 @@ public class PortfolioGeneratorTest {
                 .build();
     }
 
-    private ApiResponse<PageResponse<OfferingSummary>> offeringsResponse(List<OfferingSummary> list) {
-        return ApiResponse.success(
-                new PageResponse<>(list, 0, 10, list.size(), 1, true, true, false),
-                null
-        );
+    private ApiResponse<List<OfferingSummary>> offeringsResponse(List<OfferingSummary> list) {
+        return ApiResponse.success(list, null);
     }
 
     private OfferingSummary offering() {
         return new OfferingSummary(offeringId, UUID.randomUUID(), "테스트 공모",
-                10_000L, 100L, 50L, Instant.now().plusSeconds(86_400));
+                10_000L, 100L, 50L, Instant.now().minusSeconds(86_400), Instant.now().plusSeconds(86_400));
     }
 
     private void stubChatClient(PortfolioRecommendation first, PortfolioRecommendation... rest) {
@@ -139,7 +135,7 @@ public class PortfolioGeneratorTest {
     @Test
     @DisplayName("정상 흐름: LLM 1차 성공 시 complete() 호출, 금액이 investmentAmount와 정확히 일치한다")
     void generate_success_completesWithNormalizedAmount() throws Exception {
-        when(offeringServiceClient.getOpenOfferings(any(), anyInt(), any()))
+        when(offeringServiceClient.getAiPortfolioCandidates(any(), anyInt()))
                 .thenReturn(offeringsResponse(List.of(offering())));
         stubChatClient(validRecommendation());
         when(portfolioStore.complete(eq(portfolioId), anyString(), anyLong())).thenReturn(true);
@@ -157,7 +153,7 @@ public class PortfolioGeneratorTest {
     @Test
     @DisplayName("공모 목록이 비어있으면 LLM 호출 없이 fail() 처리한다")
     void generate_noOfferings_fails() {
-        when(offeringServiceClient.getOpenOfferings(any(), anyInt(), any()))
+        when(offeringServiceClient.getAiPortfolioCandidates(any(), anyInt()))
                 .thenReturn(offeringsResponse(List.of()));
 
         portfolioGenerator.generate(portfolioId);
@@ -169,7 +165,7 @@ public class PortfolioGeneratorTest {
     @Test
     @DisplayName("공모 조회 자체가 실패하면 fail() 처리한다")
     void generate_offeringFetchThrows_fails() {
-        when(offeringServiceClient.getOpenOfferings(any(), anyInt(), any()))
+        when(offeringServiceClient.getAiPortfolioCandidates(any(), anyInt()))
                 .thenThrow(new RuntimeException("offering-service down"));
 
         portfolioGenerator.generate(portfolioId);
@@ -182,7 +178,7 @@ public class PortfolioGeneratorTest {
     @DisplayName("asset enrich가 켜져 있어도 자산 조회(FeignException)가 실패하면 enrich 없이 계속 진행해 완료된다")
     void generate_assetFetchFails_degradesAndCompletes() {
         ReflectionTestUtils.setField(portfolioGenerator, "assetEnrichEnabled", true);
-        when(offeringServiceClient.getOpenOfferings(any(), anyInt(), any()))
+        when(offeringServiceClient.getAiPortfolioCandidates(any(), anyInt()))
                 .thenReturn(offeringsResponse(List.of(offering())));
         when(assetServiceClient.getAssets(any(), any())).thenThrow(feignServiceUnavailable());
         stubChatClient(validRecommendation());
@@ -197,7 +193,7 @@ public class PortfolioGeneratorTest {
     @Test
     @DisplayName("LLM 1차 응답이 검증 실패해도(환각 offeringId) 2차 시도가 성공하면 complete() 된다")
     void generate_firstAttemptInvalid_secondSucceeds() {
-        when(offeringServiceClient.getOpenOfferings(any(), anyInt(), any()))
+        when(offeringServiceClient.getAiPortfolioCandidates(any(), anyInt()))
                 .thenReturn(offeringsResponse(List.of(offering())));
         stubChatClient(hallucinatedRecommendation(), validRecommendation());
         when(portfolioStore.complete(eq(portfolioId), anyString(), anyLong())).thenReturn(true);
@@ -211,7 +207,7 @@ public class PortfolioGeneratorTest {
     @Test
     @DisplayName("LLM이 2회 모두 검증 실패하면 fail() 처리한다")
     void generate_bothAttemptsInvalid_fails() {
-        when(offeringServiceClient.getOpenOfferings(any(), anyInt(), any()))
+        when(offeringServiceClient.getAiPortfolioCandidates(any(), anyInt()))
                 .thenReturn(offeringsResponse(List.of(offering())));
         stubChatClient(hallucinatedRecommendation(), hallucinatedRecommendation());
 

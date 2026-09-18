@@ -20,7 +20,7 @@ class PortfolioPromptFactoryTest {
     private PortfolioCandidate candidate() {
         return new PortfolioCandidate(
                 UUID.randomUUID(), "테스트 공모", 10_000L, 100L, 50L,
-                50, 1_000_000L, 5, Instant.now().plusSeconds(86_400),
+                50, 1_000_000L, 2, 5, Instant.now().plusSeconds(86_400),
                 "REAL_ESTATE", null, null, null
         );
     }
