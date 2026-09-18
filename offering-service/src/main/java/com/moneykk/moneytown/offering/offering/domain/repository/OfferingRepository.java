@@ -132,12 +132,12 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     Optional<Offering> findNextConfirmationTargetForUpdate();
 
     /**
-     * 관리자 중단 보상 배치를 처리할 공모 한 건을 선점한다.
+     * 취소 보상 배치를 처리할 공모 한 건을 선점한다.
      *
      * 다음 조건을 모두 만족하는 공모만 조회한다.
      *
      * 1. CANCELLING 상태
-     * 2. ADMIN_CANCELLED 유형
+     * 2. ADMIN_CANCELLED 또는 UNDER_SUBSCRIBED 유형
      * 3. 아직 보상 시작 전인 청약이 존재
      *
      * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가
@@ -153,7 +153,10 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
           FROM p_offerings o
          WHERE o.is_deleted = FALSE
            AND o.offering_status = 'CANCELLING'
-           AND o.cancellation_type = 'ADMIN_CANCELLED'
+           AND o.cancellation_type IN (
+               'ADMIN_CANCELLED',
+               'UNDER_SUBSCRIBED'
+           )
            AND EXISTS (
                SELECT 1
                  FROM p_subscriptions s
@@ -173,7 +176,7 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
             nativeQuery = true
     )
     Optional<Offering>
-    findNextAdminCancellationTargetForUpdate();
+    findNextCancellationTargetForUpdate();
 
     /**
      * 시작 시간이 도래한 'SCHEDULED 공모를 OPEN'으로 일괄 전환한다.

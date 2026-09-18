@@ -97,8 +97,8 @@ class OfferingCancellationManualReviewServiceTest {
     }
 
     @Test
-    @DisplayName("관리자 중단 공모가 아니면 청약을 수동 확인 상태로 변경하지 않는다")
-    void doesNotMarkSubscriptionForNonAdminCancellation() {
+    @DisplayName("모집 미달 보상 실패 청약도 수동 확인 상태로 전환한다")
+    void marksUnderSubscribedSubscriptionForManualReview() {
         // given
         UUID offeringId = UUID.randomUUID();
         UUID subscriptionId = UUID.randomUUID();
@@ -106,6 +106,11 @@ class OfferingCancellationManualReviewServiceTest {
         Offering offering = org.mockito.Mockito.mock(
                 Offering.class
         );
+
+        Subscription subscription =
+                org.mockito.Mockito.mock(
+                        Subscription.class
+                );
 
         when(
                 offeringRepository.findByIdForUpdate(offeringId)
@@ -121,6 +126,17 @@ class OfferingCancellationManualReviewServiceTest {
                                 .UNDER_SUBSCRIBED
                 );
 
+        when(
+                subscriptionRepository
+                        .findByIdForUpdate(subscriptionId)
+        ).thenReturn(Optional.of(subscription));
+
+        when(subscription.getOfferingId())
+                .thenReturn(offeringId);
+
+        when(subscription.getSubscriptionStatus())
+                .thenReturn(SubscriptionStatus.PROCESSING);
+
         // when
         boolean marked = service.markForManualReview(
                 offeringId,
@@ -128,9 +144,16 @@ class OfferingCancellationManualReviewServiceTest {
         );
 
         // then
-        assertThat(marked).isFalse();
+        assertThat(marked).isTrue();
 
-        verifyNoInteractions(subscriptionRepository);
+        verify(subscription).startCompensation(
+                CancellationType.OFFERING_UNDER_SUBSCRIBED
+        );
+
+        verify(subscription).requireManualReview(
+                OfferingCancellationManualReviewService
+                        .CANCELLATION_BATCH_FAILURE_CODE
+        );
     }
 
     @Test

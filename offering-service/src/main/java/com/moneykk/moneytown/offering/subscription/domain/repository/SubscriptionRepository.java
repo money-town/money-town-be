@@ -107,19 +107,6 @@ public interface SubscriptionRepository
     );
 
     /**
-     * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
-     *
-     * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 등 전달받은 상태에
-     * 해당하면서 삭제되지 않은 청약만 잠금 조회한다.
-     */
-    @Transactional(propagation = Propagation.MANDATORY)
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-            UUID offeringId,
-            List<SubscriptionStatus> subscriptionStatuses
-    );
-
-    /**
      * 공모 취소 시 보상을 시작할 청약 한 배치를 잠금 조회한다.
      *
      * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 상태이면서

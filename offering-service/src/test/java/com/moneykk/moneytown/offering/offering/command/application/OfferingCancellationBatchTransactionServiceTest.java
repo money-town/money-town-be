@@ -46,12 +46,12 @@ class OfferingCancellationBatchTransactionServiceTest {
     private OfferingCancellationBatchTransactionService service;
 
     @Test
-    @DisplayName("관리자 중단 대상 공모가 없으면 아무 청약도 처리하지 않는다")
+    @DisplayName("취소 처리 대상 공모가 없으면 아무 청약도 처리하지 않는다")
     void returnsZeroWhenCancellationTargetDoesNotExist() {
         // given
         when(
                 offeringRepository
-                        .findNextAdminCancellationTargetForUpdate()
+                        .findNextCancellationTargetForUpdate()
         ).thenReturn(Optional.empty());
 
         // when
@@ -96,6 +96,12 @@ class OfferingCancellationBatchTransactionServiceTest {
         when(offering.getAssetId())
                 .thenReturn(assetId);
 
+        when(offering.getCancellationType())
+                .thenReturn(
+                        com.moneykk.moneytown.offering.offering.domain.entity
+                                .CancellationType.ADMIN_CANCELLED
+                );
+
         when(firstSubscription.getSubscriptionId())
                 .thenReturn(firstSubscriptionId);
 
@@ -104,7 +110,7 @@ class OfferingCancellationBatchTransactionServiceTest {
 
         when(
                 offeringRepository
-                        .findNextAdminCancellationTargetForUpdate()
+                        .findNextCancellationTargetForUpdate()
         ).thenReturn(Optional.of(offering));
 
         when(
@@ -159,6 +165,59 @@ class OfferingCancellationBatchTransactionServiceTest {
     }
 
     @Test
+    @DisplayName("모집 미달 공모의 청약 배치는 모집 미달 취소 유형으로 전환한다")
+    void compensatesUnderSubscribedBatch() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+
+        Offering offering = org.mockito.Mockito.mock(
+                Offering.class
+        );
+
+        Subscription subscription =
+                org.mockito.Mockito.mock(
+                        Subscription.class
+                );
+
+        when(offering.getOfferingId())
+                .thenReturn(offeringId);
+        when(offering.getAssetId())
+                .thenReturn(assetId);
+        when(offering.getCancellationType())
+                .thenReturn(
+                        com.moneykk.moneytown.offering.offering.domain.entity
+                                .CancellationType.UNDER_SUBSCRIBED
+                );
+        when(subscription.getSubscriptionId())
+                .thenReturn(subscriptionId);
+
+        when(offeringRepository.findNextCancellationTargetForUpdate())
+                .thenReturn(Optional.of(offering));
+        when(subscriptionRepository.findCompensationBatchForUpdate(
+                offeringId,
+                100
+        )).thenReturn(List.of(subscription));
+
+        // when
+        int compensatedCount = service.compensateNextBatch();
+
+        // then
+        assertThat(compensatedCount).isEqualTo(1);
+        verify(subscription).startCompensation(
+                CancellationType.OFFERING_UNDER_SUBSCRIBED
+        );
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        subscription,
+                        assetId,
+                        offeringId.toString()
+                );
+        verify(subscriptionCompensationRepository).flush();
+    }
+
+    @Test
     @DisplayName("배치 처리 실패 시 공모 ID와 배치 청약 ID를 포함한 예외를 발생시킨다")
     void wrapsBatchFailureWithTargetIds() {
         // given
@@ -181,12 +240,18 @@ class OfferingCancellationBatchTransactionServiceTest {
         when(offering.getAssetId())
                 .thenReturn(assetId);
 
+        when(offering.getCancellationType())
+                .thenReturn(
+                        com.moneykk.moneytown.offering.offering.domain.entity
+                                .CancellationType.ADMIN_CANCELLED
+                );
+
         when(subscription.getSubscriptionId())
                 .thenReturn(subscriptionId);
 
         when(
                 offeringRepository
-                        .findNextAdminCancellationTargetForUpdate()
+                        .findNextCancellationTargetForUpdate()
         ).thenReturn(Optional.of(offering));
 
         when(
@@ -256,12 +321,18 @@ class OfferingCancellationBatchTransactionServiceTest {
         when(offering.getAssetId())
                 .thenReturn(assetId);
 
+        when(offering.getCancellationType())
+                .thenReturn(
+                        com.moneykk.moneytown.offering.offering.domain.entity
+                                .CancellationType.ADMIN_CANCELLED
+                );
+
         when(subscription.getSubscriptionId())
                 .thenReturn(subscriptionId);
 
         when(
                 offeringRepository
-                        .findNextAdminCancellationTargetForUpdate()
+                        .findNextCancellationTargetForUpdate()
         ).thenReturn(Optional.of(offering));
 
         when(

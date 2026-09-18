@@ -23,7 +23,7 @@ public class OfferingCancellationBatchException
             Throwable cause
     ) {
         super(
-                "관리자 공모 중단 보상 배치 처리에 실패했습니다. "
+                "공모 취소 보상 배치 처리에 실패했습니다. "
                         + "offeringId=" + offeringId
                         + ", batchSize=" + subscriptionIds.size(),
                 cause

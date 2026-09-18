@@ -3,42 +3,24 @@ package com.moneykk.moneytown.offering.offering.command.application;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
-import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
-import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
-import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class OfferingUnderSubscribedTransactionService {
 
-    private static final List<SubscriptionStatus>
-            COMPENSATABLE_STATUSES = List.of(
-            SubscriptionStatus.PROCESSING,
-            SubscriptionStatus.HOLD_SUCCEEDED,
-            SubscriptionStatus.CONFIRMED
-    );
-
     private final OfferingRepository offeringRepository;
-    private final SubscriptionRepository subscriptionRepository;
-    private final SubscriptionCompensationRepository subscriptionCompensationRepository;
-    private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     /**
      * 모집이 종료됐지만 모집 수량을 채우지 못한 공모 한 건의
-     * 취소 및 청약 보상 처리를 시작한다.
+     * 취소 처리를 시작한다.
      *
      * 공모별 독립 트랜잭션으로 처리하여 특정 공모 처리 실패가
      * 다른 공모의 처리 결과를 롤백하지 않도록 한다.
@@ -86,55 +68,10 @@ public class OfferingUnderSubscribedTransactionService {
         offering.startUnderSubscribedCancellation();
 
         /*
-         * 하나의 공모에서 발생하는 모든 보상 이벤트가
-         * 같은 추적 ID를 사용하도록 공모별 correlationId를 만든다.
+         * 청약 보상 전환, 보상 엔티티 및 Outbox 생성은
+         * OfferingCancellationBatchScheduler가 제한된 크기의
+         * 독립 트랜잭션으로 처리한다.
          */
-        String correlationId = UUID.randomUUID().toString();
-
-        /*
-         * 공모 잠금 이후 보상 대상 청약을 잠금 조회한다.
-         *
-         * Wallet HOLD 결과를 기다리는 PROCESSING,
-         * Wallet HOLD가 성공한 HOLD_SUCCEEDED,
-         * 최종 확정된 CONFIRMED 청약을 모두 포함한다.
-         */
-        List<Subscription> subscriptions =
-                subscriptionRepository
-                        .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-                                offeringId,
-                                COMPENSATABLE_STATUSES
-                        );
-
-        for (Subscription subscription : subscriptions) {
-            /*
-             * PROCESSING/HOLD_SUCCEEDED/CONFIRMED
-             * → COMPENSATING
-             */
-            subscription.startCompensation(
-                    CancellationType.OFFERING_UNDER_SUBSCRIBED
-            );
-
-            /*
-             * Wallet과 Holding의 보상 처리 상태를 추적할
-             * 보상 엔티티를 생성한다.
-             */
-            SubscriptionCompensation compensation =
-                    SubscriptionCompensation.create(
-                            subscription.getSubscriptionId()
-                    );
-
-            subscriptionCompensationRepository.save(compensation);
-
-            /*
-             * 청약 상태 변경 및 보상 정보 저장과 같은 트랜잭션에서
-             * 보상 요청 이벤트를 Outbox에 저장한다.
-             */
-            subscriptionEventPublisher.publishCompensationRequested(
-                    subscription,
-                    offering.getAssetId(),
-                    correlationId
-            );
-        }
 
         /*
          * 보상 대상 청약이 없거나 모든 청약이 이미 해결된 경우
