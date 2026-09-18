@@ -2,7 +2,6 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
-import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
 import com.moneykk.moneytown.offering.subscription.domain.entity.CompensationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
@@ -19,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -61,6 +61,113 @@ class SubscriptionCompensationRecoveryTransactionServiceTest {
     void setUp() {
         subscription = mock(Subscription.class);
         compensation = mock(SubscriptionCompensation.class);
+    }
+
+    @Test
+    @DisplayName("선점한 공모의 장기 미완료 보상을 한 배치로 격리한다")
+    void marksClaimedBatchForManualReview() {
+        Instant stuckBefore = Instant.now().minusSeconds(300);
+        Offering offering = mock(Offering.class);
+
+        when(offering.getOfferingId()).thenReturn(offeringId);
+        when(offeringRepository
+                .findNextStuckCompensationTargetForUpdate(stuckBefore))
+                .thenReturn(Optional.of(offering));
+        when(subscriptionRepository
+                .findStuckCompensationBatchForUpdate(
+                        offeringId,
+                        stuckBefore,
+                        100
+                ))
+                .thenReturn(List.of(subscription));
+        when(subscription.getSubscriptionId())
+                .thenReturn(subscriptionId);
+        when(subscription.getSubscriptionStatus())
+                .thenReturn(SubscriptionStatus.COMPENSATING);
+        when(subscriptionCompensationRepository
+                .findBySubscriptionIdForUpdate(subscriptionId))
+                .thenReturn(Optional.of(compensation));
+        when(compensation.isExternalCompensationCompleted())
+                .thenReturn(false);
+        when(compensation.getUpdatedAt())
+                .thenReturn(stuckBefore.minusSeconds(1));
+
+        int result = service.markNextStuckBatchForManualReview(
+                stuckBefore,
+                100
+        );
+
+        assertThat(result).isEqualTo(1);
+        verify(subscription).requireManualReview(
+                "COMPENSATION_RESULT_TIMEOUT"
+        );
+        verify(subscriptionRepository).flush();
+    }
+
+    @Test
+    @DisplayName("장기 미완료 보상을 가진 공모가 없으면 처리하지 않는다")
+    void returnsZeroWhenNoStuckOfferingExists() {
+        Instant stuckBefore = Instant.now().minusSeconds(300);
+
+        when(offeringRepository
+                .findNextStuckCompensationTargetForUpdate(stuckBefore))
+                .thenReturn(Optional.empty());
+
+        int result = service.markNextStuckBatchForManualReview(
+                stuckBefore,
+                100
+        );
+
+        assertThat(result).isZero();
+        verifyNoInteractions(
+                subscriptionRepository,
+                subscriptionCompensationRepository,
+                subscriptionLifecycleMetrics
+        );
+    }
+
+    @Test
+    @DisplayName("배치 처리 실패 시 공모와 청약 ID를 담은 예외로 변환한다")
+    void wrapsBatchFailureWithTargetIds() {
+        Instant stuckBefore = Instant.now().minusSeconds(300);
+        Offering offering = mock(Offering.class);
+
+        when(offering.getOfferingId()).thenReturn(offeringId);
+        when(offeringRepository
+                .findNextStuckCompensationTargetForUpdate(stuckBefore))
+                .thenReturn(Optional.of(offering));
+        when(subscriptionRepository
+                .findStuckCompensationBatchForUpdate(
+                        offeringId,
+                        stuckBefore,
+                        100
+                ))
+                .thenReturn(List.of(subscription));
+        when(subscription.getSubscriptionId())
+                .thenReturn(subscriptionId);
+        when(subscriptionCompensationRepository
+                .findBySubscriptionIdForUpdate(subscriptionId))
+                .thenThrow(new IllegalStateException("보상 조회 실패"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> service.markNextStuckBatchForManualReview(
+                        stuckBefore,
+                        100
+                )
+        )
+                .isInstanceOf(
+                        SubscriptionCompensationRecoveryBatchException.class
+                )
+                .satisfies(throwable -> {
+                    SubscriptionCompensationRecoveryBatchException exception =
+                            (SubscriptionCompensationRecoveryBatchException)
+                                    throwable;
+
+                    assertThat(exception.getOfferingId())
+                            .isEqualTo(offeringId);
+                    assertThat(exception.getSubscriptionIds())
+                            .containsExactly(subscriptionId);
+                });
     }
 
     @Test

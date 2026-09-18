@@ -222,6 +222,42 @@ public interface SubscriptionRepository
     );
 
     /**
+     * 선점한 공모에서 장시간 외부 결과가 완료되지 않은
+     * COMPENSATING 청약을 제한된 개수만 잠금 조회한다.
+     *
+     * 호출 서비스는 같은 트랜잭션에서 Offering을 먼저 잠가야 한다.
+     * Subscription을 잠근 뒤 보상 진행 정보를 잠그면 전체 보상
+     * 처리 경로가 동일한 잠금 순서를 사용한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT s.*
+          FROM p_subscriptions s
+          JOIN p_subscription_compensations c
+            ON c.subscription_id = s.subscription_id
+         WHERE s.offering_id = :offeringId
+           AND s.subscription_status = 'COMPENSATING'
+           AND s.is_deleted = FALSE
+           AND c.updated_at <= :stuckBefore
+           AND (
+               c.wallet_status <> 'SUCCEEDED'
+               OR c.holding_status <> 'SUCCEEDED'
+           )
+         ORDER BY c.updated_at ASC,
+                  c.subscription_id ASC
+         LIMIT :batchSize
+         FOR UPDATE OF s SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<Subscription> findStuckCompensationBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
+            @Param("stuckBefore") Instant stuckBefore,
+            @Param("batchSize") int batchSize
+    );
+
+    /**
      * 예약 시간이 지났지만 PROCESSING에 남은 청약 수를 조회한다.
      */
     long countBySubscriptionStatusAndReservationExpiresAtLessThanEqualAndIsDeletedFalse(

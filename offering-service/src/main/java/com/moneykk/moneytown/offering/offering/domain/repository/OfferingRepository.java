@@ -223,6 +223,58 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     );
 
     /**
+     * 장시간 완료되지 않은 보상을 가진 공모 한 건을 선점한다.
+     *
+     * 공모를 먼저 잠근 뒤 Subscription과 SubscriptionCompensation을
+     * 잠그도록 강제하여 보상 결과 처리와 동일한 잠금 순서를 유지한다.
+     * 여러 인스턴스는 SKIP LOCKED로 서로 다른 공모를 처리한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT o.*
+          FROM p_offerings o
+         WHERE o.is_deleted = FALSE
+           AND EXISTS (
+               SELECT 1
+                 FROM p_subscriptions s
+                 JOIN p_subscription_compensations c
+                   ON c.subscription_id = s.subscription_id
+                WHERE s.offering_id = o.offering_id
+                  AND s.subscription_status = 'COMPENSATING'
+                  AND s.is_deleted = FALSE
+                  AND c.updated_at <= :stuckBefore
+                  AND (
+                      c.wallet_status <> 'SUCCEEDED'
+                      OR c.holding_status <> 'SUCCEEDED'
+                  )
+           )
+         ORDER BY (
+             SELECT MIN(c.updated_at)
+               FROM p_subscriptions s
+               JOIN p_subscription_compensations c
+                 ON c.subscription_id = s.subscription_id
+              WHERE s.offering_id = o.offering_id
+                AND s.subscription_status = 'COMPENSATING'
+                AND s.is_deleted = FALSE
+                AND c.updated_at <= :stuckBefore
+                AND (
+                    c.wallet_status <> 'SUCCEEDED'
+                    OR c.holding_status <> 'SUCCEEDED'
+                )
+         ) ASC,
+         o.offering_id ASC
+         LIMIT 1
+         FOR UPDATE OF o SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    Optional<Offering>
+    findNextStuckCompensationTargetForUpdate(
+            @Param("stuckBefore") Instant stuckBefore
+    );
+
+    /**
      * 시작 시간이 도래한 'SCHEDULED 공모를 OPEN'으로 일괄 전환한다.
      *
      * 스케줄러에서 주기적으로 호출하며,
