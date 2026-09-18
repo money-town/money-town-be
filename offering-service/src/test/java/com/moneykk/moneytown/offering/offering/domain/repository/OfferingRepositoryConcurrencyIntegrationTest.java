@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.offering.domain.repository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 )
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Testcontainers
+@Timeout(value = 60, unit = TimeUnit.SECONDS)
 class OfferingRepositoryConcurrencyIntegrationTest {
 
     private static final int CONCURRENT_THREAD_COUNT = 20;
@@ -216,7 +218,19 @@ class OfferingRepositoryConcurrencyIntegrationTest {
     ) throws Exception {
 
         ExecutorService executor =
-                Executors.newFixedThreadPool(requestCount);
+                Executors.newFixedThreadPool(
+                        requestCount,
+                        task -> {
+                            Thread thread = new Thread(
+                                    task,
+                                    "offering-concurrency-test"
+                            );
+
+                            thread.setDaemon(true);
+
+                            return thread;
+                        }
+                );
 
         CountDownLatch ready =
                 new CountDownLatch(requestCount);
@@ -301,6 +315,13 @@ class OfferingRepositoryConcurrencyIntegrationTest {
 
         } finally {
             start.countDown();
+
+            for (Future<Integer> future : futures) {
+                if (!future.isDone()) {
+                    future.cancel(true);
+                }
+            }
+
             executor.shutdownNow();
 
             assertThat(
