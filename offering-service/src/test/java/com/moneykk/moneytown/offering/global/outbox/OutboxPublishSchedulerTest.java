@@ -730,6 +730,166 @@ class OutboxPublishSchedulerTest {
                 .publish(any(), anyString());
     }
 
+    @Test
+    @DisplayName("envelope이 JSON 객체가 아니면 즉시 영구 실패로 기록한다")
+    void marksPermanentFailureWhenEnvelopeIsNotJsonObject() {
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        UUID.randomUUID(),
+                        "subscription-events",
+                        "[]",
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("Outbox 메시지가 JSON 객체가 아닙니다")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("Outbox 메시지가 JSON 객체가 아닙니다")
+                );
+
+        verify(outboxKafkaPublisher, never())
+                .publish(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("envelope의 eventId가 Outbox 이벤트와 다르면 즉시 영구 실패로 기록한다")
+    void marksPermanentFailureWhenEventIdMismatches() {
+        UUID eventId = UUID.randomUUID();
+
+        String envelopeJson = """
+                {
+                  "eventId": "%s",
+                  "eventType": "SubscriptionReserved",
+                  "userId": "%s"
+                }
+                """.formatted(UUID.randomUUID(), UUID.randomUUID());
+
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        eventId,
+                        "subscription-reserved",
+                        envelopeJson,
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("eventId가 일치하지 않습니다")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("eventId가 일치하지 않습니다")
+                );
+    }
+
+    @Test
+    @DisplayName("실패 원인 메시지가 없으면 예외 클래스 이름만으로 실패를 기록한다")
+    void formatsFailureWithoutMessageUsingExceptionNameOnly() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenThrow(new IllegalStateException());
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(event),
+                eq("IllegalStateException")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markFailedAttempt(eq(event), eq("IllegalStateException"));
+    }
+
+    @Test
+    @DisplayName("발행 성공 후 DB 기록이 실패해도 예외를 전파하지 않는다")
+    void recordPublishedSwallowsExceptionFromMarkPublished() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(successfulFuture());
+
+        when(outboxPublishService.markPublished(event))
+                .thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService).markPublished(event);
+    }
+
+    @Test
+    @DisplayName("영구 실패 기록 중 DB 오류가 발생해도 예외를 전파하지 않는다")
+    void recordPermanentFailureSwallowsExceptionFromMarkPermanentFailure() {
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        UUID.randomUUID(),
+                        "subscription-events",
+                        "[]",
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("Outbox 메시지가 JSON 객체가 아닙니다")
+        )).thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("Outbox 메시지가 JSON 객체가 아닙니다")
+                );
+    }
+
+    @Test
+    @DisplayName("발행 성공 결과가 반영되지 않아도 예외를 전파하지 않는다")
+    void logsWarningWhenMarkPublishedNotUpdated() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(successfulFuture());
+
+        when(outboxPublishService.markPublished(event))
+                .thenReturn(false);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService).markPublished(event);
+    }
+
     private OutboxPublishService.ClaimedEvent createEvent(
             UUID userId
     ) {

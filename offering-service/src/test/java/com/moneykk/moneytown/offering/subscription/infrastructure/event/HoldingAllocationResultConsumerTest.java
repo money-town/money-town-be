@@ -220,6 +220,110 @@ class HoldingAllocationResultConsumerTest {
         assertThat(MDC.get("requestId")).isNull();
     }
 
+    @Test
+    @DisplayName("이벤트 본문이 비어 있으면 처리하지 않는다")
+    void rejectsBlankBody() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>(
+                TOPIC, 0, 0L, UUID.randomUUID().toString(), " "
+        );
+
+        assertThatThrownBy(() -> consumer.consume(record, CONSUMER_GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("본문은 필수");
+
+        verifyNoInteractions(resultService);
+    }
+
+    @Test
+    @DisplayName("이벤트가 JSON 객체가 아니면 처리하지 않는다")
+    void rejectsNonObjectJson() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>(
+                TOPIC, 0, 0L, UUID.randomUUID().toString(), "[1,2,3]"
+        );
+
+        assertThatThrownBy(() -> consumer.consume(record, CONSUMER_GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("JSON 객체여야");
+
+        verifyNoInteractions(resultService);
+    }
+
+    @Test
+    @DisplayName("eventType이 없으면 처리하지 않는다")
+    void rejectsMissingEventType() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>(
+                TOPIC, 0, 0L, UUID.randomUUID().toString(), "{}"
+        );
+
+        assertThatThrownBy(() -> consumer.consume(record, CONSUMER_GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("eventType은 비어 있지 않은 문자열");
+
+        verifyNoInteractions(resultService);
+    }
+
+    @Test
+    @DisplayName("aggregateId가 없으면 처리하지 않는다")
+    void rejectsMissingAggregateId() throws Exception {
+        EventEnvelope<HoldingAllocationSucceededPayload> envelope =
+                new EventEnvelope<>(
+                        UUID.randomUUID(),
+                        "HoldingAllocationSucceeded",
+                        null,
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        CORRELATION_ID,
+                        new HoldingAllocationSucceededPayload(
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                10L,
+                                "ALLOCATED"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                consumer.consume(
+                        record(UUID.randomUUID().toString(), envelope),
+                        CONSUMER_GROUP
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("aggregateId는 필수");
+
+        verifyNoInteractions(resultService);
+    }
+
+    @Test
+    @DisplayName("aggregateId가 UUID 형식이 아니면 처리하지 않는다")
+    void rejectsNonUuidAggregateId() throws Exception {
+        EventEnvelope<HoldingAllocationSucceededPayload> envelope =
+                new EventEnvelope<>(
+                        UUID.randomUUID(),
+                        "HoldingAllocationSucceeded",
+                        "not-a-uuid",
+                        UUID.randomUUID(),
+                        Instant.now(),
+                        CORRELATION_ID,
+                        new HoldingAllocationSucceededPayload(
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                10L,
+                                "ALLOCATED"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                consumer.consume(
+                        record("not-a-uuid", envelope),
+                        CONSUMER_GROUP
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("UUID 형식");
+
+        verifyNoInteractions(resultService);
+    }
+
     private EventEnvelope<HoldingAllocationSucceededPayload>
     succeededEnvelope(UUID subscriptionId) {
         return new EventEnvelope<>(

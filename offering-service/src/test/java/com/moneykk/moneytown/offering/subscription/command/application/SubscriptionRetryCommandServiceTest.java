@@ -777,6 +777,529 @@ class SubscriptionRetryCommandServiceTest {
         );
     }
 
+    @Test
+    @DisplayName("subscriptionId 또는 adminId가 없으면 재처리 요청을 거부한다")
+    void rejectsMissingSubscriptionIdOrAdminId() {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        UUID.randomUUID(), null, "key", "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.INVALID_SUBSCRIPTION_INPUT);
+
+        verifyNoInteractions(subscriptionIdempotencyService);
+    }
+
+    @Test
+    @DisplayName("Idempotency-Key가 100자를 초과하면 재처리 요청을 거부한다")
+    void rejectsTooLongIdempotencyKey() {
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        UUID.randomUUID(), UUID.randomUUID(),
+                        "a".repeat(101), "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.INVALID_IDEMPOTENCY_KEY);
+
+        verifyNoInteractions(subscriptionIdempotencyService);
+    }
+
+    @Test
+    @DisplayName("확보 수량이 이미 복원된 청약은 재처리를 거부한다")
+    void rejectsSubscriptionWithoutReservedQuantity() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "not-reserved-key";
+        String requestHash = "request-hash";
+
+        Subscription subscription = mock(Subscription.class);
+        when(subscription.getSubscriptionStatus())
+                .thenReturn(SubscriptionStatus.MANUAL_REVIEW);
+        when(subscription.isQuantityReserved()).thenReturn(false);
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED);
+
+        verifyNoInteractions(walletServiceClient);
+    }
+
+    @Test
+    @DisplayName("공모 중단/모집 미달로 취소된 청약은 재처리를 거부한다")
+    void rejectsCancelledSubscription() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "cancelled-key";
+        String requestHash = "request-hash";
+
+        Subscription subscription = mock(Subscription.class);
+        when(subscription.getSubscriptionStatus())
+                .thenReturn(SubscriptionStatus.MANUAL_REVIEW);
+        when(subscription.isQuantityReserved()).thenReturn(true);
+        when(subscription.getCancellationType())
+                .thenReturn(
+                        com.moneykk.moneytown.offering.subscription
+                                .domain.entity.CancellationType
+                                .OFFERING_ADMIN_CANCELLED
+                );
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED);
+    }
+
+    @Test
+    @DisplayName("예약 만료로 실패한 청약은 재처리를 거부한다")
+    void rejectsReservationExpiredSubscription() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "reservation-expired-key";
+        String requestHash = "request-hash";
+
+        Subscription subscription = mock(Subscription.class);
+        when(subscription.getSubscriptionStatus())
+                .thenReturn(SubscriptionStatus.MANUAL_REVIEW);
+        when(subscription.isQuantityReserved()).thenReturn(true);
+        when(subscription.getCancellationType()).thenReturn(null);
+        when(subscription.getSubscriptionFailureCode())
+                .thenReturn("RESERVATION_EXPIRED");
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED);
+    }
+
+    @Test
+    @DisplayName("재처리 대상 청약을 찾을 수 없으면 요청을 거부한다")
+    void rejectsWhenSubscriptionNotFound() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "not-found-key";
+        String requestHash = "request-hash";
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("동일 Idempotency-Key의 요청 해시가 다르면 충돌로 처리한다")
+    void rejectsConflictingRequestHash() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "conflict-key";
+        String requestHash = "request-hash";
+
+        when(subscriptionRequestHasher.hashRetry(subscriptionId))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(adminId),
+                eq(IdempotencyOperation.RETRY_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq(RESOURCE_TYPE)
+        )).thenReturn(0);
+
+        IdempotencyRequest existing = mock(IdempotencyRequest.class);
+        when(existing.getRequestHash()).thenReturn("other-hash");
+
+        when(idempotencyRequestRepository
+                .findByUserIdAndOperationAndIdempotencyKey(
+                        adminId,
+                        IdempotencyOperation.RETRY_SUBSCRIPTION,
+                        idempotencyKey
+                ))
+                .thenReturn(Optional.of(existing));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+    }
+
+    @Test
+    @DisplayName("처리 중인 동일 재처리 요청은 중복 실행하지 않는다")
+    void rejectsProcessingRequest() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "processing-key";
+        String requestHash = "request-hash";
+
+        when(subscriptionRequestHasher.hashRetry(subscriptionId))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(adminId),
+                eq(IdempotencyOperation.RETRY_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq(RESOURCE_TYPE)
+        )).thenReturn(0);
+
+        IdempotencyRequest existing = mock(IdempotencyRequest.class);
+        when(existing.getRequestHash()).thenReturn(requestHash);
+        when(existing.getIdempotencyRequestStatus())
+                .thenReturn(IdempotencyRequestStatus.PROCESSING);
+
+        when(idempotencyRequestRepository
+                .findByUserIdAndOperationAndIdempotencyKey(
+                        adminId,
+                        IdempotencyOperation.RETRY_SUBSCRIPTION,
+                        idempotencyKey
+                ))
+                .thenReturn(Optional.of(existing));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.IDEMPOTENCY_REQUEST_PROCESSING);
+    }
+
+    @Test
+    @DisplayName("이전에 실패한 동일 재처리 요청은 재시도를 거부한다")
+    void rejectsFailedRequest() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "failed-key";
+        String requestHash = "request-hash";
+
+        when(subscriptionRequestHasher.hashRetry(subscriptionId))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(adminId),
+                eq(IdempotencyOperation.RETRY_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq(RESOURCE_TYPE)
+        )).thenReturn(0);
+
+        IdempotencyRequest existing = mock(IdempotencyRequest.class);
+        when(existing.getRequestHash()).thenReturn(requestHash);
+        when(existing.getIdempotencyRequestStatus())
+                .thenReturn(IdempotencyRequestStatus.FAILED);
+
+        when(idempotencyRequestRepository
+                .findByUserIdAndOperationAndIdempotencyKey(
+                        adminId,
+                        IdempotencyOperation.RETRY_SUBSCRIPTION,
+                        idempotencyKey
+                ))
+                .thenReturn(Optional.of(existing));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.IDEMPOTENCY_REQUEST_FAILED);
+    }
+
+    @Test
+    @DisplayName("동일 Idempotency-Key 요청 기록을 찾을 수 없으면 상태 오류로 처리한다")
+    void rejectsWhenExistingRequestNotFound() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "missing-record-key";
+        String requestHash = "request-hash";
+
+        when(subscriptionRequestHasher.hashRetry(subscriptionId))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(adminId),
+                eq(IdempotencyOperation.RETRY_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq(RESOURCE_TYPE)
+        )).thenReturn(0);
+
+        when(idempotencyRequestRepository
+                .findByUserIdAndOperationAndIdempotencyKey(
+                        adminId,
+                        IdempotencyOperation.RETRY_SUBSCRIPTION,
+                        idempotencyKey
+                ))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID);
+    }
+
+    @Test
+    @DisplayName("완료된 요청에 연결된 리소스ID가 없으면 상태 오류로 처리한다")
+    void rejectsCompletedRequestWithoutResourceId() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "no-resource-key";
+        String requestHash = "request-hash";
+
+        when(subscriptionRequestHasher.hashRetry(subscriptionId))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(adminId),
+                eq(IdempotencyOperation.RETRY_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq(RESOURCE_TYPE)
+        )).thenReturn(0);
+
+        IdempotencyRequest existing = mock(IdempotencyRequest.class);
+        when(existing.getRequestHash()).thenReturn(requestHash);
+        when(existing.getIdempotencyRequestStatus())
+                .thenReturn(IdempotencyRequestStatus.COMPLETED);
+        when(existing.getResourceId()).thenReturn(null);
+
+        when(idempotencyRequestRepository
+                .findByUserIdAndOperationAndIdempotencyKey(
+                        adminId,
+                        IdempotencyOperation.RETRY_SUBSCRIPTION,
+                        idempotencyKey
+                ))
+                .thenReturn(Optional.of(existing));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID);
+    }
+
+    @Test
+    @DisplayName("Wallet Hold 응답 데이터가 유효하지 않으면 외부 응답 오류로 처리한다")
+    void rejectsInvalidWalletResponse() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "invalid-wallet-key";
+        String requestHash = "request-hash";
+
+        Subscription subscription = manualReviewSubscription();
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        WalletHoldStatusResponse invalidStatus =
+                new WalletHoldStatusResponse(
+                        UUID.randomUUID(), 100_000L,
+                        WalletHoldStatus.HELD, Instant.now()
+                );
+
+        when(walletServiceClient.getWalletHoldStatus(subscriptionId))
+                .thenReturn(ApiResponse.success(
+                        invalidStatus, "다른 청약의 Hold 정보"
+                ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID);
+
+        verifyNoInteractions(holdingServiceClient);
+    }
+
+    @Test
+    @DisplayName("Holding 처리 상태 응답이 유효하지 않으면 외부 응답 오류로 처리한다")
+    void rejectsInvalidHoldingResponse() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "invalid-holding-key";
+        String requestHash = "request-hash";
+
+        Subscription subscription = manualReviewSubscription();
+        WalletHoldStatusResponse walletStatus =
+                walletStatus(subscriptionId, WalletHoldStatus.HELD);
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        when(walletServiceClient.getWalletHoldStatus(subscriptionId))
+                .thenReturn(ApiResponse.success(
+                        walletStatus, "Wallet Hold 조회 성공"
+                ));
+
+        HoldingSubscriptionStatusResponse invalidHoldingStatus =
+                new HoldingSubscriptionStatusResponse(
+                        UUID.randomUUID(),
+                        null, null, null, 0L, 0L,
+                        false, false, false, null
+                );
+
+        when(holdingServiceClient.getHoldingSubscriptionStatus(
+                SYSTEM_ROLE, subscriptionId
+        )).thenReturn(ApiResponse.success(
+                invalidHoldingStatus, "다른 청약의 Holding 정보"
+        ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID);
+    }
+
+    @Test
+    @DisplayName("예상하지 못한 런타임 예외가 발생하면 멱등 요청을 실패로 기록하고 예외를 다시 던진다")
+    void recordsFailureAndRethrowsOnUnexpectedRuntimeException() {
+        // given
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        String idempotencyKey = "unexpected-error-key";
+        String requestHash = "request-hash";
+
+        beginNewRequest(
+                subscriptionId, adminId, idempotencyKey, requestHash
+        );
+
+        RuntimeException unexpected = new RuntimeException("boom");
+
+        when(subscriptionRepository
+                .findBySubscriptionIdAndIsDeletedFalse(subscriptionId))
+                .thenThrow(unexpected);
+
+        // when & then
+        RuntimeException thrown = assertThrows(
+                RuntimeException.class,
+                () -> service.retry(
+                        subscriptionId, adminId, idempotencyKey,
+                        "correlation-id"
+                )
+        );
+
+        assertThat(thrown).isSameAs(unexpected);
+
+        verify(subscriptionIdempotencyService).fail(
+                adminId,
+                IdempotencyOperation.RETRY_SUBSCRIPTION.name(),
+                idempotencyKey,
+                500
+        );
+    }
+
     private void beginNewRequest(
             UUID subscriptionId,
             UUID adminId,
