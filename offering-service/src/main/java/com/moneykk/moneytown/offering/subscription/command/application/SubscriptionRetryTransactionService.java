@@ -40,8 +40,6 @@ public class SubscriptionRetryTransactionService {
     private final SubscriptionRepository subscriptionRepository;
     private final IdempotencyRequestRepository idempotencyRequestRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
-    private final SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
-
     @Value("${subscription.reservation-timeout-minutes:10}")
     private long reservationTimeoutMinutes;
 
@@ -269,14 +267,6 @@ public class SubscriptionRetryTransactionService {
 
         subscription.restartHoldSucceeded();
 
-        /*
-         * 매진 공모의 모든 Wallet HOLD가 성공했다면
-         * 공통 일괄 확정 서비스를 통해 청약을 확정한다.
-         */
-        subscriptionBatchConfirmationService.confirmAllIfReady(
-                offering,
-                correlationId
-        );
     }
 
     /**

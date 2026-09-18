@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 import com.moneykk.moneytown.common.config.JpaAuditingConfig;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
+import com.moneykk.moneytown.offering.offering.command.application.OfferingCompensationCompletionService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -71,7 +72,7 @@ class WalletHoldResultServiceTest {
     private SubscriptionCompensationRepository subscriptionCompensationRepository;
 
     @Mock
-    private SubscriptionBatchConfirmationService subscriptionBatchConfirmationService;
+    private OfferingCompensationCompletionService offeringCompensationCompletionService;
 
     @Mock
     private SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
@@ -86,17 +87,15 @@ class WalletHoldResultServiceTest {
 
     @Test
     @DisplayName(
-            "Wallet HOLD 성공을 기록하고 "
-                    + "청약 일괄 확정 서비스에 처리를 위임한다"
+            "Wallet HOLD 성공만 기록하고 확정은 스케줄러에 위임한다"
     )
-    void recordsHoldSucceededAndDelegatesBatchConfirmation() {
+    void recordsOnlyHoldSucceeded() {
         // given
         Subscription subscription = newSubscription();
 
         executeBusinessAction();
 
-        Offering offering =
-                stubSucceededEventLocks(subscription);
+        stubSucceededEventLocks(subscription);
 
         // when
         boolean result =
@@ -115,16 +114,10 @@ class WalletHoldResultServiceTest {
         assertThat(subscription.getHoldingAllocationStatus()).isNull();
         assertThat(subscription.isQuantityReserved()).isTrue();
 
-        // 공모 상태와 전체 청약 검증은 공통 서비스에 위임한다.
-        verify(subscriptionBatchConfirmationService)
-                .confirmAllIfReady(
-                        offering,
-                        CORRELATION_ID
-                );
 
         /*
          * WalletHoldResultService가 직접 확정 이벤트를 발행하지 않는다.
-         * 실제 확정 이벤트는 SubscriptionBatchConfirmationService가 담당한다.
+         * 실제 확정 이벤트는 SubscriptionConfirmationBatchScheduler가 담당한다.
          */
         verifyNoInteractions(
                 subscriptionEventPublisher,
@@ -135,17 +128,16 @@ class WalletHoldResultServiceTest {
     @Test
     @DisplayName(
             "HOLD_SUCCEEDED 청약에 성공 이벤트가 다시 오면 "
-                    + "상태를 유지하고 일괄 확정 조건을 다시 확인한다"
+                    + "상태를 유지하고 중복 확정 작업을 실행하지 않는다"
     )
-    void preservesHoldSucceededAndRechecksBatchConfirmation() {
+    void preservesHoldSucceededWithoutInlineConfirmation() {
         // given
         Subscription subscription = newSubscription();
         subscription.markHoldSucceeded();
 
         executeBusinessAction();
 
-        Offering offering =
-                stubSucceededEventLocks(subscription);
+        stubSucceededEventLocks(subscription);
 
         // when
         boolean result =
@@ -164,12 +156,6 @@ class WalletHoldResultServiceTest {
         assertThat(subscription.getWalletHoldFailureCode()).isNull();
         assertThat(subscription.getSubscriptionFailureCode()).isNull();
 
-        // 중복 성공 이벤트에서도 전체 확정 조건을 다시 확인한다.
-        verify(subscriptionBatchConfirmationService)
-                .confirmAllIfReady(
-                        offering,
-                        CORRELATION_ID
-                );
 
         verifyNoInteractions(
                 subscriptionEventPublisher,
@@ -559,6 +545,96 @@ class WalletHoldResultServiceTest {
                         any(),
                         any()
                 );
+    }
+
+    @Test
+    @DisplayName(
+            "관리자 중단 중 Wallet HOLD 실패로 청약이 해결되면 "
+                    + "공모 취소 완료 여부를 확인한다"
+    )
+    void completesCancellingOfferingAfterHoldFailure() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+        stubSubscription(subscription);
+
+        Offering offering =
+                stubOfferingForFailure(subscription);
+
+        when(offering.getOfferingStatus())
+                .thenReturn(OfferingStatus.CANCELLING);
+
+        when(offering.getAssetId())
+                .thenReturn(assetId);
+
+        when(offeringRepository.restoreQuantity(
+                offeringId,
+                subscription.getQuantity(),
+                JpaAuditingConfig.SYSTEM_USER_ID
+        )).thenReturn(1);
+
+        boolean result =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
+
+        assertThat(result).isTrue();
+
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.REJECTED);
+
+        assertThat(subscription.isQuantityReserved())
+                .isFalse();
+
+        verify(offeringCompensationCompletionService)
+                .completeIfReady(offeringId);
+    }
+
+    @Test
+    @DisplayName(
+            "이미 거절된 청약의 동결 실패가 재수신되면 "
+                    + "공모 취소 완료 여부를 다시 확인한다"
+    )
+    void rechecksCancellingOfferingForAlreadyRejectedSubscription() {
+        Subscription subscription = newSubscription();
+
+        subscription.startHoldFailureCompensation(
+                "INSUFFICIENT_AVAILABLE_BALANCE"
+        );
+        subscription.completeHoldFailureRejection();
+
+        executeBusinessAction();
+        stubSubscription(subscription);
+
+        Offering offering =
+                stubOfferingForFailure(subscription);
+
+        when(offering.getOfferingStatus())
+                .thenReturn(OfferingStatus.CANCELLING);
+
+        boolean result =
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                );
+
+        assertThat(result).isTrue();
+
+        verify(offeringRepository, never())
+                .restoreQuantity(
+                        any(),
+                        any(),
+                        any()
+                );
+
+        verify(offeringCompensationCompletionService)
+                .completeIfReady(offeringId);
+
+        verifyNoInteractions(
+                subscriptionEventPublisher,
+                subscriptionCompensationRepository
+        );
     }
 
     // =========================================================

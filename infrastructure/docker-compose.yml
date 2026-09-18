@@ -302,6 +302,7 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/offering_db
+      OFFERING_DB_CONNECTION_TIMEOUT: ${OFFERING_DB_CONNECTION_TIMEOUT:-2000}
     # 외부에서 인증 헤더를 위조하여 직접 호출하지 못하도록
     # Gateway와 내부 Docker 네트워크에서만 접근을 허용한다.
     expose: ["19096"]
