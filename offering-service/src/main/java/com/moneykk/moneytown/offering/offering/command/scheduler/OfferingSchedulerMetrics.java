@@ -14,6 +14,7 @@ public class OfferingSchedulerMetrics {
     private final Counter closeSoldOutFailure;
     private final Counter underSubscribedCancellationFailure;
     private final Counter underSubscribedItemFailure;
+    private final Counter offeringCancellationBatchFailure;
     private final Counter subscriptionTimeoutBatchFailure;
     private final Counter subscriptionTimeoutItemFailure;
     private final Counter idempotencyRecoveryFailure;
@@ -39,6 +40,11 @@ public class OfferingSchedulerMetrics {
         this.underSubscribedItemFailure = registerCounter(
                 meterRegistry,
                 "under_subscribed_item"
+        );
+
+        this.offeringCancellationBatchFailure = registerCounter(
+                meterRegistry,
+                "offering_cancellation_batch"
         );
 
         this.subscriptionTimeoutBatchFailure = registerCounter(
@@ -81,6 +87,10 @@ public class OfferingSchedulerMetrics {
 
     public void recordUnderSubscribedItemFailure() {
         underSubscribedItemFailure.increment();
+    }
+
+    public void recordOfferingCancellationBatchFailure() {
+        offeringCancellationBatchFailure.increment();
     }
 
     public void recordSubscriptionTimeoutBatchFailure() {

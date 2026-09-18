@@ -23,11 +23,6 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     Optional<Offering> findByOfferingIdAndIsDeletedFalse(UUID offeringId);
 
 
-    // TODO: PostgreSQL 기반 DB 통합 테스트 추가
-    // - remainingQuantity == 요청 수량이면 SOLD_OUT 전환 검증
-    // - remainingQuantity > 요청 수량이면 OPEN 유지 검증
-    // - remainingQuantity < 요청 수량이면 UPDATE 0건 검증
-    // - 동시 요청 시 remainingQuantity 음수 및 초과발행 방지 검증
     /**
      * 선착순 청약 수량을 원자적으로 확보한다.
      *
@@ -283,13 +278,6 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
      * SCHEDULED → OPEN
      *
      * @return OPEN으로 전환된 공모 수
-     *
-     * TODO: PostgreSQL 기반 DB 통합 테스트 추가
-     * - JPQL Bulk Update가 실제 PostgreSQL에서 정상 실행되는지 검증
-     * - SCHEDULED + startAt <= now + endAt > now → OPEN 전환 검증
-     * - SCHEDULED + endAt <= now → OPEN으로 전환되지 않는지 검증
-     * - 미래 startAt / 다른 상태 / 삭제 공모가 변경되지 않는지 검증
-     * - updatedAt / updatedBy(SYSTEM_USER_ID) 갱신 검증
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -316,12 +304,6 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
      * SOLD_OUT → CLOSED
      *
      * @return CLOSED로 전환된 공모 수
-     *
-     * TODO: PostgreSQL 기반 DB 통합 테스트 추가
-     * - SOLD_OUT + endAt <= now → CLOSED 전환 검증
-     * - SOLD_OUT + 미래 endAt → 상태 유지 검증
-     * - 다른 상태 / 삭제 공모가 변경되지 않는지 검증
-     * - updatedAt / updatedBy(SYSTEM_USER_ID) 갱신 검증
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

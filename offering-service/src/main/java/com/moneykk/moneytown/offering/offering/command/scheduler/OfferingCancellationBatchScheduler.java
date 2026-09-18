@@ -30,6 +30,8 @@ public class OfferingCancellationBatchScheduler {
     private final OfferingCancellationManualReviewService
             offeringCancellationManualReviewService;
 
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
+
     /**
      * 취소 처리 중인 공모의 보상 대상 청약을 배치 처리한다.
      *
@@ -72,8 +74,11 @@ public class OfferingCancellationBatchScheduler {
              *
              * 상태를 변경하지 않고 다음 스케줄 실행에서 재시도한다.
              */
+            offeringSchedulerMetrics
+                    .recordOfferingCancellationBatchFailure();
+
             log.error(
-                "공모 취소 보상 스케줄 실행 실패",
+                    "공모 취소 보상 스케줄 실행 실패",
                     e
             );
         }
