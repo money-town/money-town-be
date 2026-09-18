@@ -10,6 +10,7 @@ import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecy
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -40,7 +41,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-@DataJpaTest
+@DataJpaTest(properties = {
+        "spring.cloud.config.enabled=false",
+        "spring.flyway.postgresql.transactional-lock=false"
+})
 @AutoConfigureTestDatabase(
         replace = AutoConfigureTestDatabase.Replace.NONE
 )
@@ -51,6 +55,7 @@ import static org.mockito.Mockito.verify;
         SubscriptionConfirmationBatchTransactionService.class,
         SubscriptionConfirmationProperties.class
 })
+@Timeout(value = 60, unit = TimeUnit.SECONDS)
 class SubscriptionConfirmationBatchIntegrationTest {
 
     private static final int TOTAL_SUBSCRIPTION_COUNT = 250;
@@ -312,7 +317,17 @@ class SubscriptionConfirmationBatchIntegrationTest {
         );
 
         ExecutorService executor =
-                Executors.newFixedThreadPool(2);
+                Executors.newFixedThreadPool(
+                        2,
+                        task -> {
+                            Thread thread = new Thread(
+                                    task,
+                                    "subscription-confirmation-integration-test"
+                            );
+                            thread.setDaemon(true);
+                            return thread;
+                        }
+                );
 
         CountDownLatch firstLockAcquired =
                 new CountDownLatch(1);
