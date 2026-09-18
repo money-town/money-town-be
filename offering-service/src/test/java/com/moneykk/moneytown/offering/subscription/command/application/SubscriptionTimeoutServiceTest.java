@@ -1,12 +1,14 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
+import com.moneykk.moneytown.offering.subscription.command.config.SubscriptionTimeoutProperties;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import static org.mockito.Mockito.never;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
@@ -37,8 +39,24 @@ class SubscriptionTimeoutServiceTest {
     @Mock
     private OfferingSchedulerMetrics offeringSchedulerMetrics;
 
-    @InjectMocks
+    private SubscriptionTimeoutProperties timeoutProperties;
+
     private SubscriptionTimeoutService subscriptionTimeoutService;
+
+    @BeforeEach
+    void setUp() {
+        timeoutProperties = new SubscriptionTimeoutProperties();
+        timeoutProperties.setBatchSize(100);
+        timeoutProperties.setMaxBatchesPerRun(2);
+
+        subscriptionTimeoutService =
+                new SubscriptionTimeoutService(
+                        subscriptionRepository,
+                        offeringSchedulerMetrics,
+                        subscriptionTimeoutTransactionService,
+                        timeoutProperties
+                );
+    }
 
     @Test
     @DisplayName("예약 만료 처리에 성공한 청약 수만 반환한다")
@@ -297,6 +315,117 @@ class SubscriptionTimeoutServiceTest {
                 .processExpiredReservation(
                         eq(nextSubscriptionId),
                         any(Instant.class)
+                );
+    }
+
+    @Test
+    @DisplayName(
+            "한 번의 실행에서 설정된 최대 키셋 배치까지만 처리한다"
+    )
+    void stopsAfterConfiguredMaximumBatchCount() {
+        // given
+        timeoutProperties.setBatchSize(2);
+        timeoutProperties.setMaxBatchesPerRun(2);
+
+        Instant firstExpiresAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
+        Instant secondExpiresAt =
+                Instant.parse("2026-09-02T00:00:00Z");
+
+        ExpiredProcessingSubscriptionTarget first =
+                new ExpiredProcessingSubscriptionTarget(
+                        UUID.randomUUID(),
+                        firstExpiresAt
+                );
+
+        ExpiredProcessingSubscriptionTarget second =
+                new ExpiredProcessingSubscriptionTarget(
+                        UUID.randomUUID(),
+                        firstExpiresAt
+                );
+
+        List<ExpiredProcessingSubscriptionTarget> firstBatch =
+                List.of(first, second)
+                        .stream()
+                        .sorted(
+                                Comparator.comparing(
+                                        ExpiredProcessingSubscriptionTarget
+                                                ::subscriptionId
+                                )
+                        )
+                        .toList();
+
+        ExpiredProcessingSubscriptionTarget firstBatchLast =
+                firstBatch.get(firstBatch.size() - 1);
+
+        ExpiredProcessingSubscriptionTarget third =
+                new ExpiredProcessingSubscriptionTarget(
+                        UUID.randomUUID(),
+                        secondExpiresAt
+                );
+
+        ExpiredProcessingSubscriptionTarget fourth =
+                new ExpiredProcessingSubscriptionTarget(
+                        UUID.randomUUID(),
+                        secondExpiresAt
+                );
+
+        List<ExpiredProcessingSubscriptionTarget> secondBatch =
+                List.of(third, fourth)
+                        .stream()
+                        .sorted(
+                                Comparator.comparing(
+                                        ExpiredProcessingSubscriptionTarget
+                                                ::subscriptionId
+                                )
+                        )
+                        .toList();
+
+        ExpiredProcessingSubscriptionTarget secondBatchLast =
+                secondBatch.get(secondBatch.size() - 1);
+
+        when(subscriptionRepository
+                .findExpiredProcessingSubscriptionTargets(
+                        any(Instant.class),
+                        any(Pageable.class)
+                ))
+                .thenReturn(firstBatch);
+
+        when(subscriptionRepository
+                .findExpiredProcessingSubscriptionTargetsAfter(
+                        any(Instant.class),
+                        eq(firstBatchLast.reservationExpiresAt()),
+                        eq(firstBatchLast.subscriptionId()),
+                        any(Pageable.class)
+                ))
+                .thenReturn(secondBatch);
+
+        when(subscriptionTimeoutTransactionService
+                .processExpiredReservation(
+                        any(UUID.class),
+                        any(Instant.class)
+                ))
+                .thenReturn(true);
+
+        // when
+        int result =
+                subscriptionTimeoutService
+                        .processExpiredReservations();
+
+        // then
+        assertThat(result).isEqualTo(4);
+
+        /*
+         * 두 번째 배치까지 모두 찼더라도 설정된 최대 배치 수가 2이므로
+         * 세 번째 키셋 조회는 실행하지 않는다.
+         */
+        verify(subscriptionRepository, never())
+                .findExpiredProcessingSubscriptionTargetsAfter(
+                        any(Instant.class),
+                        eq(secondBatchLast.reservationExpiresAt()),
+                        eq(secondBatchLast.subscriptionId()),
+                        any(Pageable.class)
                 );
     }
 }

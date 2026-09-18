@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.command.scheduler.OfferingSchedulerMetrics;
+import com.moneykk.moneytown.offering.subscription.command.config.SubscriptionTimeoutProperties;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
 import lombok.RequiredArgsConstructor;
@@ -17,9 +18,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SubscriptionTimeoutService {
 
-    private static final int TIMEOUT_BATCH_SIZE = 100;
-
     private final SubscriptionRepository subscriptionRepository;
+
     private final OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     /*
@@ -28,14 +28,21 @@ public class SubscriptionTimeoutService {
     private final SubscriptionTimeoutTransactionService
             subscriptionTimeoutTransactionService;
 
+    private final SubscriptionTimeoutProperties timeoutProperties;
+
     /**
      * 예약 유효시간이 만료된 PROCESSING 청약을
-     * 키셋 방식으로 100건씩 조회하여 보상 처리를 시작한다.
+     * 설정된 크기의 키셋 배치로 조회하여 보상 처리를 시작한다.
+     *
+     * 한 번의 스케줄 실행에서 처리하는 최대 배치 수를 제한하여
+     * 예약 만료 backlog가 많아도 스케줄러 스레드와 DB 커넥션을
+     * 장시간 독점하지 않게 한다.
      *
      * 청약별 처리는 독립 트랜잭션에서 수행한다. 특정 청약이 실패해
      * PROCESSING 상태에 남더라도 같은 실행에서 후속 청약을 계속 처리한다.
      *
-     * 실패한 청약은 다음 스케줄 실행에서 다시 조회된다.
+     * 처리하지 못한 청약과 실행 한도를 초과한 청약은
+     * 다음 스케줄 실행에서 다시 조회된다.
      *
      * @return 실제로 만료 보상을 시작한 청약 수
      */
@@ -48,32 +55,16 @@ public class SubscriptionTimeoutService {
 
         int processedCount = 0;
 
-        while (true) {
-            List<ExpiredProcessingSubscriptionTarget> targets;
+        for (int batchIndex = 0;
+             batchIndex < timeoutProperties.getMaxBatchesPerRun();
+             batchIndex++) {
 
-            if (lastReservationExpiresAt == null) {
-                targets =
-                        subscriptionRepository
-                                .findExpiredProcessingSubscriptionTargets(
-                                        now,
-                                        PageRequest.of(
-                                                0,
-                                                TIMEOUT_BATCH_SIZE
-                                        )
-                                );
-            } else {
-                targets =
-                        subscriptionRepository
-                                .findExpiredProcessingSubscriptionTargetsAfter(
-                                        now,
-                                        lastReservationExpiresAt,
-                                        lastSubscriptionId,
-                                        PageRequest.of(
-                                                0,
-                                                TIMEOUT_BATCH_SIZE
-                                        )
-                                );
-            }
+            List<ExpiredProcessingSubscriptionTarget> targets =
+                    findNextBatch(
+                            now,
+                            lastReservationExpiresAt,
+                            lastSubscriptionId
+                    );
 
             if (targets.isEmpty()) {
                 break;
@@ -129,11 +120,42 @@ public class SubscriptionTimeoutService {
             lastSubscriptionId =
                     lastTarget.subscriptionId();
 
-            if (targets.size() < TIMEOUT_BATCH_SIZE) {
+            /*
+             * 설정된 배치 크기보다 적게 조회됐다면
+             * 현재 기준 시각의 후속 대상이 없으므로 종료한다.
+             */
+            if (targets.size() < timeoutProperties.getBatchSize()) {
                 break;
             }
         }
 
         return processedCount;
+    }
+
+    private List<ExpiredProcessingSubscriptionTarget> findNextBatch(
+            Instant now,
+            Instant lastReservationExpiresAt,
+            UUID lastSubscriptionId
+    ) {
+        PageRequest pageRequest = PageRequest.of(
+                0,
+                timeoutProperties.getBatchSize()
+        );
+
+        if (lastReservationExpiresAt == null) {
+            return subscriptionRepository
+                    .findExpiredProcessingSubscriptionTargets(
+                            now,
+                            pageRequest
+                    );
+        }
+
+        return subscriptionRepository
+                .findExpiredProcessingSubscriptionTargetsAfter(
+                        now,
+                        lastReservationExpiresAt,
+                        lastSubscriptionId,
+                        pageRequest
+                );
     }
 }
