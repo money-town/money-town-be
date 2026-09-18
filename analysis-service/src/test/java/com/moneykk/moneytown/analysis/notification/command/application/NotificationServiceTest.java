@@ -1,14 +1,17 @@
-package com.moneykk.moneytown.analysis.fds.command.application.notification;
+package com.moneykk.moneytown.analysis.notification.command.application;
 
 import com.moneykk.moneytown.analysis.global.exception.AnalysisErrorCode;
 import com.moneykk.moneytown.analysis.notification.command.application.NotificationCommandService;
 import com.moneykk.moneytown.analysis.notification.command.application.NotificationDispatcher;
 import com.moneykk.moneytown.analysis.notification.command.application.NotificationStore;
 import com.moneykk.moneytown.analysis.notification.command.dto.request.NotificationRequest;
+import com.moneykk.moneytown.analysis.notification.command.dto.request.NotificationTestRequest;
 import com.moneykk.moneytown.analysis.notification.command.dto.response.NotificationResponse;
 import com.moneykk.moneytown.analysis.notification.domain.Notification;
 import com.moneykk.moneytown.analysis.notification.domain.NotificationStatus;
 import com.moneykk.moneytown.analysis.notification.domain.NotificationType;
+import com.moneykk.moneytown.analysis.notification.infrastructure.slack.SlackNotificationSender;
+import com.moneykk.moneytown.analysis.notification.infrastructure.slack.SlackSendResult;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,6 +44,8 @@ public class NotificationServiceTest {
     private NotificationStore notificationStore;
     @Mock
     private NotificationDispatcher notificationDispatcher;
+    @Mock
+    private SlackNotificationSender notificationSender;
 
 
     @InjectMocks
@@ -136,6 +141,73 @@ public class NotificationServiceTest {
     }
 
 
+
+    @Test
+    @DisplayName("sendTest: 이미 처리된 멱등키면 Slack 호출 없이 즉시 중복 예외를 던진다")
+    void sendTest_duplicateIdempotencyKey_throwsWithoutCallingSlack() {
+        when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.of(pendingNotification()));
+
+        assertThatThrownBy(() -> notificationCommandService.sendTest(idempotencyKey, testRequest()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AnalysisErrorCode.NOTIFICATION_DUPLICATE_REQUEST);
+
+        verify(notificationSender, never()).send(any(), any());
+    }
+
+    @Test
+    @DisplayName("sendTest: 동시 요청으로 claim이 제약 위반이면 중복 예외를 던진다")
+    void sendTest_claimConflict_throwsDuplicate() {
+        when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+        when(notificationStore.claim(any(Notification.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        assertThatThrownBy(() -> notificationCommandService.sendTest(idempotencyKey, testRequest()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AnalysisErrorCode.NOTIFICATION_DUPLICATE_REQUEST);
+
+        verify(notificationSender, never()).send(any(), any());
+    }
+
+    @Test
+    @DisplayName("sendTest: Slack 발송이 성공하면 완료된 응답을 반환한다")
+    void sendTest_slackSendSucceeds_returnsCompletedResponse() {
+        Notification claimed = pendingNotification();
+        Notification sent = pendingNotification();
+        sent.markSent();
+
+        when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+        when(notificationStore.claim(any(Notification.class))).thenReturn(claimed);
+        when(notificationSender.send(TITLE, MESSAGE)).thenReturn(SlackSendResult.ok());
+        when(notificationStore.complete(eq(notificationId), any())).thenReturn(sent);
+
+        NotificationResponse response = notificationCommandService.sendTest(idempotencyKey, testRequest());
+
+        assertThat(response.status()).isEqualTo(NotificationStatus.SENT);
+    }
+
+    @Test
+    @DisplayName("sendTest: Slack 발송이 실패하면 FAILED로 기록하고 502에 해당하는 예외를 던진다")
+    void sendTest_slackSendFails_marksFailedAndThrows() {
+        Notification claimed = pendingNotification();
+        Notification failed = pendingNotification();
+        failed.markFail("전송 실패");
+
+        when(notificationStore.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+        when(notificationStore.claim(any(Notification.class))).thenReturn(claimed);
+        when(notificationSender.send(TITLE, MESSAGE)).thenReturn(SlackSendResult.fail("전송 실패"));
+        when(notificationStore.complete(eq(notificationId), any())).thenReturn(failed);
+
+        assertThatThrownBy(() -> notificationCommandService.sendTest(idempotencyKey, testRequest()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AnalysisErrorCode.NOTIFICATION_SLACK_SEND_FAILED);
+    }
+
+    private NotificationTestRequest testRequest() {
+        return new NotificationTestRequest(TITLE, MESSAGE);
+    }
 
     private NotificationRequest request() {
         return new NotificationRequest(NotificationType.SLACK_TEST, null, TITLE, MESSAGE);

@@ -302,6 +302,7 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/offering_db
+      OFFERING_DB_CONNECTION_TIMEOUT: ${OFFERING_DB_CONNECTION_TIMEOUT:-2000}
     # 외부에서 인증 헤더를 위조하여 직접 호출하지 못하도록
     # Gateway와 내부 Docker 네트워크에서만 접근을 허용한다.
     expose: ["19096"]
@@ -322,6 +323,8 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/settlement_db
+      SETTLEMENT_REVENUE_POLLING_ENABLED: ${SETTLEMENT_REVENUE_POLLING_ENABLED:-true}
+      DB_POOL_MAX_SIZE: 15
     ports: ["19097:19097"]
     depends_on:
       config-server: { condition: service_healthy }
@@ -340,6 +343,7 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/analysis_db
+      DB_POOL_MAX_SIZE: 8
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
     ports: ["19098:19098"]

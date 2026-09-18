@@ -6,17 +6,27 @@ management:
   metrics:
     distribution:
       percentiles-histogram:
-        http.server.requests: true
+        "[http.server.requests]": true
+        "[hikaricp.connections.acquire]": true
       slo:
-        http.server.requests: 100ms, 300ms, 1s, 3s
+        "[http.server.requests]": 100ms, 300ms, 1s, 3s
+        "[hikaricp.connections.acquire]": 10ms, 50ms, 100ms, 500ms, 1s, 2s
 
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/offering_db}
+    hikari:
+      connection-timeout: ${OFFERING_DB_CONNECTION_TIMEOUT:2000}
 
   flyway:
     postgresql:
       transactional-lock: false
+
+  data:
+    web:
+      pageable:
+        default-page-size: 10
+        max-page-size: 100
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
@@ -74,15 +84,49 @@ spring:
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
 
+  confirmation:
+    batch-size: ${SUBSCRIPTION_CONFIRMATION_BATCH_SIZE:100}
+    max-batches-per-run: ${SUBSCRIPTION_CONFIRMATION_MAX_BATCHES_PER_RUN:2}
+    fixed-delay-ms: ${SUBSCRIPTION_CONFIRMATION_FIXED_DELAY_MS:1000}
+
+  compensation:
+    recovery:
+      stuck-seconds: ${SUBSCRIPTION_COMPENSATION_RECOVERY_STUCK_SECONDS:300}
+      batch-size: ${SUBSCRIPTION_COMPENSATION_RECOVERY_BATCH_SIZE:100}
+      fixed-delay-ms: ${SUBSCRIPTION_COMPENSATION_RECOVERY_FIXED_DELAY_MS:30000}
+
   monitoring:
     refresh-delay-ms: ${SUBSCRIPTION_METRICS_REFRESH_DELAY_MS:10000}
     holding-allocation-stuck-seconds: ${HOLDING_ALLOCATION_STUCK_SECONDS:300}
     compensation-stuck-seconds: ${COMPENSATION_STUCK_SECONDS:300}
 
+offering:
+  cancellation:
+    batch-size: ${OFFERING_CANCELLATION_BATCH_SIZE:100}
+    fixed-delay-ms: ${OFFERING_CANCELLATION_FIXED_DELAY_MS:1000}
+
+  ai-candidates:
+    cache:
+      ttl-seconds: ${OFFERING_AI_CANDIDATES_CACHE_TTL_SECONDS:5}
+      maximum-size: ${OFFERING_AI_CANDIDATES_CACHE_MAXIMUM_SIZE:20}
+
 outbox:
   publish:
-    batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
-    fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:500}
+    completion-timeout-seconds: ${OUTBOX_PUBLISH_COMPLETION_TIMEOUT_SECONDS:70}
+    batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:20}
+    fixed-delay-ms: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:200}
+
+    # 최초 발행을 포함한 최대 실패 허용 횟수
+    max-failed-attempts: ${OUTBOX_PUBLISH_MAX_FAILED_ATTEMPTS:3}
+
+    # 실패 횟수에 따라 10초, 20초 순서로 재시도한다.
+    initial-retry-delay-seconds: ${OUTBOX_PUBLISH_INITIAL_RETRY_DELAY_SECONDS:10}
+    retry-multiplier: ${OUTBOX_PUBLISH_RETRY_MULTIPLIER:2.0}
+    max-retry-delay-seconds: ${OUTBOX_PUBLISH_MAX_RETRY_DELAY_SECONDS:60}
+
+    # Kafka 결과가 확정되지 않은 PROCESSING 이벤트의 만료 및 복구 주기
+    processing-timeout-seconds: ${OUTBOX_PUBLISH_PROCESSING_TIMEOUT_SECONDS:300}
+    recovery-delay-ms: ${OUTBOX_PUBLISH_RECOVERY_DELAY_MS:30000}
 
     # Kafka 응답 대기 상태를 포함한 인스턴스당 최대 동시 발행 수
     max-in-flight: ${OUTBOX_PUBLISH_MAX_IN_FLIGHT:20}

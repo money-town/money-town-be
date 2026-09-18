@@ -57,6 +57,449 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "API의 전체 요청 중 HTTP 2xx 응답 비율",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-purples"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "max": 105,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "dark-red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "unit": "suffix:%"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "min"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "100 *\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\",\r\n      status=~\"2..\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
+          "format": "time_series",
+          "legendFormat": "{{method}} {{uri}} 성공률",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "title": "Offering API Success Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Offering Service API별 서버 오류 비율",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "dark-red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "suffix:%"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 *\r\n(\r\n  sum by (method, uri) (\r\n    rate(\r\n      http_server_requests_seconds_count{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\",\r\n        status=~\"5..\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n  or\r\n  (\r\n    sum by (method, uri) (\r\n      rate(\r\n        http_server_requests_seconds_count{\r\n          application=\"offering-service\",\r\n          uri=~\"/api/v1/.*\"\r\n        }[$__rate_interval]\r\n      )\r\n    ) * 0\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum by (method, uri) (\r\n    rate(\r\n      http_server_requests_seconds_count{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
+          "legendFormat": "{{method}} {{uri}}",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "title": "Offering API 5xx Error Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(\r\n  jvm_threads_live_threads{\r\n    application=\"offering-service\"\r\n  }\r\n)",
+          "legendFormat": "활성",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(\r\n  jvm_threads_peak_threads{\r\n    application=\"offering-service\"\r\n  }\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "최대",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(\r\n  jvm_threads_daemon_threads{\r\n    application=\"offering-service\"\r\n  }\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "데몬",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Offering JVM Threads",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "suffix: req/s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
+          "legendFormat": "{{method}} {{uri}}",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "title": "Offering API Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -111,21 +554,24 @@
               }
             ]
           },
-          "unit": "Percent (0-100)"
+          "unit": "suffix:%"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
+        "w": 6,
+        "x": 12,
+        "y": 7
       },
       "id": 1,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
@@ -211,21 +657,24 @@
               }
             ]
           },
-          "unit": "Percent (0-100)"
+          "unit": "suffix:%"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
+        "w": 6,
+        "x": 18,
+        "y": 7
       },
       "id": 2,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
@@ -256,406 +705,6 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "API의 전체 요청 중 HTTP 2xx 응답 비율",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "continuous-purples"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "decimals": 2,
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "dark-red",
-                "value": null
-              },
-              {
-                "color": "#EAB839",
-                "value": 95
-              },
-              {
-                "color": "green",
-                "value": 99
-              }
-            ]
-          },
-          "unit": "Percent (0-100)"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "100 *\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\",\r\n      status=~\"2..\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "{{method}} {{uri}}",
-          "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
-        }
-      ],
-      "title": "Offering API Success Rate",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Offering Service API별 서버 오류 비율",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "decimals": 2,
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.1
-              },
-              {
-                "color": "dark-red",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "Percent (0-100)"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "100 *\r\n(\r\n  sum by (method, uri) (\r\n    rate(\r\n      http_server_requests_seconds_count{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\",\r\n        status=~\"5..\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n  or\r\n  (\r\n    sum by (method, uri) (\r\n      rate(\r\n        http_server_requests_seconds_count{\r\n          application=\"offering-service\",\r\n          uri=~\"/api/v1/.*\"\r\n        }[$__rate_interval]\r\n      )\r\n    ) * 0\r\n  )\r\n)\r\n/\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "{{method}} {{uri}}",
-          "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
-        }
-      ],
-      "title": "Offering API 5xx Error Rate",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "continuous-BlYlRd"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "requests/sec (reqps)"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "id": 3,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "sum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "{{method}} {{uri}}",
-          "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
-        }
-      ],
-      "title": "Offering API Throughput",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "Outbox 발행 지연 시간",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "1000 *\r\nsum by (result) (\r\n  rate(\r\n    outbox_publish_latency_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum by (result) (\r\n  rate(\r\n    outbox_publish_latency_seconds_count{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "{{result}}",
-          "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
-        }
-      ],
-      "title": "Offering Outbox Publish Latency",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
       "description": "평균 응답 시간, p95 응답 시간",
       "fieldConfig": {
         "defaults": {
@@ -671,7 +720,7 @@
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 0,
+            "fillOpacity": 10,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -680,7 +729,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -711,17 +760,20 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 12,
         "x": 0,
-        "y": 24
+        "y": 15
       },
       "id": 4,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
@@ -733,8 +785,9 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "1000 *\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_sum{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "평균 {{method}} {{uri}}",
+          "expr": "1000 *\r\nsum(\r\n  rate(\r\n    http_server_requests_seconds_sum{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum(\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
+          "format": "time_series",
+          "legendFormat": "평균",
           "range": true,
           "refId": "A",
           "datasource": {
@@ -748,10 +801,10 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.95,\r\n  sum by (le, method, uri) (\r\n    rate(\r\n      http_server_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.95,\r\n  sum by (le) (\r\n    rate(\r\n      http_server_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
           "hide": false,
           "instant": false,
-          "legendFormat": "p95 {{method}} {{uri}}",
+          "legendFormat": "p95",
           "range": true,
           "refId": "B"
         }
@@ -764,7 +817,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "processing이 계속 증가: Kafka 발행 속도가 요청 유입을 따라가지 못함\nfailed 증가: 최종 발행 실패 발생\ninflight가 설정 상한인 20에 계속 붙음: Outbox 발행 동시 처리 한계에 도달",
+      "description": "Outbox 이벤트의 DB 대기, 처리, Kafka 발행 및 실패 상태를 표시합니다.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -803,6 +856,7 @@
               "mode": "off"
             }
           },
+          "decimals": 0,
           "mappings": [],
           "min": 0,
           "thresholds": {
@@ -811,6 +865,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
               }
             ]
           },
@@ -824,47 +882,36 @@
             },
             "properties": [
               {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "red",
-                      "value": 1
-                    }
-                  ]
-                }
+                "id": "unit",
+                "value": "s"
               },
               {
-                "id": "color",
-                "value": {
-                  "mode": "thresholds"
-                }
+                "id": "custom.axisPlacement",
+                "value": "right"
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 12,
         "x": 12,
-        "y": 24
+        "y": 15
       },
-      "id": 8,
+      "id": 18,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
-          "mode": "single",
+          "mode": "multi",
           "sort": "none"
         }
       },
@@ -872,8 +919,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "outbox_events_processing{\r\n  application=\"offering-service\"\r\n}",
-          "legendFormat": "DB PROCESSING",
+          "expr": "outbox_events_pending{\r\n  application=\"offering-service\"\r\n}",
+          "legendFormat": "DB PENDING",
           "range": true,
           "refId": "A",
           "datasource": {
@@ -887,12 +934,25 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "outbox_events_failed{\r\n  application=\"offering-service\"\r\n}",
+          "expr": "max(\r\n  outbox_events_oldest_pending_age_seconds{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "hide": false,
           "instant": false,
-          "legendFormat": "DB FAILED",
+          "legendFormat": "최장 PENDING 대기시간",
           "range": true,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "outbox_events_processing{\r\n  application=\"offering-service\"\r\n}",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "DB PROCESSING",
+          "range": true,
+          "refId": "C"
         },
         {
           "datasource": {
@@ -905,7 +965,7 @@
           "instant": false,
           "legendFormat": "Kafka 발행 중",
           "range": true,
-          "refId": "C"
+          "refId": "D"
         },
         {
           "datasource": {
@@ -913,12 +973,12 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "outbox_events_pending{\r\n  application=\"offering-service\"\r\n}",
+          "expr": "outbox_events_failed{\r\n  application=\"offering-service\"\r\n}",
           "hide": false,
           "instant": false,
-          "legendFormat": "DB PENDING",
+          "legendFormat": "DB FAILED",
           "range": true,
-          "refId": "D"
+          "refId": "E"
         }
       ],
       "title": "Offering Outbox Status",
@@ -983,17 +1043,20 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 12,
         "x": 0,
-        "y": 32
+        "y": 22
       },
       "id": 7,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
@@ -1006,7 +1069,7 @@
         {
           "editorMode": "code",
           "expr": "sum(\r\n  hikaricp_connections_active{\r\n    application=\"offering-service\"\r\n  }\r\n)",
-          "legendFormat": "사용 중인 커넥션",
+          "legendFormat": "활성",
           "range": true,
           "refId": "A",
           "datasource": {
@@ -1020,12 +1083,38 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
+          "expr": "sum(\r\n  hikaricp_connections_idle{\r\n    application=\"offering-service\"\r\n  }\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "유휴",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
           "expr": "sum(\r\n  hikaricp_connections_pending{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "hide": false,
           "instant": false,
-          "legendFormat": "커넥션 대기 요청",
+          "legendFormat": "대기",
           "range": true,
-          "refId": "B"
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(\r\n  hikaricp_connections_max{\r\n    application=\"offering-service\"\r\n  }\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "풀 최대",
+          "range": true,
+          "refId": "D"
         }
       ],
       "title": "Offering HikariCP Connections",
@@ -1036,10 +1125,11 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Kafka 전송시간과 초당 발행 완료 건수를 표시합니다.\nDB의 PENDING 대기시간은 Outbox Status 패널에서 확인합니다.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
           "custom": {
             "axisBorderShow": false,
@@ -1082,24 +1172,147 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "dark-red",
-                "value": 1
               }
             ]
           },
-          "unit": "short"
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "requests/sec"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "1000 *\r\nsum by (result) (\r\n  rate(\r\n    outbox_publish_latency_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum by (result) (\r\n    rate(\r\n      outbox_publish_latency_seconds_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
+          "legendFormat": "{{result}} Kafka 전송시간",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (result) (\r\n  rate(\r\n    outbox_publish_latency_seconds_count{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{result}} 처리량",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Offering Outbox Publish",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "requests/sec"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 32
+        "x": 0,
+        "y": 29
       },
-      "id": 10,
+      "id": 14,
       "options": {
         "legend": {
           "calcs": [],
@@ -1116,8 +1329,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (scheduler) (\r\n  increase(\r\n    offering_scheduler_failures_total{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "{{scheduler}}",
+          "expr": "sum by (result) (\r\n  rate(\r\n    subscription_lifecycle_outcomes_total{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
+          "legendFormat": "{{result}}",
           "range": true,
           "refId": "A",
           "datasource": {
@@ -1126,7 +1339,288 @@
           }
         }
       ],
-      "title": "Offering Scheduler Failures",
+      "title": "Subscription Lifecycle Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "청약 생성부터 최종 상태 전환까지의 전체 소요시간입니다.\n청약 대기시간과 외부 서비스 처리시간이 포함됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (result) (\r\n  subscription_lifecycle_duration_seconds_sum{\r\n    application=\"offering-service\"\r\n  }\r\n)\r\n/\r\nsum by (result) (\r\n  subscription_lifecycle_duration_seconds_count{\r\n    application=\"offering-service\"\r\n  }\r\n)",
+          "legendFormat": "평균 {{result}}",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(\r\n  0.95,\r\n  sum by (le, result) (\r\n    subscription_lifecycle_duration_seconds_bucket{\r\n      application=\"offering-service\"\r\n    }\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p95 {{result}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Subscription End-to-End Outcome Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Offering 서비스 내부의 청약 일괄 확정 처리시간과 한 번에 확정된 청약 수를 표시합니다. Asset 및 Wallet의 후속 처리시간은 포함하지 않습니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 0,
+        "y": 37
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(\r\n  rate(\r\n    subscription_batch_confirmation_duration_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum(\r\n    rate(\r\n      subscription_batch_confirmation_duration_seconds_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
+          "legendFormat": "평균 확정시간",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(\r\n  0.95,\r\n  sum by (le) (\r\n    rate(\r\n      subscription_batch_confirmation_duration_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p95 확정시간",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(\r\n  rate(\r\n    subscription_batch_confirmation_size_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum(\r\n    rate(\r\n      subscription_batch_confirmation_size_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "평균 확정 건수",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Subscription Batch Confirmation",
       "type": "timeseries"
     },
     {
@@ -1193,9 +1687,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 40
+        "w": 5,
+        "x": 7,
+        "y": 37
       },
       "id": 12,
       "options": {
@@ -1294,209 +1788,24 @@
               }
             ]
           },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 40
-      },
-      "id": 13,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "increase(\r\n  outbox_events_recovered_total{\r\n    application=\"offering-service\"\r\n  }[$__rate_interval]\r\n)",
-          "legendFormat": "복구 건수",
-          "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
-        }
-      ],
-      "title": "Offering Outbox Recovered",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "requests/sec"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 48
-      },
-      "id": 14,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "sum by (result) (\r\n  rate(\r\n    subscription_lifecycle_outcomes_total{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "{{result}}",
-          "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
-        }
-      ],
-      "title": "Subscription Lifecycle Outcomes",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
           "unit": "ms"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 6,
         "x": 12,
-        "y": 48
+        "y": 37
       },
-      "id": 15,
+      "id": 16,
       "options": {
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
@@ -1509,8 +1818,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "1000 *\r\nsum by (result) (\r\n  rate(\r\n    subscription_lifecycle_duration_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum by (result) (\r\n  rate(\r\n    subscription_lifecycle_duration_seconds_count{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
-          "legendFormat": "평균 {{result}}",
+          "expr": "1000 *\r\nsum(\r\n  rate(\r\n    jvm_gc_pause_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum(\r\n    rate(\r\n      jvm_gc_pause_seconds_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
+          "legendFormat": "평균 GC 정지시간",
           "range": true,
           "refId": "A",
           "datasource": {
@@ -1524,21 +1833,121 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.95,\r\n  sum by (le, result) (\r\n    rate(\r\n      subscription_lifecycle_duration_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "expr": "1000 *\r\nmax(\r\n  jvm_gc_pause_seconds_max{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "hide": false,
           "instant": false,
-          "legendFormat": "p95 {{result}}",
+          "legendFormat": "최대 GC 정지시간",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "Subscription Lifecycle Duration",
+      "title": "Offering JVM GC Pause",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "dark-red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 37
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (scheduler) (\r\n  increase(\r\n    offering_scheduler_failures_total{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
+          "legendFormat": "{{scheduler}}",
+          "range": true,
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        }
+      ],
+      "title": "Offering Scheduler Failures",
       "type": "timeseries"
     }
   ],
-  "refresh": "30s",
   "schemaVersion": 40,
-  "tags": [],
+  "tags": [
+    "money-town",
+    "offering-service"
+  ],
   "templating": {
     "list": []
   },
@@ -1548,8 +1957,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "MoneyTown Offering Monitoring",
+  "title": "Offering Monitoring Custom",
   "uid": "afy4rdr7rj0g0b",
-  "version": 57,
+  "version": 125,
   "weekStart": ""
 }

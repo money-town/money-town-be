@@ -10,5 +10,6 @@ public record OfferingSummary(
         Long pricePerUnit,
         Long totalQuantity,
         Long remainingQuantity,
+        Instant startAt,
         Instant endAt) {
 }

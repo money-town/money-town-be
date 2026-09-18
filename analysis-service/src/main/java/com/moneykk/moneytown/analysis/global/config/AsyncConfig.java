@@ -17,9 +17,9 @@ public class AsyncConfig {
     @Bean(name = "aiTaskExecutor")
     public Executor aiTaskExecutor(){
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(2);
-        ex.setMaxPoolSize(4);
-        ex.setQueueCapacity(20);
+        ex.setCorePoolSize(40);
+        ex.setMaxPoolSize(60);
+        ex.setQueueCapacity(60);
         ex.setThreadNamePrefix("ai-portfolio-");
         ex.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         ex.setWaitForTasksToCompleteOnShutdown(true);

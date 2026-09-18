@@ -32,6 +32,7 @@ import java.util.UUID;
 public class HoldingCommandService {
 
     private final AssetQueryRepository assetQueryRepository;
+    private final AssetRepository assetRepository;
     private final HoldingRepository holdingRepository;
     private final HoldingHistoryRepository holdingHistoryRepository;
     private final HoldingQueryRepository holdingQueryRepository;
@@ -68,42 +69,32 @@ public class HoldingCommandService {
             return alreadyProcessed(request, existingHistory.get());
         }
 
-        // 자산 조회
+        // 자산 행을 잠그지 않고 현재 배정 가능 여부를 먼저 검증
         Asset asset = assetQueryRepository
-                .findActiveByIdForUpdate(request.assetId())
+                .findActiveById(request.assetId())
                 .orElseThrow(() -> new BusinessException(
                         AssetErrorCode.ASSET_NOT_FOUND
                 ));
+        asset.validateAllocation(request.quantity());
 
-        // 자산 락을 기다리는 동안 같은 청약이 처리됐는지 다시 확인
-        existingHistory = holdingHistoryRepository.findBySubscriptionIdAndHistoryType(
-                request.subscriptionId(),
-                HoldingHistoryType.ALLOCATE
+        // 서로 다른 투자자는 병렬 처리하고 같은 투자자의 보유지분만 잠금
+        holdingRepository.insertIfAbsent(
+                request.assetId(),
+                request.userId()
         );
-        if (existingHistory.isPresent()) {
-            subscriptionState.markAllocated(
-                    existingHistory.get().getHoldingId()
-            );
-            return alreadyProcessed(request, existingHistory.get());
-        }
-
-        // 자산 배정 수량 증가
-        asset.allocateShares(request.quantity());
-
-        // 기존 보유지분 조회 또는 생성
         Holding holding = holdingRepository
-                .findByAssetIdAndUserId(request.assetId(), request.userId())
-                .orElseGet(() -> new Holding(
+                .findByAssetIdAndUserIdForUpdate(
                         request.assetId(),
-                        request.userId(),
-                        0
+                        request.userId()
+                )
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
                 ));
 
         long balanceBefore = holding.getQuantity();
 
         // 사용자 보유 수량 증가
         holding.allocate(request.quantity());
-        holding = holdingRepository.save(holding);
 
         // 배정 이력 저장
         HoldingHistory history = new HoldingHistory(
@@ -119,6 +110,17 @@ public class HoldingCommandService {
 
         holdingHistoryRepository.save(history);
         subscriptionState.markAllocated(holding.getId());
+
+        // 앞선 변경을 flush한 다음 자산 행은 마지막 원자 UPDATE 동안만 잠금
+        int updated = assetRepository.allocateSharesAtomically(
+                request.assetId(),
+                request.quantity()
+        );
+        if (updated == 0) {
+            throw new BusinessException(
+                    AssetErrorCode.SHARE_QUANTITY_EXCEEDED
+            );
+        }
 
         return new HoldingAllocationResponse(
                 request.subscriptionId(),
@@ -265,6 +267,13 @@ public class HoldingCommandService {
                         AssetErrorCode.HOLDING_DATA_CONFLICT
                 ));
 
+        // 모든 지분 변경은 보유지분 → 자산 순서로 잠가 교착을 방지
+        Holding holding = holdingQueryRepository
+                .findByIdForUpdate(holdingId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.HOLDING_DATA_CONFLICT
+                ));
+
         // 자산을 조회하면서 비관적 락 획득
         Asset asset = assetQueryRepository
                 .findActiveByIdForUpdate(assetId)
@@ -283,11 +292,6 @@ public class HoldingCommandService {
             subscriptionState.markRevoked(holdingId);
             return alreadyRevoked(holdingId, request, existingHistory.get());
         }
-
-        Holding holding = holdingRepository.findById(holdingId)
-                .orElseThrow(() -> new BusinessException(
-                        AssetErrorCode.HOLDING_DATA_CONFLICT
-                ));
 
         long quantity = allocationHistory.getQuantity();
         long balanceBefore = holding.getQuantity();
@@ -351,18 +355,18 @@ public class HoldingCommandService {
                         AssetErrorCode.HOLDING_NOT_FOUND
                 ));
 
-        // 자산 전체 배정량 변경을 위해 잠금
-        Asset asset = assetQueryRepository
-                .findActiveByIdForUpdate(assetId)
-                .orElseThrow(() -> new BusinessException(
-                        AssetErrorCode.ASSET_NOT_FOUND
-                ));
-
         // 사용자 보유지분 변경을 위해 잠금
         Holding holding = holdingQueryRepository
                 .findByIdForUpdate(holdingId)
                 .orElseThrow(() -> new BusinessException(
                         AssetErrorCode.HOLDING_NOT_FOUND
+                ));
+
+        // 모든 지분 변경은 보유지분 → 자산 순서로 잠가 교착을 방지
+        Asset asset = assetQueryRepository
+                .findActiveByIdForUpdate(assetId)
+                .orElseThrow(() -> new BusinessException(
+                        AssetErrorCode.ASSET_NOT_FOUND
                 ));
 
         // 같은 요청이 이미 처리되었는지 확인

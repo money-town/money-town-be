@@ -12,6 +12,9 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
     listener:
       ack-mode: record
 
@@ -44,9 +47,29 @@ spring:
             read-timeout: 5000          # ms
             logger-level: basic
           offering-service:
-            read-timeout: 3000
+            read-timeout: 6000
           asset-service:
-            read-timeout: 5000          # 벌크 조회라 좀 넉넉히
+            read-timeout: 6000          # 벌크 조회라 좀 넉넉히
+
+resilience4j:
+  retry:
+    instances:
+      offeringService:
+        max-attempts: 3
+        wait-duration: 2s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+      assetService:
+        max-attempts: 3
+        wait-duration: 2s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+      slackNotification:
+        max-attempts: 3
+        wait-duration: 2s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+
 
 fds:
   pre:

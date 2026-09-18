@@ -31,6 +31,7 @@ public class PortfolioPromptFactory {
             - 공모 후보 데이터 해석:
               * subscriptionRatePercent: 청약 소진율(%). 높을수록 시장 수요가 이미 검증된 상품.
               * totalRaiseAmount: 총 모집 규모(원). 클수록 상대적으로 안정적인 대형 딜.
+              * daysSinceOpen: 공모가 시작된 지 며칠 지났는지. 짧으면 아직 시장 검증 전이라 청약률 낮아도 감안, 길수록 청약률 정체를 더 비중있게 본다.
               * daysToClose: 마감까지 남은 일수. 짧으면 참여 기회가 임박.
               * expectedReturnRate / assetType / description: 있는 경우에만 활용. assetType 이 여러 종류면 섞어서 분산.
             - 위험 성향별 배분 기준:

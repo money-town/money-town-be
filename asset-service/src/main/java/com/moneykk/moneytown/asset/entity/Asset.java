@@ -124,7 +124,7 @@ public class Asset extends BaseUpdatableEntity {
     /**
      * 지분 배정
      */
-    public void allocateShares(long quantity) {
+    public void validateAllocation(long quantity) {
         if (quantity <= 0) {
             throw new BusinessException(AssetErrorCode.INVALID_HOLDING_QUANTITY);
         }
@@ -138,7 +138,10 @@ public class Asset extends BaseUpdatableEntity {
         if (quantity > remainingQuantity) {
             throw new BusinessException(AssetErrorCode.SHARE_QUANTITY_EXCEEDED);
         }
+    }
 
+    public void allocateShares(long quantity) {
+        validateAllocation(quantity);
         allocatedQuantity += quantity;
     }
 

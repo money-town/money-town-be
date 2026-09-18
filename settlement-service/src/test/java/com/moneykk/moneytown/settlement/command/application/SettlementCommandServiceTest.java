@@ -9,7 +9,6 @@ import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
-import com.moneykk.moneytown.settlement.domain.repository.HoldingSnapshotRepository;
 import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
@@ -17,7 +16,6 @@ import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.HoldingItem;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
-import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,11 +27,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
-import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -60,13 +56,13 @@ class SettlementCommandServiceTest {
     @Mock
     private SettlementBatchRepository settlementBatchRepository;
     @Mock
-    private HoldingSnapshotRepository holdingSnapshotRepository;
-    @Mock
     private DividendPayoutRepository dividendPayoutRepository;
     @Mock
     private AssetServiceClient assetServiceClient;
     @Mock
     private AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
+    @Mock
+    private SettlementBatchWriter settlementBatchWriter;
 
     @InjectMocks
     private SettlementCommandService settlementCommandService;
@@ -93,19 +89,18 @@ class SettlementCommandServiceTest {
         assertThat(response.payoutCount()).isEqualTo(1);
 
         ArgumentCaptor<SettlementBatch> batchCaptor = ArgumentCaptor.forClass(SettlementBatch.class);
-        verify(settlementBatchRepository).saveAndFlush(batchCaptor.capture());
+        ArgumentCaptor<HoldingSnapshot> snapshotCaptor = ArgumentCaptor.forClass(HoldingSnapshot.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<DividendPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(settlementBatchWriter).persist(batchCaptor.capture(), snapshotCaptor.capture(), payoutsCaptor.capture());
+
         assertThat(batchCaptor.getValue().getStatus()).isEqualTo(SettlementStatus.CALCULATED);
         assertThat(batchCaptor.getValue().getTotalAmount()).isEqualTo(10_000_000L);
 
-        ArgumentCaptor<HoldingSnapshot> snapshotCaptor = ArgumentCaptor.forClass(HoldingSnapshot.class);
-        verify(holdingSnapshotRepository).save(snapshotCaptor.capture());
         assertThat(snapshotCaptor.getValue().getTotalQuantity()).isEqualTo(100L);
         assertThat(snapshotCaptor.getValue().getTotalHolders()).isEqualTo(1);
         assertThat(snapshotCaptor.getValue().getTotalShareQuantity()).isEqualTo(100L);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<DividendPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(dividendPayoutRepository).saveAll(payoutsCaptor.capture());
         assertThat(payoutsCaptor.getValue()).hasSize(1);
         assertThat(payoutsCaptor.getValue().get(0).getInvestorId()).isEqualTo(investorId);
         assertThat(payoutsCaptor.getValue().get(0).getAmount()).isEqualTo(10_000_000L);
@@ -226,56 +221,9 @@ class SettlementCommandServiceTest {
             verifyNoInteractions(assetServiceClient);
         }
 
-        @Test
-        @DisplayName("동시 요청으로 같은 revenueId의 UNIQUE 제약을 위반하면 SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE로 변환한다")
-        void translatesRevenueUniqueViolationOnConcurrentInsert() {
-            stubHappyPathUpToInsert();
-            when(settlementBatchRepository.saveAndFlush(any()))
-                    .thenThrow(constraintViolation("uk_settlement_batches_revenue_id"));
-
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
-                    .isInstanceOf(BusinessException.class)
-                    .extracting(e -> ((BusinessException) e).getErrorCode())
-                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
-        }
-
-        @Test
-        @DisplayName("동시 요청으로 자산별 진행 중 배치 부분 고유 인덱스를 위반하면 SETTLEMENT_IN_PROGRESS_FOR_ASSET으로 변환한다")
-        void translatesAssetInProgressUniqueViolationOnConcurrentInsert() {
-            stubHappyPathUpToInsert();
-            when(settlementBatchRepository.saveAndFlush(any()))
-                    .thenThrow(constraintViolation("uk_settlement_batches_asset_in_progress"));
-
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
-                    .isInstanceOf(BusinessException.class)
-                    .extracting(e -> ((BusinessException) e).getErrorCode())
-                    .isEqualTo(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
-        }
-
-        @Test
-        @DisplayName("알 수 없는 제약 위반이면 원래 예외를 그대로 전파한다")
-        void propagatesUnrecognizedConstraintViolation() {
-            stubHappyPathUpToInsert();
-            DataIntegrityViolationException unrecognized = constraintViolation("some_other_constraint");
-            when(settlementBatchRepository.saveAndFlush(any())).thenThrow(unrecognized);
-
-            assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
-                    .isSameAs(unrecognized);
-        }
-
-        private void stubHappyPathUpToInsert() {
-            stubNoExistingBatch();
-            stubRevenue(revenue(BigDecimal.valueOf(1_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
-                    RevenueTransferStatus.READY));
-            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
-                    .thenReturn(aggregated(1L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 1L, null))));
-        }
-
-        private DataIntegrityViolationException constraintViolation(String constraintName) {
-            ConstraintViolationException cause = new ConstraintViolationException(
-                    "duplicate key value violates unique constraint", new SQLException("duplicate key"), constraintName);
-            return new DataIntegrityViolationException("constraint violation", cause);
-        }
+        // 동시 요청으로 인한 UNIQUE 제약 위반 → BusinessException 변환 로직은 이제
+        // SettlementBatchWriter.persist() 안에서 일어난다 (mvp.md T4로 저장 책임을 분리함).
+        // 해당 시나리오의 테스트는 SettlementBatchWriterTest로 이동했다.
     }
 
     @Nested
@@ -325,7 +273,7 @@ class SettlementCommandServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
 
-            verifyNoInteractions(holdingSnapshotRepository);
+            verifyNoInteractions(settlementBatchWriter);
         }
     }
 
@@ -347,7 +295,7 @@ class SettlementCommandServiceTest {
                     .extracting(e -> ((BusinessException) e).getErrorCode())
                     .isEqualTo(SettlementErrorCode.HOLDING_SNAPSHOT_INVALID);
 
-            verify(settlementBatchRepository, never()).saveAndFlush(any());
+            verifyNoInteractions(settlementBatchWriter);
         }
 
         @Test
@@ -369,7 +317,7 @@ class SettlementCommandServiceTest {
 
             @SuppressWarnings("unchecked")
             ArgumentCaptor<List<DividendPayout>> payoutsCaptor = ArgumentCaptor.forClass(List.class);
-            verify(dividendPayoutRepository).saveAll(payoutsCaptor.capture());
+            verify(settlementBatchWriter).persist(any(), any(), payoutsCaptor.capture());
             assertThat(payoutsCaptor.getValue())
                     .extracting(DividendPayout::getInvestorId)
                     .containsExactlyInAnyOrder(investor1, investor2);

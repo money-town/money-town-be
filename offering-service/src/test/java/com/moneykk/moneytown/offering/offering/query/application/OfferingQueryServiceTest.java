@@ -5,22 +5,30 @@ import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.offering.query.dto.response.AiPortfolioCandidateResponse;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingDetailResponse;
 import com.moneykk.moneytown.offering.offering.query.repository.OfferingQueryRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -199,5 +207,96 @@ class OfferingQueryServiceTest {
                 .thenReturn(status);
 
         return offering;
+    }
+
+    @Test
+    @DisplayName("AI 포트폴리오 공모 후보를 지정된 개수만큼 조회한다")
+    void getsAiPortfolioCandidates() {
+        // given
+        int limit = 10;
+
+        AiPortfolioCandidateResponse candidate =
+                new AiPortfolioCandidateResponse(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "강남 오피스텔 조각투자 1차 공모",
+                        100_000L,
+                        100_000L,
+                        7_600L,
+                        Instant.parse("2026-09-10T09:00:00Z"),
+                        Instant.parse("2026-09-20T09:00:00Z")
+                );
+
+        when(offeringQueryRepository.findAiPortfolioCandidates(
+                any(Instant.class),
+                eq(limit)
+        )).thenReturn(List.of(candidate));
+
+        // when
+        List<AiPortfolioCandidateResponse> response =
+                offeringQueryService.getAiPortfolioCandidates(limit);
+
+        // then
+        assertThat(response)
+                .containsExactly(candidate);
+
+        verify(offeringQueryRepository)
+                .findAiPortfolioCandidates(
+                        any(Instant.class),
+                        eq(limit)
+                );
+
+        verifyNoInteractions(
+                offeringRepository,
+                subscriptionRepository
+        );
+    }
+
+    @Test
+    @DisplayName("AI 포트폴리오 공모 후보가 없으면 빈 목록을 반환한다")
+    void returnsEmptyAiPortfolioCandidateList() {
+        // given
+        int limit = 10;
+
+        when(offeringQueryRepository.findAiPortfolioCandidates(
+                any(Instant.class),
+                eq(limit)
+        )).thenReturn(List.of());
+
+        // when
+        List<AiPortfolioCandidateResponse> response =
+                offeringQueryService.getAiPortfolioCandidates(limit);
+
+        // then
+        assertThat(response).isEmpty();
+
+        verify(offeringQueryRepository)
+                .findAiPortfolioCandidates(
+                        any(Instant.class),
+                        eq(limit)
+                );
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 21})
+    @DisplayName("AI 포트폴리오 공모 후보 조회 개수가 허용 범위를 벗어나면 실패한다")
+    void rejectsInvalidAiPortfolioCandidateLimit(int limit) {
+        // when
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringQueryService.getAiPortfolioCandidates(limit)
+        );
+
+        // then
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        OfferingErrorCode.INVALID_OFFERING_SEARCH_CONDITION
+                );
+
+        verifyNoInteractions(
+                offeringRepository,
+                offeringQueryRepository,
+                subscriptionRepository
+        );
     }
 }

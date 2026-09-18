@@ -2,20 +2,24 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
+import com.moneykk.moneytown.offering.subscription.command.config.SubscriptionConfirmationProperties;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
+import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionBatchConfirmationMetrics;
 import com.moneykk.moneytown.offering.subscription.monitoring.SubscriptionLifecycleMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -25,28 +29,29 @@ public class SubscriptionBatchConfirmationService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final SubscriptionLifecycleMetrics subscriptionLifecycleMetrics;
+    private final SubscriptionBatchConfirmationMetrics subscriptionBatchConfirmationMetrics;
+    private final SubscriptionConfirmationProperties confirmationProperties;
 
     /**
-     * 매진된 공모에서 수량을 확보한 모든 청약의
-     * Wallet HOLD가 성공했는지 확인하고 일괄 확정한다.
+     * 최종 확정 조건을 만족한 공모의 청약을 제한된 크기로 확정한다.
      *
-     * 호출하는 서비스는 반드시 공모를 먼저 잠근 상태여야 한다.
-     * 공모 → 청약 순서로 잠금을 획득하여 동시 처리 시
-     * 교착 가능성을 줄인다.
+     * 호출 서비스는 반드시 공모를 먼저 잠근 상태여야 한다.
+     * 공모 → 청약 순서로 잠금을 획득하여 관리자 공모 중단,
+     * 다른 확정 배치와의 동시 실행을 직렬화한다.
      *
-     * SOLD_OUT 또는 CLOSED 상태이고 잔여 수량이 0인 공모만
-     * 청약 일괄 확정 대상이다.
+     * SOLD_OUT 또는 CLOSED 상태이고 잔여 수량이 0이며,
+     * 수량을 확보한 모든 청약의 Wallet HOLD 처리가 끝난 경우에만
+     * HOLD_SUCCEEDED 청약을 최대 설정된 배치 크기만큼 확정한다.
      *
-     * 모든 수량 확보 청약이 HOLD_SUCCEEDED 또는 CONFIRMED이면
-     * 아직 HOLD_SUCCEEDED인 청약을 CONFIRMED로 전환하고
-     * SubscriptionConfirmed 이벤트를 Outbox에 저장한다.
+     * 이미 CONFIRMED인 청약은 조회하지 않으므로 재실행해도
+     * 같은 청약에 대한 확정 이벤트를 중복 생성하지 않는다.
      *
      * @param offering 잠금이 획득된 공모
      * @param correlationId 원본 이벤트 또는 재처리 요청의 추적 ID
-     * @return 이번 호출에서 새로 CONFIRMED로 전환한 청약 수
+     * @return 이번 배치에서 CONFIRMED로 전환한 청약 수
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public int confirmAllIfReady(
+    public int confirmNextBatchIfReady(
             Offering offering,
             String correlationId
     ) {
@@ -66,11 +71,11 @@ public class SubscriptionBatchConfirmationService {
 
         /*
          * 모집 중이거나 잔여 수량이 남은 공모는
-         * 아직 전체 청약 확정 대상이 아니다.
+         * 아직 청약 확정 대상이 아니다.
          */
         if (!finalizableOffering) {
             log.debug(
-                    "공모 전체 확정 조건 미충족. "
+                    "공모 확정 조건 미충족. "
                             + "offeringId={}, status={}, remainingQuantity={}",
                     offering.getOfferingId(),
                     offering.getOfferingStatus(),
@@ -80,94 +85,112 @@ public class SubscriptionBatchConfirmationService {
             return 0;
         }
 
-        /*
-         * 현재 수량을 확보하고 있는 모든 청약을 잠근다.
-         *
-         * Hold 실패 후 수량이 복원된 REJECTED 청약은
-         * quantityReserved=false이므로 제외된다.
-         */
-        List<Subscription> reservedSubscriptions =
-                subscriptionRepository
-                        .findAllReservedByOfferingIdForUpdate(
-                                offering.getOfferingId()
-                        );
+        long batchStartedNanos = System.nanoTime();
 
         /*
-         * 잔여 수량이 0인데 수량 확보 청약이 없다면
-         * 공모와 청약 데이터가 일치하지 않는 상태다.
+         * 공모 잠금이 이미 획득된 상태에서 미완료 청약의 존재 여부만 먼저 확인한다.
+         *
+         * PROCESSING 등 아직 Wallet HOLD 결과를 기다리는 청약이 있으면
+         * 전체 청약 엔티티를 조회하거나 행 잠금을 획득하지 않는다.
          */
-        if (reservedSubscriptions.isEmpty()) {
-            throw new IllegalStateException(
-                    "매진된 공모에 수량 확보 청약이 존재하지 않습니다. "
-                            + "offeringId="
-                            + offering.getOfferingId()
+        boolean hasPendingHold = subscriptionRepository
+                .existsReservedSubscriptionAwaitingHold(
+                        offering.getOfferingId()
+                );
+
+        if (hasPendingHold) {
+            log.debug(
+                    "일부 청약의 Wallet HOLD 결과 대기 중. offeringId={}",
+                    offering.getOfferingId()
             );
+
+            return 0;
         }
 
         /*
-         * 기존 데이터와 재처리를 고려하여 CONFIRMED도
-         * Wallet HOLD가 완료된 상태로 인정한다.
+         * 아직 확정되지 않은 HOLD_SUCCEEDED 청약 중
+         * subscriptionId 순서로 최대 설정된 배치 크기만큼만 잠근다.
+         *
+         * 이미 CONFIRMED인 청약은 조회하지 않으므로
+         * 재실행해도 같은 청약의 확정 이벤트를 중복 생성하지 않는다.
          */
-        boolean allHoldsSucceeded =
-                reservedSubscriptions.stream()
-                        .allMatch(subscription ->
-                                subscription.getSubscriptionStatus()
-                                        == SubscriptionStatus.HOLD_SUCCEEDED
-                                        || subscription.getSubscriptionStatus()
-                                        == SubscriptionStatus.CONFIRMED
+        List<Subscription> confirmationBatch =
+                subscriptionRepository
+                        .findHoldSucceededBatchForUpdate(
+                                offering.getOfferingId(),
+                                PageRequest.of(
+                                        0,
+                                        confirmationProperties.getBatchSize()
+                                )
                         );
 
         /*
-         * PROCESSING 등 Wallet HOLD 결과를 기다리는 청약이
-         * 하나라도 있으면 일괄 확정을 시작하지 않는다.
+         * 처리할 HOLD_SUCCEEDED 청약이 없다면
+         * 모든 대상이 이미 확정됐거나 확정 대상이 없는 상태다.
          */
-        if (!allHoldsSucceeded) {
+        if (confirmationBatch.isEmpty()) {
             log.debug(
-                    "일부 청약의 Wallet HOLD 결과 대기 중. "
-                            + "offeringId={}, reservedSubscriptionCount={}",
-                    offering.getOfferingId(),
-                    reservedSubscriptions.size()
+                    "확정할 청약 배치가 없음. offeringId={}",
+                    offering.getOfferingId()
             );
 
             return 0;
         }
 
         Instant confirmedAt = Instant.now();
-        int confirmedCount = 0;
 
-        /*
-         * 모든 HOLD가 성공한 경우 아직 HOLD_SUCCEEDED인
-         * 청약만 CONFIRMED로 전환한다.
-         *
-         * 이미 CONFIRMED인 청약은 중복 이벤트를 발행하지 않는다.
-         */
-        for (Subscription subscription : reservedSubscriptions) {
-            if (subscription.getSubscriptionStatus()
-                    == SubscriptionStatus.CONFIRMED) {
-                continue;
+        List<UUID> subscriptionIds = confirmationBatch.stream()
+                .map(Subscription::getSubscriptionId)
+                .toList();
+
+        try {
+            for (Subscription subscription : confirmationBatch) {
+                subscription.confirm(confirmedAt);
+
+                subscriptionEventPublisher.publishConfirmed(
+                        subscription,
+                        offering.getAssetId(),
+                        correlationId
+                );
+
+                subscriptionLifecycleMetrics.publishOutcome(
+                        subscription,
+                        SubscriptionLifecycleMetrics.Result.CONFIRMED,
+                        confirmedAt
+                );
             }
 
-            subscription.confirm(confirmedAt);
-
-            subscriptionEventPublisher.publishConfirmed(
-                    subscription,
-                    offering.getAssetId(),
-                    correlationId
+            /*
+             * 상태 변경 또는 Outbox 저장의 제약조건 오류가
+             * 트랜잭션 커밋 때까지 늦게 발생하지 않도록 명시적으로
+             * flush하여 현재 배치의 청약 ID와 함께 전달한다.
+             */
+            subscriptionRepository.flush();
+        } catch (RuntimeException e) {
+            throw new SubscriptionConfirmationBatchException(
+                    offering.getOfferingId(),
+                    subscriptionIds,
+                    e
             );
-
-            subscriptionLifecycleMetrics.publishOutcome(
-                    subscription,
-                    SubscriptionLifecycleMetrics.Result.CONFIRMED,
-                    confirmedAt
-            );
-
-            confirmedCount++;
         }
 
+        int confirmedCount = confirmationBatch.size();
+
         log.info(
-                "공모 전체 Wallet HOLD 성공으로 청약 일괄 확정. "
-                        + "offeringId={}, confirmedCount={}",
+                "청약 확정 배치 처리 완료. "
+                        + "offeringId={}, confirmedCount={}, batchSize={}",
                 offering.getOfferingId(),
+                confirmedCount,
+                confirmationProperties.getBatchSize()
+        );
+
+        subscriptionBatchConfirmationMetrics.publish(
+                Duration.ofNanos(
+                        Math.max(
+                                0L,
+                                System.nanoTime() - batchStartedNanos
+                        )
+                ),
                 confirmedCount
         );
 

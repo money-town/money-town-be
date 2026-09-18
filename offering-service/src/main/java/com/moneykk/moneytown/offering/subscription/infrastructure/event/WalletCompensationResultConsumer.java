@@ -7,6 +7,7 @@ import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.subscription.command.application.WalletCompensationResultService;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -43,33 +44,39 @@ public class WalletCompensationResultConsumer {
         EventEnvelope<WalletCompensationResultPayload> envelope =
                 objectMapper.readValue(json, EVENT_TYPE);
 
-        validatePartitionKey(record.key(), envelope);
+        try {
+            MDC.put("requestId", envelope.correlationId());
 
-        String eventType = envelope.eventType();
+            validatePartitionKey(record.key(), envelope);
 
-        if (eventType == null || eventType.isBlank()) {
-            throw new IllegalArgumentException(
-                    "eventType은 필수입니다."
-            );
-        }
+            String eventType = envelope.eventType();
 
-        switch (eventType) {
-            case "WalletCompensationSucceeded" ->
-                    walletCompensationResultService.handleSucceeded(
-                            envelope,
-                            consumerGroup
-                    );
+            if (eventType == null || eventType.isBlank()) {
+                throw new IllegalArgumentException(
+                        "eventType은 필수입니다."
+                );
+            }
 
-            case "WalletCompensationFailed" ->
-                    walletCompensationResultService.handleFailed(
-                            envelope,
-                            consumerGroup
-                    );
+            switch (eventType) {
+                case "WalletCompensationSucceeded" ->
+                        walletCompensationResultService.handleSucceeded(
+                                envelope,
+                                consumerGroup
+                        );
 
-            default -> throw new IllegalArgumentException(
-                    "지원하지 않는 Wallet 보상 결과 이벤트입니다. eventType="
-                            + eventType
-            );
+                case "WalletCompensationFailed" ->
+                        walletCompensationResultService.handleFailed(
+                                envelope,
+                                consumerGroup
+                        );
+
+                default -> throw new IllegalArgumentException(
+                        "지원하지 않는 Wallet 보상 결과 이벤트입니다. eventType="
+                                + eventType
+                );
+            }
+        } finally {
+            MDC.remove("requestId");
         }
     }
 
