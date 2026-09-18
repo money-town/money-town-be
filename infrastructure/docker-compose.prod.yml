@@ -63,7 +63,6 @@ services:
     expose: !override
       - "19091"
       - "9091"
-    mem_limit: ${GATEWAY_SERVICE_MEMORY:-768m}
     deploy:
       replicas: ${GATEWAY_REPLICAS:-1}
     healthcheck: { start_period: 180s, retries: 20 }
@@ -73,7 +72,6 @@ services:
     expose: !override
       - "19092"
     cpus: ${USER_SERVICE_CPUS:-2.0}
-    mem_limit: ${USER_SERVICE_MEMORY:-768m}
     deploy:
       replicas: ${USER_SERVICE_REPLICAS:-1}
     healthcheck: { start_period: 180s, retries: 20 }
