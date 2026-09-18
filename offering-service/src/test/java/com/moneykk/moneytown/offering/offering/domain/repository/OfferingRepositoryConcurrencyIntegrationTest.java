@@ -66,6 +66,16 @@ class OfferingRepositoryConcurrencyIntegrationTest {
         );
 
         registry.add(
+                "spring.datasource.hikari.connection-timeout",
+                () -> 5_000L
+        );
+
+        registry.add(
+                "spring.datasource.hikari.connection-init-sql",
+                () -> "SET lock_timeout = '5s'"
+        );
+
+        registry.add(
                 "spring.jpa.hibernate.ddl-auto",
                 () -> "validate"
         );
@@ -91,6 +101,8 @@ class OfferingRepositoryConcurrencyIntegrationTest {
     void setUp() {
         transactionTemplate =
                 new TransactionTemplate(transactionManager);
+
+        transactionTemplate.setTimeout(15);
 
         jdbcTemplate.update(
                 "DELETE FROM p_offerings"
