@@ -179,6 +179,50 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     findNextCancellationTargetForUpdate();
 
     /**
+     * 예약 시간이 만료된 PROCESSING 청약을 가진 공모 한 건을 선점한다.
+     *
+     * 공모를 먼저 잠근 뒤 해당 공모의 청약을 잠그도록 강제하여
+     * Wallet 결과 처리와 동일한 Offering -> Subscription 잠금 순서를
+     * 유지한다.
+     *
+     * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가 동시에
+     * 실행되면 이미 처리 중인 공모를 기다리지 않고 다른 공모를
+     * 선택한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT o.*
+          FROM p_offerings o
+         WHERE o.is_deleted = FALSE
+           AND EXISTS (
+               SELECT 1
+                 FROM p_subscriptions s
+                WHERE s.offering_id = o.offering_id
+                  AND s.subscription_status = 'PROCESSING'
+                  AND s.reservation_expires_at <= :now
+                  AND s.is_deleted = FALSE
+           )
+         ORDER BY (
+             SELECT MIN(s.reservation_expires_at)
+               FROM p_subscriptions s
+              WHERE s.offering_id = o.offering_id
+                AND s.subscription_status = 'PROCESSING'
+                AND s.reservation_expires_at <= :now
+                AND s.is_deleted = FALSE
+         ) ASC,
+         o.offering_id ASC
+         LIMIT 1
+         FOR UPDATE OF o SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    Optional<Offering>
+    findNextExpiredReservationTargetForUpdate(
+            @Param("now") Instant now
+    );
+
+    /**
      * 시작 시간이 도래한 'SCHEDULED 공모를 OPEN'으로 일괄 전환한다.
      *
      * 스케줄러에서 주기적으로 호출하며,

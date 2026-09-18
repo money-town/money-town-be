@@ -19,8 +19,8 @@ public class SubscriptionTimeoutScheduler {
      * 예약 유효시간이 만료된 PROCESSING 청약을 탐지하여
      * 타임아웃 보상을 위한 COMPENSATING 상태로 전환한다.
      *
-     * SubscriptionTimeoutService가 키셋 방식으로 대상을 조회하고,
-     * 설정된 최대 배치 수까지만 처리한다.
+     * SubscriptionTimeoutService가 공모 단위 SKIP LOCKED로 대상을
+     * 선점하고 설정된 최대 배치 수까지만 처리한다.
      *
      * 개별 청약의 처리 실패와 실행 한도를 초과한 청약은
      * 다음 스케줄 실행에서 다시 처리한다.
