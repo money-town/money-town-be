@@ -106,7 +106,6 @@ public interface SubscriptionRepository
             @Param("subscriptionId") UUID subscriptionId
     );
 
-
     /**
      * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
      *
@@ -118,6 +117,42 @@ public interface SubscriptionRepository
     List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
             UUID offeringId,
             List<SubscriptionStatus> subscriptionStatuses
+    );
+
+    /**
+     * 공모 취소 시 보상을 시작할 청약 한 배치를 잠금 조회한다.
+     *
+     * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 상태이면서
+     * 삭제되지 않은 청약만 subscriptionId 순서로 조회한다.
+     *
+     * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가
+     * 동시에 실행되어도 이미 처리 중인 청약은 기다리지 않고
+     * 다음 청약을 조회한다.
+     *
+     * 호출 서비스는 반드시 트랜잭션 안에서 먼저 Offering을
+     * 잠근 후 이 메서드를 호출해야 한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT s.*
+          FROM p_subscriptions s
+         WHERE s.offering_id = :offeringId
+           AND s.subscription_status IN (
+               'PROCESSING',
+               'HOLD_SUCCEEDED',
+               'CONFIRMED'
+           )
+           AND s.is_deleted = FALSE
+         ORDER BY s.subscription_id ASC
+         LIMIT :batchSize
+         FOR UPDATE OF s SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<Subscription> findCompensationBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
+            @Param("batchSize") int batchSize
     );
 
     /**
@@ -145,29 +180,29 @@ public interface SubscriptionRepository
     );
 
     /**
-     * SOLD_OUT 공모의 최종 확정을 위해
-     * 현재 수량이 확보되어 있는 모든 청약을 잠금 조회한다.
+     * 최종 확정 가능한 HOLD_SUCCEEDED 청약을 제한된 개수만 잠금 조회한다.
      *
-     * Hold 실패 후 수량이 복원된 REJECTED 청약은
-     * quantityReserved=false이므로 조회 대상에서 제외한다.
+     * 호출 서비스는 반드시 같은 트랜잭션에서 Offering을 먼저 잠가야 한다.
+     * 공모 잠금으로 관리자 중단 및 다른 확정 배치와의 동시 실행을 직렬화하고,
+     * 청약은 subscriptionId 순서로 잠가 교착 가능성을 줄인다.
      *
-     * 공모 취소 처리와 잠금 순서를 통일하기 위해
-     * 호출하는 서비스에서 공모를 먼저 잠근 후 이 메서드를 호출해야 한다.
-     *
-     * subscriptionId 순서로 잠가 동시 처리 시 교착 가능성을 줄인다.
+     * List 반환이므로 Pageable을 사용해도 COUNT 쿼리는 실행되지 않는다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-        SELECT s
-          FROM Subscription s
-         WHERE s.offeringId = :offeringId
-           AND s.quantityReserved = true
-           AND s.isDeleted = false
-         ORDER BY s.subscriptionId
-        """)
-    List<Subscription> findAllReservedByOfferingIdForUpdate(
-            @Param("offeringId") UUID offeringId
+    SELECT s
+      FROM Subscription s
+     WHERE s.offeringId = :offeringId
+       AND s.subscriptionStatus =
+           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.HOLD_SUCCEEDED
+       AND s.quantityReserved = true
+       AND s.isDeleted = false
+     ORDER BY s.subscriptionId ASC
+    """)
+    List<Subscription> findHoldSucceededBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
+            Pageable pageable
     );
 
     /**

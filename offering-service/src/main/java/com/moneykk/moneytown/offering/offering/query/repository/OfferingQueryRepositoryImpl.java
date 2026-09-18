@@ -6,8 +6,10 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.entity.QOffering;
 import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchCondition;
+import com.moneykk.moneytown.offering.offering.query.dto.response.AiPortfolioCandidateResponse;
 import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.types.OrderSpecifier;
+import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -16,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -81,6 +84,47 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
         BooleanBuilder conditions = createCommonSearchConditions(condition);
 
         return search(conditions, pageable);
+    }
+
+    /**
+     * AI 포트폴리오 생성에 사용할 공모 후보를 조회한다.
+     *
+     * 전체 건수 조회와 offset 기반 페이징을 수행하지 않고
+     * AI 포트폴리오 생성에 필요한 필드만 조회한다.
+     */
+    @Override
+    public List<AiPortfolioCandidateResponse> findAiPortfolioCandidates(
+            Instant now,
+            int limit
+    ) {
+        return queryFactory
+                .select(
+                        Projections.constructor(
+                                AiPortfolioCandidateResponse.class,
+                                offering.offeringId,
+                                offering.assetId,
+                                offering.title,
+                                offering.pricePerUnit,
+                                offering.totalQuantity,
+                                offering.remainingQuantity,
+                                offering.startAt,
+                                offering.endAt
+                        )
+                )
+                .from(offering)
+                .where(
+                        offering.isDeleted.isFalse(),
+                        offering.offeringStatus.eq(OfferingStatus.OPEN),
+                        offering.remainingQuantity.gt(0L),
+                        offering.startAt.loe(now),
+                        offering.endAt.gt(now)
+                )
+                .orderBy(
+                        offering.endAt.asc(),
+                        offering.offeringId.asc()
+                )
+                .limit(limit)
+                .fetch();
     }
 
     private Page<Offering> search(

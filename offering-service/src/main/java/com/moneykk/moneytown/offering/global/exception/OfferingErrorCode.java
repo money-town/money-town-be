@@ -181,6 +181,11 @@ public enum OfferingErrorCode implements ErrorCode {
             HttpStatus.SERVICE_UNAVAILABLE,
             "OFFERING_503_02",
             "현재 사용자 상태 조회 서비스를 사용할 수 없습니다."
+    ),
+    DATABASE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "OFFERING_503_03",
+            "현재 공모 데이터베이스 연결을 사용할 수 없습니다."
     )
 
     ;
