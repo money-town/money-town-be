@@ -71,11 +71,6 @@ class OfferingRepositoryConcurrencyIntegrationTest {
         );
 
         registry.add(
-                "spring.datasource.hikari.connection-init-sql",
-                () -> "SET lock_timeout = '5s'"
-        );
-
-        registry.add(
                 "spring.jpa.hibernate.ddl-auto",
                 () -> "validate"
         );
@@ -255,13 +250,18 @@ class OfferingRepositoryConcurrencyIntegrationTest {
 
                                     Integer result =
                                             transactionTemplate.execute(
-                                                    status ->
-                                                            offeringRepository
-                                                                    .reserveQuantity(
-                                                                            offeringId,
-                                                                            quantity,
-                                                                            userId
-                                                                    )
+                                                    status -> {
+                                                        jdbcTemplate.execute(
+                                                                "SET LOCAL lock_timeout = '5s'"
+                                                        );
+
+                                                        return offeringRepository
+                                                                .reserveQuantity(
+                                                                        offeringId,
+                                                                        quantity,
+                                                                        userId
+                                                                );
+                                                    }
                                             );
 
                                     if (result == null) {
