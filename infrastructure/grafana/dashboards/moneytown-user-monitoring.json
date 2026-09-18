@@ -118,7 +118,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "1000 * sum(rate(http_server_requests_seconds_sum{application=\"user-service\",uri!~\"/actuator.*\"}[1m])) / clamp_min(sum(rate(http_server_requests_seconds_count{application=\"user-service\",uri!~\"/actuator.*\"}[1m])), 0.001)", "legendFormat": "평균", "refId": "A" },
         { "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{application=\"user-service\",uri!~\"/actuator.*\"}[5m])))", "legendFormat": "p95", "refId": "B" }
@@ -131,7 +131,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=\"user-service\",uri!~\"/actuator.*\"}[1m]))", "legendFormat": "{{status}}", "refId": "A" }
       ]
@@ -144,7 +144,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "1000 * sum by (uri) (rate(http_server_requests_seconds_sum{application=\"user-service\",uri=~\"/api/v1/(auth/login|internal/users/.*|kyc-verifications.*)\"}[1m])) / clamp_min(sum by (uri) (rate(http_server_requests_seconds_count{application=\"user-service\",uri=~\"/api/v1/(auth/login|internal/users/.*|kyc-verifications.*)\"}[1m])), 0.001)", "legendFormat": "{{uri}}", "refId": "A" }
       ]
@@ -156,7 +156,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "sum by (uri) (rate(http_server_requests_seconds_count{application=\"user-service\",uri=~\"/api/v1/(auth/login|internal/users/.*|kyc-verifications.*)\"}[1m]))", "legendFormat": "{{uri}}", "refId": "A" }
       ]
@@ -185,7 +185,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
       "fieldConfig": { "defaults": { "unit": "ms", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "1000 * sum(rate(hikaricp_connections_acquire_seconds_sum{application=\"user-service\"}[1m])) / clamp_min(sum(rate(hikaricp_connections_acquire_seconds_count{application=\"user-service\"}[1m])), 0.001)", "legendFormat": "평균 획득시간", "refId": "A" }
       ]
@@ -197,7 +197,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "process_cpu_usage{application=\"user-service\"} * 100", "legendFormat": "프로세스", "refId": "A" },
         { "expr": "system_cpu_usage{application=\"user-service\"} * 100", "legendFormat": "시스템", "refId": "B" }
@@ -210,7 +210,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
-      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "options": { "legend": { "calcs": ["min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "expr": "100 * sum(jvm_memory_used_bytes{application=\"user-service\",area=\"heap\"}) / clamp_min(sum(jvm_memory_max_bytes{application=\"user-service\",area=\"heap\"} >= 0), 1)", "legendFormat": "Heap", "refId": "A" }
       ]

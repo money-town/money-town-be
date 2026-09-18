@@ -1,9 +1,20 @@
 server:
   port: 19092
+  tomcat:
+    mbeanregistry:
+      enabled: true
+    threads:
+      max: 200
+      min-spare: 20
+    accept-count: 500
+    max-connections: 1000
 
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/user_db}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:

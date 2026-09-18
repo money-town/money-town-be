@@ -4,11 +4,16 @@
 #     -f infrastructure/docker-compose.yml \
 #     -f infrastructure/docker-compose.prod.yml up -d
 #
-# 이 파일이 하는 일은 네 가지뿐이다.
+# 이 파일이 하는 일은 다섯 가지다.
 #   1) 호스트에 공개된 포트를 전부 닫는다 — 외부 진입점은 nginx 하나로 고정
 #   2) 개발 편의용 GUI 컨테이너(kafka-ui, redisinsight)를 기동 대상에서 뺀다
 #   3) nginx를 80/443으로 노출하고, 운영 전용 설정과 인증서를 마운트한다
 #   4) 2 vCPU(t3.large) 기준으로 healthcheck 예산을 늘린다
+#   5) Gateway/User Service 복제 수를 환경변수로 조절할 수 있게 한다
+#
+# GATEWAY_REPLICAS와 USER_SERVICE_REPLICAS의 기본값은 1이다.
+# 단일 EC2 안에서 컨테이너 수만 늘려도 물리 CPU는 늘지 않으므로,
+# EC2 CPU를 확장하거나 여러 호스트/ECS로 분리한 뒤 값을 높일 것.
 
 services:
 
@@ -55,10 +60,22 @@ services:
 
   gateway-service:
     ports: !reset []
+    expose: !override
+      - "19091"
+      - "9091"
+    mem_limit: ${GATEWAY_SERVICE_MEMORY:-768m}
+    deploy:
+      replicas: ${GATEWAY_REPLICAS:-1}
     healthcheck: { start_period: 180s, retries: 20 }
 
   user-service:
     ports: !reset []
+    expose: !override
+      - "19092"
+    cpus: ${USER_SERVICE_CPUS:-2.0}
+    mem_limit: ${USER_SERVICE_MEMORY:-768m}
+    deploy:
+      replicas: ${USER_SERVICE_REPLICAS:-1}
     healthcheck: { start_period: 180s, retries: 20 }
 
   wallet-service:
