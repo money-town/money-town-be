@@ -258,6 +258,71 @@ class OfferingQueryRepositoryImplIntegrationTest {
     }
 
     @Test
+    @DisplayName("startAt 필드로 내림차순 정렬할 수 있다")
+    void searchSortsByStartAtDescending() {
+        UUID earlier = insertOffering("OPEN", "공모1", 100, 10000, -1_000, 3_600, false, UUID.randomUUID());
+        UUID later = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
+
+        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+                new OfferingSearchCondition(null, null),
+                PageRequest.of(0, 10, Sort.by(Sort.Order.desc("startAt")))
+        );
+
+        assertThat(result.getContent())
+                .extracting(Offering::getOfferingId)
+                .containsExactly(later, earlier);
+    }
+
+    @Test
+    @DisplayName("endAt 필드로 오름차순 정렬할 수 있다")
+    void searchSortsByEndAtAscending() {
+        UUID soonToEnd = insertOffering("OPEN", "공모1", 100, 10000, -100, 1_000, false, UUID.randomUUID());
+        UUID laterEnd = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
+
+        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+                new OfferingSearchCondition(null, null),
+                PageRequest.of(0, 10, Sort.by(Sort.Order.asc("endAt")))
+        );
+
+        assertThat(result.getContent())
+                .extracting(Offering::getOfferingId)
+                .containsExactly(soonToEnd, laterEnd);
+    }
+
+    @Test
+    @DisplayName("remainingQuantity 필드로 내림차순 정렬할 수 있다")
+    void searchSortsByRemainingQuantityDescending() {
+        UUID fewer = insertOffering("OPEN", "공모1", 10, 10000, -100, 3_600, false, UUID.randomUUID());
+        UUID more = insertOffering("OPEN", "공모2", 90, 10000, -100, 3_600, false, UUID.randomUUID());
+
+        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+                new OfferingSearchCondition(null, null),
+                PageRequest.of(0, 10, Sort.by(Sort.Order.desc("remainingQuantity")))
+        );
+
+        assertThat(result.getContent())
+                .extracting(Offering::getOfferingId)
+                .containsExactly(more, fewer);
+    }
+
+    @Test
+    @DisplayName("createdAt 필드를 명시적으로 오름차순 정렬할 수 있다")
+    void searchSortsByCreatedAtAscendingExplicitly() throws InterruptedException {
+        UUID first = insertOffering("OPEN", "공모1", 100, 10000, -100, 3_600, false, UUID.randomUUID());
+        Thread.sleep(10);
+        UUID second = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
+
+        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+                new OfferingSearchCondition(null, null),
+                PageRequest.of(0, 10, Sort.by(Sort.Order.asc("createdAt")))
+        );
+
+        assertThat(result.getContent())
+                .extracting(Offering::getOfferingId)
+                .containsExactly(first, second);
+    }
+
+    @Test
     @DisplayName("허용되지 않은 정렬 필드는 BusinessException을 발생시킨다")
     void searchRejectsDisallowedSortField() {
         Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Order.asc("title")));

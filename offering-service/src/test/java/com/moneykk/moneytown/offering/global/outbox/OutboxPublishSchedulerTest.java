@@ -12,6 +12,9 @@ import org.springframework.kafka.support.SendResult;
 import org.springframework.test.util.ReflectionTestUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -562,6 +565,14 @@ class OutboxPublishSchedulerTest {
             int maxInFlight,
             Executor publishExecutor
     ) {
+        return createScheduler(maxInFlight, publishExecutor, Runnable::run);
+    }
+
+    private OutboxPublishScheduler createScheduler(
+            int maxInFlight,
+            Executor publishExecutor,
+            Executor callbackExecutor
+    ) {
         OutboxPublishMonitor monitor =
                 new OutboxPublishMonitor(
                         outboxPublishService,
@@ -575,8 +586,7 @@ class OutboxPublishSchedulerTest {
                         outboxKafkaPublisher,
                         new ObjectMapper(),
                         publishExecutor,
-                        // callback executor
-                        Runnable::run,
+                        callbackExecutor,
                         monitor,
                         offeringSchedulerMetrics
                 );
@@ -888,6 +898,114 @@ class OutboxPublishSchedulerTest {
         scheduler.publishPendingEvents();
 
         verify(outboxPublishService).markPublished(event);
+    }
+
+    @Test
+    @DisplayName("발행 슬롯 확보 중 예외가 발생하면 이벤트를 선점하지 않고 실패를 기록한다")
+    void recordsFailureWhenReservingSlotsThrows() {
+        OutboxPublishMonitor failingMonitor = mock(OutboxPublishMonitor.class);
+
+        when(failingMonitor.reserveSlots(anyInt()))
+                .thenThrow(new RuntimeException("모니터 오류"));
+
+        OutboxPublishScheduler failingScheduler =
+                new OutboxPublishScheduler(
+                        outboxPublishService,
+                        outboxKafkaPublisher,
+                        new ObjectMapper(),
+                        Runnable::run,
+                        Runnable::run,
+                        failingMonitor,
+                        offeringSchedulerMetrics
+                );
+
+        ReflectionTestUtils.setField(failingScheduler, "batchSize", 10);
+        ReflectionTestUtils.setField(
+                failingScheduler, "completionTimeoutSeconds", 70L
+        );
+
+        failingScheduler.publishPendingEvents();
+
+        verify(offeringSchedulerMetrics)
+                .recordOutboxPublishBatchFailure();
+
+        verify(outboxPublishService, never())
+                .claimPendingEvents(anyInt());
+    }
+
+    @Test
+    @DisplayName("Kafka 발행 Future가 null이면 실패로 기록한다")
+    void marksFailureWhenPublishFutureIsNull() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(null);
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(event),
+                contains("IllegalStateException: Kafka 발행 Future가 null입니다")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markFailedAttempt(
+                        eq(event),
+                        contains(
+                                "IllegalStateException: "
+                                        + "Kafka 발행 Future가 null입니다"
+                        )
+                );
+    }
+
+    @Test
+    @DisplayName("완료 콜백 등록 자체가 실패해도 예외를 전파하지 않는다")
+    void swallowsExceptionWhenRegisteringCompletionCallbackFails() {
+        scheduler = createScheduler(
+                20,
+                Runnable::run,
+                command -> {
+                    throw new RejectedExecutionException(
+                            "callback executor saturated"
+                    );
+                }
+        );
+
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(successfulFuture());
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService, never())
+                .markPublished(any());
+
+        verify(outboxPublishService, never())
+                .markFailedAttempt(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("처리 기한을 초과한 이벤트가 있으면 복구 건수를 경고 로그로 남긴다")
+    void recoversExpiredEventsAndRecordsCount() {
+        when(outboxPublishService.recoverExpiredProcessing(100))
+                .thenReturn(3);
+
+        scheduler.recoverExpiredEvents();
+
+        verify(outboxPublishService)
+                .recoverExpiredProcessing(100);
+
+        verify(offeringSchedulerMetrics, never())
+                .recordOutboxRecoveryFailure();
     }
 
     private OutboxPublishService.ClaimedEvent createEvent(

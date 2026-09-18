@@ -874,6 +874,360 @@ class WalletHoldResultServiceTest {
                 .thenReturn(Optional.of(offering));
     }
 
+    // =========================================================
+    // 이벤트 유효성 검증 / not-found 분기
+    // =========================================================
+
+    @Test
+    @DisplayName("WalletHoldSucceeded가 아닌 이벤트 타입은 거부한다")
+    void rejectsWrongSucceededEventType() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WrongType",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldSucceededPayload(100L, 200L, "HELD")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("WalletHoldSucceeded");
+
+        verifyNoInteractions(processedEventService);
+    }
+
+    @Test
+    @DisplayName("correlationId가 없으면 동결 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithoutCorrelationId() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldSucceeded",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        " ",
+                        new WalletHoldSucceededPayload(100L, 200L, "HELD")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("correlationId");
+    }
+
+    @Test
+    @DisplayName("holdId가 양수가 아니면 동결 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithInvalidHoldId() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldSucceeded",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldSucceededPayload(0L, 200L, "HELD")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("holdId");
+    }
+
+    @Test
+    @DisplayName("walletId가 양수가 아니면 동결 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithInvalidWalletId() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldSucceeded",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldSucceededPayload(100L, 0L, "HELD")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("walletId");
+    }
+
+    @Test
+    @DisplayName("status가 HELD가 아니면 동결 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithWrongStatus() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldSucceeded",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldSucceededPayload(100L, 200L, "PENDING")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("HELD");
+    }
+
+    @Test
+    @DisplayName("aggregateId가 비어 있으면 동결 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithBlankAggregateId() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldSucceeded",
+                        " ",
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldSucceededPayload(100L, 200L, "HELD")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("aggregateId");
+    }
+
+    @Test
+    @DisplayName("aggregateId가 UUID 형식이 아니면 동결 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithNonUuidAggregateId() {
+        EventEnvelope<WalletHoldSucceededPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldSucceeded",
+                        "not-a-uuid",
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldSucceededPayload(100L, 200L, "HELD")
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("UUID");
+    }
+
+    @Test
+    @DisplayName("청약을 찾을 수 없으면 동결 성공 처리를 거부한다")
+    void rejectsSucceededEventWhenOfferingIdLookupMissing() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                )
+        ).isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                         .getErrorCode()
+         ).isEqualTo(
+                 com.moneykk.moneytown.offering.global.exception
+                         .SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+         ));
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 동결 성공 처리를 거부한다")
+    void rejectsSucceededEventWhenOfferingMissing() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleSucceeded(
+                        succeededEvent(subscription),
+                        CONSUMER_GROUP
+                )
+        ).isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                         .getErrorCode()
+         ).isEqualTo(
+                 com.moneykk.moneytown.offering.global.exception
+                         .OfferingErrorCode.OFFERING_NOT_FOUND
+         ));
+    }
+
+    @Test
+    @DisplayName("WalletHoldFailed가 아닌 이벤트 타입은 거부한다")
+    void rejectsWrongFailedEventType() {
+        EventEnvelope<WalletHoldFailedPayload> event =
+                EventEnvelope.of(
+                        "WrongType",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldFailedPayload(
+                                200L, "FAILED", "INSUFFICIENT_AVAILABLE_BALANCE"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("WalletHoldFailed");
+    }
+
+    @Test
+    @DisplayName("status가 FAILED가 아니면 동결 실패 이벤트를 거부한다")
+    void rejectsFailedEventWithWrongStatus() {
+        EventEnvelope<WalletHoldFailedPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldFailed",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldFailedPayload(
+                                200L, "PENDING", "INSUFFICIENT_AVAILABLE_BALANCE"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("FAILED");
+    }
+
+    @Test
+    @DisplayName("reason이 없으면 동결 실패 이벤트를 거부한다")
+    void rejectsFailedEventWithoutReason() {
+        EventEnvelope<WalletHoldFailedPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldFailed",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldFailedPayload(200L, "FAILED", null)
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("reason");
+    }
+
+    @Test
+    @DisplayName("walletId가 있는데 양수가 아니면 동결 실패 이벤트를 거부한다")
+    void rejectsFailedEventWithInvalidWalletId() {
+        EventEnvelope<WalletHoldFailedPayload> event =
+                EventEnvelope.of(
+                        "WalletHoldFailed",
+                        UUID.randomUUID().toString(),
+                        userId,
+                        CORRELATION_ID,
+                        new WalletHoldFailedPayload(
+                                0L, "FAILED", "INSUFFICIENT_AVAILABLE_BALANCE"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("walletId");
+    }
+
+    @Test
+    @DisplayName("청약을 찾을 수 없으면 동결 실패 처리를 거부한다")
+    void rejectsFailedEventWhenOfferingIdLookupMissing() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                )
+        ).isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                         .getErrorCode()
+         ).isEqualTo(
+                 com.moneykk.moneytown.offering.global.exception
+                         .SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+         ));
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 동결 실패 처리를 거부한다")
+    void rejectsFailedEventWhenOfferingMissing() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                )
+        ).isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                         .getErrorCode()
+         ).isEqualTo(
+                 com.moneykk.moneytown.offering.global.exception
+                         .OfferingErrorCode.OFFERING_NOT_FOUND
+         ));
+    }
+
+    @Test
+    @DisplayName("동결 실패 이벤트의 청약을 잠금 조회로 찾을 수 없으면 거부한다")
+    void rejectsFailedEventWhenSubscriptionLockMissing() {
+        Subscription subscription = newSubscription();
+
+        executeBusinessAction();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        Offering offering = mock(Offering.class);
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(subscriptionRepository.findByIdForUpdate(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                walletHoldResultService.handleFailed(
+                        failedEvent(subscription),
+                        CONSUMER_GROUP
+                )
+        ).isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                         .getErrorCode()
+         ).isEqualTo(
+                 com.moneykk.moneytown.offering.global.exception
+                         .SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+         ));
+    }
+
     private Offering stubOfferingForFailure(
             Subscription subscription
     ) {
