@@ -256,7 +256,7 @@ public class AssetCommandService {
                 "AssetTerminationRequested",
                 assetId.toString(),
                 userId,
-                MDC.get("requestId"),
+                correlationId(),
                 new AssetTerminationRequestedPayload(
                         assetId,
                         terminatedAt,
@@ -268,6 +268,13 @@ public class AssetCommandService {
                 ASSET_TERMINATION_REQUESTED_TOPIC,
                 envelope
         );
+    }
+
+    private String correlationId() {
+        String requestId = MDC.get("requestId");
+        return requestId == null || requestId.isBlank()
+                ? UUID.randomUUID().toString()
+                : requestId;
     }
 
     /**

@@ -38,6 +38,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -426,6 +427,7 @@ class RevenueCommandServiceTest {
         assertEquals("RevenueReady", envelope.eventType());
         assertEquals(assetId.toString(), envelope.aggregateId());
         assertEquals(userId, envelope.userId());
+        assertDoesNotThrow(() -> UUID.fromString(envelope.correlationId()));
         assertEquals(
                 new RevenueReadyPayload(assetId, revenueId),
                 envelope.payload()

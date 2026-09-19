@@ -25,9 +25,7 @@ public record EventEnvelope<T>(
                 aggregateId,
                 userId,
                 Instant.now(),
-                correlationId == null || correlationId.isBlank()
-                        ? UUID.randomUUID().toString()
-                        : correlationId,
+                correlationId,
                 payload
         );
     }

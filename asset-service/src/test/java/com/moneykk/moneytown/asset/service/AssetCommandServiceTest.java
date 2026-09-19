@@ -47,6 +47,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -434,6 +435,7 @@ class AssetCommandServiceTest {
         assertEquals("AssetTerminationRequested", envelope.eventType());
         assertEquals(assetId.toString(), envelope.aggregateId());
         assertEquals(ownerId, envelope.userId());
+        assertDoesNotThrow(() -> UUID.fromString(envelope.correlationId()));
         AssetTerminationRequestedPayload payload =
                 (AssetTerminationRequestedPayload) envelope.payload();
         assertEquals(assetId, payload.assetId());

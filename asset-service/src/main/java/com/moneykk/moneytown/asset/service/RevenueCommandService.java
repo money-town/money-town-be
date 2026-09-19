@@ -147,12 +147,19 @@ public class RevenueCommandService {
                 "RevenueReady",
                 revenue.getAssetId().toString(),
                 revenue.getUserId(),
-                MDC.get("requestId"),
+                correlationId(),
                 new RevenueReadyPayload(
                         revenue.getAssetId(),
                         revenue.getId()
                 )
         );
         outboxEventStore.save("ASSET", REVENUE_READY_TOPIC, envelope);
+    }
+
+    private String correlationId() {
+        String requestId = MDC.get("requestId");
+        return requestId == null || requestId.isBlank()
+                ? UUID.randomUUID().toString()
+                : requestId;
     }
 }
