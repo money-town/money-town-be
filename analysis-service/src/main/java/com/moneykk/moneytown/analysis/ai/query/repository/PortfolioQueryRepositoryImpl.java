@@ -2,8 +2,10 @@ package com.moneykk.moneytown.analysis.ai.query.repository;
 
 import com.moneykk.moneytown.analysis.ai.domain.Portfolio;
 import com.moneykk.moneytown.analysis.ai.domain.QPortfolio;
+import com.moneykk.moneytown.analysis.ai.query.dto.PortfolioItemResponse;
 import com.moneykk.moneytown.analysis.ai.query.dto.PortfolioSearchCondition;
 import com.querydsl.core.BooleanBuilder;
+import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -23,13 +25,23 @@ public class PortfolioQueryRepositoryImpl implements PortfolioQueryRepository{
     private final JPAQueryFactory queryFactory;
 
     @Override
-    public Page<Portfolio> searchMyPortfolio(UUID userId,PortfolioSearchCondition searchCondition, Pageable pageable) {
+    public Page<PortfolioItemResponse> searchMyPortfolio(UUID userId,PortfolioSearchCondition searchCondition, Pageable pageable) {
         BooleanBuilder search = searchPortfolios(searchCondition);
 
         search.and(portfolio.userId.eq(userId));
 
-        List<Portfolio> content = queryFactory
-                .selectFrom(portfolio)
+        List<PortfolioItemResponse> content = queryFactory
+                .select(Projections.constructor(
+                        PortfolioItemResponse.class,
+                        portfolio.id,
+                        portfolio.investmentAmount,
+                        portfolio.riskType,
+                        portfolio.assetType,
+                        portfolio.status,
+                        portfolio.createdAt,
+                        portfolio.completedAt
+                ))
+                .from(portfolio)
                 .where(search)
                 .offset(pageable.getOffset())
                 .orderBy(portfolio.createdAt.desc(), portfolio.id.desc())
