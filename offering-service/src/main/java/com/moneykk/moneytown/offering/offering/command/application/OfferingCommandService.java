@@ -19,6 +19,12 @@ import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOf
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import feign.FeignException;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,9 +38,13 @@ public class OfferingCommandService {
 
     private static final int MAX_OFFERING_TITLE_LENGTH = 200;
 
+    private static final String USER_SERVICE_RESILIENCE_KEY = "user-service";
+
     private final OfferingRepository offeringRepository;
     private final AssetServiceClient assetServiceClient;
     private final UserServiceClient userServiceClient;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
+    private final BulkheadRegistry bulkheadRegistry;
 
     private final OfferingTransactionService offeringTransactionService;
 
@@ -190,7 +200,13 @@ public class OfferingCommandService {
     private void validateIssuerEligibility(UUID issuerId) {
         try {
             ApiResponse<UserInvestmentEligibilityResponse> response =
-                    userServiceClient.getInvestmentEligibility(issuerId);
+                    Bulkhead.decorateSupplier(
+                            bulkheadRegistry.bulkhead(USER_SERVICE_RESILIENCE_KEY),
+                            CircuitBreaker.decorateSupplier(
+                                    circuitBreakerRegistry.circuitBreaker(USER_SERVICE_RESILIENCE_KEY),
+                                    () -> userServiceClient.getInvestmentEligibility(issuerId)
+                            )
+                    ).get();
 
             UserInvestmentEligibilityResponse user =
                     response != null
@@ -213,7 +229,7 @@ public class OfferingCommandService {
                     OfferingErrorCode.OFFERING_USER_NOT_FOUND
             );
 
-        } catch (FeignException e) {
+        } catch (FeignException | CallNotPermittedException | BulkheadFullException e) {
             throw new BusinessException(
                     OfferingErrorCode.USER_SERVICE_UNAVAILABLE
             );
