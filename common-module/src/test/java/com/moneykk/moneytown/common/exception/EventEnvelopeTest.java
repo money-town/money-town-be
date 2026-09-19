@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class EventEnvelopeTest {
     @Test
@@ -37,5 +38,20 @@ class EventEnvelopeTest {
         assertThat(event.occurredAt()).isBetween(before, after);
         assertThat(event.correlationId()).isEqualTo(correlationId);
         assertThat(event.payload()).isEqualTo(userId);
+    }
+
+    @Test
+    @DisplayName("요청 추적 ID가 없으면 신규 UUID를 생성한다")
+    void createCorrelationIdWhenMissing() {
+        EventEnvelope<Void> event = EventEnvelope.of(
+                "TestEvent",
+                UUID.randomUUID().toString(),
+                null,
+                null,
+                null
+        );
+
+        assertThatCode(() -> UUID.fromString(event.correlationId()))
+                .doesNotThrowAnyException();
     }
 }

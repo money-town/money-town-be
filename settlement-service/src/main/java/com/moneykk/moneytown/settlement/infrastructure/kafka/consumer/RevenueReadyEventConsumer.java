@@ -65,7 +65,7 @@ public class RevenueReadyEventConsumer {
                     throw e;
                 }
                 // 자산당 진행 중 배치 1개 제약 — 같은 자산의 다른 revenue가 먼저 배치를 잡은 정상 상황.
-                // 에러가 아니라 성공(ack) 처리하고 3분(추후 30분) 폴링 백스톱이 재수거하도록 넘긴다.
+                // 에러가 아니라 성공(ack) 처리하고 30분 폴링 백스톱이 재수거하도록 넘긴다.
                 meterRegistry.counter("settlement.batch.auto_open", "result", "skipped_in_progress").increment();
                 log.debug("정산 회차 자동 개시 건너뜀 (assetId={}, revenueId={}, reason={})",
                         payload.assetId(), payload.revenueId(), e.getErrorCode());

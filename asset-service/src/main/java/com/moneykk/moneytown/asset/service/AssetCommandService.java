@@ -1,18 +1,23 @@
 package com.moneykk.moneytown.asset.service;
 
-import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
-import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
+import com.moneykk.moneytown.asset.entity.RevenueTransferStatus;
 import com.moneykk.moneytown.asset.global.config.AssetRedisCacheConfig;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.asset.global.outbox.OutboxEventStore;
+import com.moneykk.moneytown.asset.infrastructure.kafka.event.AssetTerminationRequestedPayload;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.AssetRepository;
+import com.moneykk.moneytown.asset.repository.RevenueRepository;
+import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,13 +37,18 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AssetCommandService {
 
+    private static final String ASSET_TERMINATION_REQUESTED_TOPIC =
+            "asset-termination-requested";
+
     private static final long MAX_IMAGE_SIZE =
             10L * 1024 * 1024;
 
     private final AssetRepository assetRepository;
     private final AssetQueryRepository assetQueryRepository;
+    private final RevenueRepository revenueRepository;
     private final S3StorageService s3StorageService;
-    private final SettlementServiceClient settlementServiceClient;
+    private final OutboxEventStore outboxEventStore;
+    private final MeterRegistry meterRegistry;
     private final TransactionTemplate transactionTemplate;
 
     /**
@@ -194,14 +204,13 @@ public class AssetCommandService {
             UUID userId,
             String role
     ) {
-        FinalSettlementOpenRequest request = transactionTemplate.execute(status ->
-                prepareAssetTermination(assetId, userId, role));
-
-        // 자산 상태가 먼저 커밋된 후 정산 서비스를 호출
-        settlementServiceClient.openFinalSettlement("SYSTEM", request);
+        transactionTemplate.execute(status -> {
+            prepareAssetTermination(assetId, userId, role);
+            return null;
+        });
     }
 
-    private FinalSettlementOpenRequest prepareAssetTermination(
+    private void prepareAssetTermination(
             UUID assetId,
             UUID userId,
             String role
@@ -230,13 +239,34 @@ public class AssetCommandService {
             );
         }
 
+        if (revenueRepository.existsByAssetIdAndTransferStatusNot(
+                assetId,
+                RevenueTransferStatus.TRANSFERRED
+        )) {
+            meterRegistry.counter("asset.termination.blocked").increment();
+            throw new BusinessException(
+                    AssetErrorCode.ASSET_TERMINATION_BLOCKED_BY_PENDING_REVENUE
+            );
+        }
+
         // 재시도해도 최초 종료 요청 시각을 그대로 사용
         Instant terminatedAt = asset.requestTermination();
 
-        return new FinalSettlementOpenRequest(
-                assetId,
-                terminatedAt,
-                asset.getUnitPrice()
+        EventEnvelope<AssetTerminationRequestedPayload> envelope = EventEnvelope.of(
+                "AssetTerminationRequested",
+                assetId.toString(),
+                userId,
+                MDC.get("requestId"),
+                new AssetTerminationRequestedPayload(
+                        assetId,
+                        terminatedAt,
+                        asset.getUnitPrice()
+                )
+        );
+        outboxEventStore.save(
+                "ASSET",
+                ASSET_TERMINATION_REQUESTED_TOPIC,
+                envelope
         );
     }
 

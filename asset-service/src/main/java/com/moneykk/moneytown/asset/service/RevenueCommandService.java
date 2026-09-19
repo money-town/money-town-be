@@ -8,11 +8,15 @@ import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.Revenue;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.asset.global.outbox.OutboxEventStore;
+import com.moneykk.moneytown.asset.infrastructure.kafka.event.RevenueReadyPayload;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueRepository;
 import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.event.EventEnvelope;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,9 +29,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class RevenueCommandService {
 
+    private static final String REVENUE_READY_TOPIC = "revenue-ready";
+
     private final RevenueRepository revenueRepository;
     private final RevenueQueryRepository revenueQueryRepository;
     private final AssetQueryRepository assetQueryRepository;
+    private final OutboxEventStore outboxEventStore;
 
     @Transactional
     public RevenueTransferStatusResponse updateTransferStatus(
@@ -50,7 +57,10 @@ public class RevenueCommandService {
         switch (request.transferStatus()) {
             case TRANSFERRED -> revenue.markTransferred();
             case FAILED -> revenue.markFailed(request.failureReason());
-            case READY -> revenue.retry();
+            case READY -> {
+                revenue.retry();
+                saveRevenueReadyEvent(revenue);
+            }
         }
 
         // JPA 변경 감지로 UPDATE 처리
@@ -127,6 +137,22 @@ public class RevenueCommandService {
         // READY 상태로 저장
         Revenue savedRevenue = revenueRepository.save(revenue);
 
+        saveRevenueReadyEvent(savedRevenue);
+
         return RevenueDetailResponse.from(savedRevenue);
+    }
+
+    private void saveRevenueReadyEvent(Revenue revenue) {
+        EventEnvelope<RevenueReadyPayload> envelope = EventEnvelope.of(
+                "RevenueReady",
+                revenue.getAssetId().toString(),
+                revenue.getUserId(),
+                MDC.get("requestId"),
+                new RevenueReadyPayload(
+                        revenue.getAssetId(),
+                        revenue.getId()
+                )
+        );
+        outboxEventStore.save("ASSET", REVENUE_READY_TOPIC, envelope);
     }
 }

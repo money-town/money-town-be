@@ -29,7 +29,7 @@ import java.util.UUID;
 @Slf4j
 public class RevenuePollingScheduler {
 
-    private static final long POLL_INTERVAL_MS = 3 * 60 * 1000L;
+    private static final long POLL_INTERVAL_MS = 30 * 60 * 1000L;
     private static final int MAX_PAGES = 1000;
     private static final String SYSTEM_ROLE = "SYSTEM";
 
@@ -74,7 +74,7 @@ public class RevenuePollingScheduler {
             cursor = nextCursor;
         }
 
-        // 매 3분 도는 스케줄러라, 처리한 게 없는 조용한 주기까지 매번 남기면 로그만 쌓인다 — 처리 건이 있을 때만 남긴다.
+        // 백스톱 스케줄러라 처리한 게 없는 조용한 주기까지 남기지 않는다.
         if (processedCount > 0) {
             log.info("정산 대기 수익 폴링 완료 (처리 시도 건수={})", processedCount);
         }
@@ -93,7 +93,11 @@ public class RevenuePollingScheduler {
             dividendDisbursementService.disburseAsync(response.settlementBatchId());
         } catch (BusinessException e) {
             if (EXPECTED_SKIP_REASONS.contains(e.getErrorCode())) {
-                meterRegistry.counter("settlement.batch.auto_open", "result", "skipped").increment();
+                meterRegistry.counter(
+                        "settlement.batch.auto_open",
+                        "result",
+                        "skipped_in_progress"
+                ).increment();
                 log.debug("정산 회차 자동 개시 건너뜀 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             } else {
                 meterRegistry.counter("settlement.batch.auto_open", "result", "failed").increment();

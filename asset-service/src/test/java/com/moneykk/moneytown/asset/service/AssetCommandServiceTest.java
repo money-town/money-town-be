@@ -1,17 +1,22 @@
 package com.moneykk.moneytown.asset.service;
 
-import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetCreateRequest;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
-import com.moneykk.moneytown.asset.dto.request.FinalSettlementOpenRequest;
 import com.moneykk.moneytown.asset.dto.response.AssetCreateResponse;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.AssetType;
+import com.moneykk.moneytown.asset.entity.RevenueTransferStatus;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.asset.global.outbox.OutboxEventStore;
+import com.moneykk.moneytown.asset.infrastructure.kafka.event.AssetTerminationRequestedPayload;
 import com.moneykk.moneytown.asset.repository.AssetRepository;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
+import com.moneykk.moneytown.asset.repository.RevenueRepository;
+import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,7 +56,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
@@ -64,10 +68,16 @@ class AssetCommandServiceTest {
     private AssetQueryRepository assetQueryRepository;
 
     @Mock
+    private RevenueRepository revenueRepository;
+
+    @Mock
     private S3StorageService s3StorageService;
 
     @Mock
-    private SettlementServiceClient settlementServiceClient;
+    private OutboxEventStore outboxEventStore;
+
+    @Mock
+    private MeterRegistry meterRegistry;
 
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -413,15 +423,22 @@ class AssetCommandServiceTest {
                 assetId, ownerId, "ISSUER");
 
         assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
-        ArgumentCaptor<FinalSettlementOpenRequest> requestCaptor =
-                ArgumentCaptor.forClass(FinalSettlementOpenRequest.class);
-        verify(settlementServiceClient).openFinalSettlement(
-                eq("SYSTEM"),
-                requestCaptor.capture()
+        ArgumentCaptor<EventEnvelope<?>> envelopeCaptor =
+                ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(outboxEventStore).save(
+                eq("ASSET"),
+                eq("asset-termination-requested"),
+                envelopeCaptor.capture()
         );
-        assertEquals(assetId, requestCaptor.getValue().assetId());
-        assertEquals(asset.getUnitPrice(), requestCaptor.getValue().unitPrice());
-        assertEquals(asset.getTerminationRequestedAt(), requestCaptor.getValue().terminatedAt());
+        EventEnvelope<?> envelope = envelopeCaptor.getValue();
+        assertEquals("AssetTerminationRequested", envelope.eventType());
+        assertEquals(assetId.toString(), envelope.aggregateId());
+        assertEquals(ownerId, envelope.userId());
+        AssetTerminationRequestedPayload payload =
+                (AssetTerminationRequestedPayload) envelope.payload();
+        assertEquals(assetId, payload.assetId());
+        assertEquals(asset.getTerminationRequestedAt(), payload.terminatedAt());
+        assertEquals(asset.getUnitPrice(), payload.unitPrice());
     }
 
     @Test
@@ -441,11 +458,11 @@ class AssetCommandServiceTest {
         assertEquals(AssetErrorCode.INVALID_ASSET_STATUS_TRANSITION,
                 exception.getErrorCode());
         assertEquals(AssetStatus.DRAFT, asset.getStatus());
-        verifyNoInteractions(settlementServiceClient);
+        verifyNoInteractions(outboxEventStore);
     }
 
     @Test
-    @DisplayName("정산 호출에 실패한 종료 요청은 같은 요청으로 재시도할 수 있다")
+    @DisplayName("종료 요청을 재전송해도 최초 종료 시각으로 이벤트를 다시 발행한다")
     void retriesFinalSettlementForTerminationRequestedAsset() {
         runTransactionsImmediately();
         UUID assetId = UUID.randomUUID();
@@ -453,22 +470,45 @@ class AssetCommandServiceTest {
         Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
         when(assetQueryRepository.findActiveByIdForUpdate(assetId))
                 .thenReturn(Optional.of(asset));
-        doThrow(new RuntimeException("settlement unavailable"))
-                .doNothing()
-                .when(settlementServiceClient)
-                .openFinalSettlement(eq("SYSTEM"), any(FinalSettlementOpenRequest.class));
-
-        assertThrows(RuntimeException.class,
-                () -> assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER"));
+        assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER");
         assetCommandService.requestAssetTermination(assetId, ownerId, "ISSUER");
 
         assertEquals(AssetStatus.TERMINATION_REQUESTED, asset.getStatus());
-        ArgumentCaptor<FinalSettlementOpenRequest> requestCaptor =
-                ArgumentCaptor.forClass(FinalSettlementOpenRequest.class);
-        verify(settlementServiceClient, times(2)).openFinalSettlement(
-                eq("SYSTEM"), requestCaptor.capture());
-        assertEquals(requestCaptor.getAllValues().get(0).terminatedAt(),
-                requestCaptor.getAllValues().get(1).terminatedAt());
+        verify(outboxEventStore, times(2)).save(
+                eq("ASSET"),
+                eq("asset-termination-requested"),
+                any(EventEnvelope.class)
+        );
+    }
+
+    @Test
+    @DisplayName("정산이 완료되지 않은 수익이 있으면 자산 종료 요청을 차단한다")
+    void blocksTerminationWhileRevenueIsPending() {
+        runTransactionsImmediately();
+        UUID assetId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Asset asset = assetForUpdate(ownerId, AssetStatus.APPROVED);
+        Counter counter = org.mockito.Mockito.mock(Counter.class);
+        when(assetQueryRepository.findActiveByIdForUpdate(assetId))
+                .thenReturn(Optional.of(asset));
+        when(revenueRepository.existsByAssetIdAndTransferStatusNot(
+                assetId, RevenueTransferStatus.TRANSFERRED)).thenReturn(true);
+        when(meterRegistry.counter("asset.termination.blocked"))
+                .thenReturn(counter);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> assetCommandService.requestAssetTermination(
+                        assetId, ownerId, "ISSUER")
+        );
+
+        assertEquals(
+                AssetErrorCode.ASSET_TERMINATION_BLOCKED_BY_PENDING_REVENUE,
+                exception.getErrorCode()
+        );
+        assertEquals(AssetStatus.APPROVED, asset.getStatus());
+        verify(counter).increment();
+        verifyNoInteractions(outboxEventStore);
     }
 
     @Test
