@@ -30,6 +30,12 @@ class SubscriptionEventPublisherTest {
     private static final String COMPENSATION_REQUESTED_TOPIC =
             "subscription-compensation-requested";
 
+    private static final String RESERVED_TOPIC =
+            "subscription-reserved";
+
+    private static final String CONFIRMED_TOPIC =
+            "subscription-confirmed";
+
     String failureReasonCode = "INSUFFICIENT_AVAILABLE_BALANCE";
 
     @Mock
@@ -322,6 +328,231 @@ class SubscriptionEventPublisherTest {
                 .hasMessageContaining(
                         "보상 요청을 발행할 수 있는 사유가 없습니다."
                 );
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("PROCESSING 청약의 동결 요청 이벤트를 Outbox에 저장한다")
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void storesSubscriptionReservedEvent() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String correlationId = UUID.randomUUID().toString();
+
+        Subscription subscription = Subscription.create(
+                offeringId, userId, 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        // when
+        subscriptionEventPublisher.publishReserved(
+                subscription, correlationId
+        );
+
+        // then
+        ArgumentCaptor<EventEnvelope<?>> envelopeCaptor =
+                ArgumentCaptor.forClass((Class) EventEnvelope.class);
+
+        verify(outboxEventStore).save(
+                eq("SUBSCRIPTION"),
+                eq(RESERVED_TOPIC),
+                envelopeCaptor.capture()
+        );
+
+        EventEnvelope<?> envelope = envelopeCaptor.getValue();
+        assertThat(envelope.eventType())
+                .isEqualTo("SubscriptionReserved");
+        assertThat(envelope.aggregateId())
+                .isEqualTo(subscription.getSubscriptionId().toString());
+        assertThat(envelope.payload())
+                .isInstanceOf(SubscriptionReservedPayload.class);
+    }
+
+    @Test
+    @DisplayName("PROCESSING 상태가 아닌 청약은 동결 요청 이벤트를 저장하지 않는다")
+    void rejectsReservedEventForNonProcessingSubscription() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        Subscription subscription = Subscription.create(
+                offeringId, userId, 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+        subscription.markHoldSucceeded();
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishReserved(
+                        subscription, UUID.randomUUID().toString()
+                )
+        ).isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("correlationId가 비어 있으면 이벤트를 저장하지 않는다")
+    void rejectsBlankCorrelationId() {
+        // given
+        Subscription subscription = Subscription.create(
+                UUID.randomUUID(), UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishReserved(
+                        subscription, " "
+                )
+        ).isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("CONFIRMED 청약의 확정 이벤트를 Outbox에 저장한다")
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void storesSubscriptionConfirmedEvent() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        String correlationId = UUID.randomUUID().toString();
+
+        Subscription subscription = Subscription.create(
+                offeringId, userId, 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+        subscription.markHoldSucceeded();
+        subscription.confirm(Instant.now());
+
+        // when
+        subscriptionEventPublisher.publishConfirmed(
+                subscription, assetId, correlationId
+        );
+
+        // then
+        ArgumentCaptor<EventEnvelope<?>> envelopeCaptor =
+                ArgumentCaptor.forClass((Class) EventEnvelope.class);
+
+        verify(outboxEventStore).save(
+                eq("SUBSCRIPTION"),
+                eq(CONFIRMED_TOPIC),
+                envelopeCaptor.capture()
+        );
+
+        EventEnvelope<?> envelope = envelopeCaptor.getValue();
+        assertThat(envelope.eventType())
+                .isEqualTo("SubscriptionConfirmed");
+
+        SubscriptionConfirmedPayload payload =
+                (SubscriptionConfirmedPayload) envelope.payload();
+        assertThat(payload.offeringId()).isEqualTo(offeringId);
+        assertThat(payload.assetId()).isEqualTo(assetId);
+        assertThat(payload.quantity()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("CONFIRMED 상태가 아닌 청약은 확정 이벤트를 저장하지 않는다")
+    void rejectsConfirmedEventForNonConfirmedSubscription() {
+        // given
+        Subscription subscription = Subscription.create(
+                UUID.randomUUID(), UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishConfirmed(
+                        subscription,
+                        UUID.randomUUID(),
+                        UUID.randomUUID().toString()
+                )
+        ).isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("assetId가 없으면 확정 이벤트를 저장하지 않는다")
+    void rejectsConfirmedEventWithoutAssetId() {
+        // given
+        Subscription subscription = Subscription.create(
+                UUID.randomUUID(), UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+        subscription.markHoldSucceeded();
+        subscription.confirm(Instant.now());
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishConfirmed(
+                        subscription, null,
+                        UUID.randomUUID().toString()
+                )
+        ).isInstanceOf(NullPointerException.class);
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("COMPENSATING 상태가 아닌 청약은 보상 요청 이벤트를 저장하지 않는다")
+    void rejectsCompensationRequestedForNonCompensatingSubscription() {
+        // given
+        Subscription subscription = Subscription.create(
+                UUID.randomUUID(), UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishCompensationRequested(
+                        subscription,
+                        UUID.randomUUID(),
+                        UUID.randomUUID().toString()
+                )
+        ).isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("REJECTED 상태가 아닌 청약은 실패 이벤트를 저장하지 않는다")
+    void rejectsFailedEventForNonRejectedSubscription() {
+        // given
+        Subscription subscription = Subscription.create(
+                UUID.randomUUID(), UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        // when & then
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishFailed(
+                        subscription,
+                        UUID.randomUUID(),
+                        UUID.randomUUID().toString()
+                )
+        ).isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(outboxEventStore);
+    }
+
+    @Test
+    @DisplayName("요청 수량이 최대 청약 수량 이하이면 한도 초과 이벤트를 저장하지 않는다")
+    void rejectsLimitExceededEventWhenQuantityDoesNotExceedLimit() {
+        assertThatThrownBy(() ->
+                subscriptionEventPublisher.publishLimitExceeded(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        100L,
+                        100L,
+                        UUID.randomUUID().toString()
+                )
+        ).isInstanceOf(IllegalArgumentException.class);
 
         verifyNoInteractions(outboxEventStore);
     }

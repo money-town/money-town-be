@@ -17,6 +17,7 @@ import org.springframework.dao.CannotAcquireLockException;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -37,6 +38,9 @@ class OfferingCancellationBatchSchedulerTest {
     private OfferingCancellationManualReviewService
             offeringCancellationManualReviewService;
 
+    @Mock
+    private OfferingSchedulerMetrics offeringSchedulerMetrics;
+
     @InjectMocks
     private OfferingCancellationBatchScheduler scheduler;
 
@@ -56,6 +60,27 @@ class OfferingCancellationBatchSchedulerTest {
         verify(
                 offeringCancellationBatchTransactionService
         ).compensateNextBatch();
+
+        verifyNoInteractions(
+                offeringCancellationItemTransactionService,
+                offeringCancellationManualReviewService
+        );
+    }
+
+    @Test
+    @DisplayName("배치 대상 선점 실패를 메트릭에 기록하고 예외를 전파하지 않는다")
+    void recordsUnrecoverableBatchFailure() {
+        when(
+                offeringCancellationBatchTransactionService
+                        .compensateNextBatch()
+        ).thenThrow(new IllegalStateException("배치 대상 선점 실패"));
+
+        assertDoesNotThrow(
+                () -> scheduler.compensateNextBatch()
+        );
+
+        verify(offeringSchedulerMetrics)
+                .recordOfferingCancellationBatchFailure();
 
         verifyNoInteractions(
                 offeringCancellationItemTransactionService,

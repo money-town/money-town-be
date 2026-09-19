@@ -676,6 +676,197 @@ class SubscriptionRetryTransactionServiceTest {
                 );
     }
 
+    @Test
+    @DisplayName("청약의 공모 ID를 찾을 수 없으면 재처리를 거부한다")
+    void rejectsWhenOfferingIdLookupMissing() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(subscriptionId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                null, holdingStatusWithoutAllocation(subscriptionId)
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 재처리를 거부한다")
+    void rejectsWhenOfferingMissing() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(subscriptionId))
+                .thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                null, holdingStatusWithoutAllocation(subscriptionId)
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(
+                  com.moneykk.moneytown.offering.global.exception
+                          .OfferingErrorCode.OFFERING_NOT_FOUND
+          ));
+    }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 상태가 아닌 청약은 정상 방향 재처리를 거부한다")
+    void rejectsRetryWhenSubscriptionNotManualReview() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = createOffering(offeringId, OfferingStatus.OPEN, 90L);
+        Subscription subscription = createSubscription(offeringId, subscriptionId);
+
+        stubLockedEntities(offering, subscription, subscriptionId);
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                null, holdingStatusWithoutAllocation(subscriptionId)
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED));
+    }
+
+    @Test
+    @DisplayName("공모가 재처리 가능한 상태가 아니면 Wallet Hold 재요청을 거부한다")
+    void rejectsWalletHoldRetryWhenOfferingNotRetryable() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = createOffering(offeringId, OfferingStatus.CANCELLING, 90L);
+        Subscription subscription =
+                createManualReviewSubscription(offeringId, subscriptionId);
+
+        stubLockedEntities(offering, subscription, subscriptionId);
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                null, holdingStatusWithoutAllocation(subscriptionId)
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED));
+    }
+
+    @Test
+    @DisplayName("Wallet Hold가 없는데 Holding 이력이 있으면 외부 응답 오류로 처리한다")
+    void rejectsWalletHoldRetryWhenHoldingHistoryExists() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = createOffering(offeringId, OfferingStatus.OPEN, 90L);
+        Subscription subscription =
+                createManualReviewSubscription(offeringId, subscriptionId);
+
+        stubLockedEntities(offering, subscription, subscriptionId);
+
+        HoldingSubscriptionStatusResponse holdingStatus =
+                holdingStatusWithAllocation(subscription, offering.getAssetId());
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                null, holdingStatus
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID));
+    }
+
+    @Test
+    @DisplayName("Wallet COMMITTED 복구 중 Holding 회수 이력이 있으면 재처리를 거부한다")
+    void rejectsCommittedRecoveryWhenRevocationProcessed() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = createOffering(offeringId, OfferingStatus.OPEN, 90L);
+        Subscription subscription =
+                createManualReviewSubscription(offeringId, subscriptionId);
+
+        stubLockedEntities(offering, subscription, subscriptionId);
+
+        HoldingSubscriptionStatusResponse holdingStatus =
+                new HoldingSubscriptionStatusResponse(
+                        subscriptionId, null, null, null,
+                        0L, 0L, false, true, false, Instant.now()
+                );
+
+        WalletHoldStatusResponse committedStatus =
+                walletStatus(subscription, WalletHoldStatus.COMMITTED);
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                committedStatus, holdingStatus
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED));
+    }
+
+    @Test
+    @DisplayName("CONFIRMED + Holding 실패 청약은 Wallet 응답이 없으면 외부 응답 오류로 처리한다")
+    void rejectsConfirmedHoldingRetryWithoutWalletStatus() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = createOffering(offeringId, OfferingStatus.OPEN, 90L);
+        Subscription subscription =
+                createConfirmedSubscription(offeringId, subscriptionId);
+        subscription.markHoldingAllocationFailed("HOLDING_ALLOCATION_FAILED");
+
+        stubLockedEntities(offering, subscription, subscriptionId);
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                null, holdingStatusWithoutAllocation(subscriptionId)
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.EXTERNAL_RESPONSE_INVALID));
+    }
+
+    @Test
+    @DisplayName("CONFIRMED + Holding 실패 청약은 Wallet이 COMMITTED가 아니면 재처리를 거부한다")
+    void rejectsConfirmedHoldingRetryWhenWalletNotCommitted() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = createOffering(offeringId, OfferingStatus.OPEN, 90L);
+        Subscription subscription =
+                createConfirmedSubscription(offeringId, subscriptionId);
+        subscription.markHoldingAllocationFailed("HOLDING_ALLOCATION_FAILED");
+
+        stubLockedEntities(offering, subscription, subscriptionId);
+
+        WalletHoldStatusResponse heldStatus =
+                walletStatus(subscription, WalletHoldStatus.HELD);
+
+        assertThatThrownBy(() -> service.retry(
+                subscriptionId, adminId, "key", "correlation",
+                heldStatus, holdingStatusWithoutAllocation(subscriptionId)
+        )).isInstanceOf(BusinessException.class)
+          .satisfies(exception -> assertThat(
+                  ((BusinessException) exception).getErrorCode()
+          ).isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_RETRY_NOT_ALLOWED));
+    }
+
     private void stubLockedEntities(
             Offering offering,
             Subscription subscription,

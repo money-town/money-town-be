@@ -193,6 +193,48 @@ class WalletCompensationResultConsumerTest {
         assertThat(MDC.get("requestId")).isNull();
     }
 
+    @Test
+    @DisplayName("이벤트 본문이 비어 있으면 처리하지 않는다")
+    void rejectsBlankBody() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>(
+                TOPIC, 0, 0L, UUID.randomUUID().toString(), " "
+        );
+
+        assertThatThrownBy(() -> consumer.consume(record, CONSUMER_GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("본문은 필수");
+
+        verifyNoInteractions(resultService);
+    }
+
+    @Test
+    @DisplayName("userId가 없으면 처리하지 않는다")
+    void rejectsMissingUserId() throws Exception {
+        EventEnvelope<WalletCompensationResultPayload> envelope =
+                new EventEnvelope<>(
+                        UUID.randomUUID(),
+                        "WalletCompensationSucceeded",
+                        UUID.randomUUID().toString(),
+                        null,
+                        Instant.now(),
+                        CORRELATION_ID,
+                        new WalletCompensationResultPayload(
+                                1L, 2L, "UNHOLD", 3L, 10_000L, null
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                consumer.consume(
+                        record(UUID.randomUUID().toString(), envelope),
+                        CONSUMER_GROUP
+                )
+        )
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("userId는 필수");
+
+        verifyNoInteractions(resultService);
+    }
+
     private EventEnvelope<WalletCompensationResultPayload> envelope(
             UUID userId,
             String eventType

@@ -1,13 +1,17 @@
 package com.moneykk.moneytown.offering.offering.query.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
+import com.moneykk.moneytown.offering.offering.query.dto.request.OfferingSearchCondition;
 import com.moneykk.moneytown.offering.offering.query.dto.response.AiPortfolioCandidateResponse;
 import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingDetailResponse;
+import com.moneykk.moneytown.offering.offering.query.dto.response.OfferingListItemResponse;
 import com.moneykk.moneytown.offering.offering.query.repository.OfferingQueryRepository;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,6 +21,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -298,5 +305,265 @@ class OfferingQueryServiceTest {
                 offeringQueryRepository,
                 subscriptionRepository
         );
+    }
+
+    @Test
+    @DisplayName("공개 공모 목록을 정상적으로 검색한다")
+    void searchesPublicOfferingsSuccessfully() {
+        // given
+        OfferingSearchCondition condition =
+                new OfferingSearchCondition(OfferingStatus.OPEN, null);
+        Pageable pageable = PageRequest.of(0, 10);
+
+        when(offeringQueryRepository.searchPublicOfferings(
+                condition, pageable
+        )).thenReturn(new PageImpl<>(List.of()));
+
+        // when
+        PageResponse<OfferingListItemResponse> response =
+                offeringQueryService.searchPublicOfferings(
+                        condition, pageable
+                );
+
+        // then
+        assertThat(response.content()).isEmpty();
+
+        verify(offeringQueryRepository)
+                .searchPublicOfferings(condition, pageable);
+    }
+
+    @Test
+    @DisplayName("비공개 상태를 공개 목록 검색 조건으로 사용하면 오류로 처리한다")
+    void rejectsPrivateStatusInPublicSearchCondition() {
+        // given
+        OfferingSearchCondition condition =
+                new OfferingSearchCondition(OfferingStatus.DRAFT, null);
+        Pageable pageable = PageRequest.of(0, 10);
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringQueryService.searchPublicOfferings(
+                        condition, pageable
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        OfferingErrorCode.INVALID_OFFERING_SEARCH_CONDITION
+                );
+
+        verifyNoInteractions(offeringQueryRepository);
+    }
+
+    @Test
+    @DisplayName("내 공모 목록을 검색한다")
+    void searchesMyOfferings() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        OfferingSearchCondition condition =
+                new OfferingSearchCondition(null, null);
+        Pageable pageable = PageRequest.of(0, 10);
+
+        when(offeringQueryRepository.searchMyOfferings(
+                issuerId, condition, pageable
+        )).thenReturn(new PageImpl<>(List.of()));
+
+        // when
+        PageResponse<OfferingListItemResponse> response =
+                offeringQueryService.searchMyOfferings(
+                        issuerId, condition, pageable
+                );
+
+        // then
+        assertThat(response.content()).isEmpty();
+
+        verify(offeringQueryRepository)
+                .searchMyOfferings(issuerId, condition, pageable);
+    }
+
+    @Test
+    @DisplayName("관리자용 공모 목록을 검색한다")
+    void searchesOfferingsForManagement() {
+        // given
+        OfferingSearchCondition condition =
+                new OfferingSearchCondition(null, null);
+        Pageable pageable = PageRequest.of(0, 10);
+
+        when(offeringQueryRepository.searchOfferingsForManagement(
+                condition, pageable
+        )).thenReturn(new PageImpl<>(List.of()));
+
+        // when
+        PageResponse<OfferingListItemResponse> response =
+                offeringQueryService.searchOfferingsForManagement(
+                        condition, pageable
+                );
+
+        // then
+        assertThat(response.content()).isEmpty();
+
+        verify(offeringQueryRepository)
+                .searchOfferingsForManagement(condition, pageable);
+    }
+
+    @Test
+    @DisplayName("존재하지 않거나 삭제된 공모는 조회할 수 없다")
+    void throwsNotFoundWhenOfferingDoesNotExist() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringQueryService.getOffering(
+                        offeringId, UUID.randomUUID(), "ADMIN"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("소유 ISSUER는 취소된 공모의 관리용 상세를 조회할 수 있다")
+    void allowsCancelledOfferingToOwnerIssuer() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+
+        Offering offering = offering(OfferingStatus.CANCELLED);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when
+        OfferingDetailResponse response = offeringQueryService.getOffering(
+                offeringId, issuerId, "ISSUER"
+        );
+
+        // then
+        assertThat(response.issuerId()).isEqualTo(issuerId);
+
+        verifyNoInteractions(subscriptionRepository);
+    }
+
+    @Test
+    @DisplayName("ADMIN은 취소된 공모의 관리용 상세를 조회할 수 있다")
+    void allowsCancelledOfferingToAdmin() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Offering offering = offering(OfferingStatus.CANCELLED);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when
+        OfferingDetailResponse response = offeringQueryService.getOffering(
+                offeringId, adminId, "ADMIN"
+        );
+
+        // then
+        assertThat(response.issuerId()).isEqualTo(issuerId);
+
+        verifyNoInteractions(subscriptionRepository);
+    }
+
+    @Test
+    @DisplayName("보상 완료된 투자자는 취소된 공모의 상세를 관리용 필드 없이 조회할 수 있다")
+    void allowsCancelledOfferingToCompensatedInvestor() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID investorId = UUID.randomUUID();
+
+        Offering offering = offering(OfferingStatus.CANCELLED);
+        when(offering.getOfferingId()).thenReturn(offeringId);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(subscriptionRepository
+                .existsByOfferingIdAndUserIdAndSubscriptionStatusAndCancellationTypeIsNotNullAndIsDeletedFalse(
+                        offeringId, investorId, SubscriptionStatus.CANCELLED
+                ))
+                .thenReturn(true);
+
+        // when
+        OfferingDetailResponse response = offeringQueryService.getOffering(
+                offeringId, investorId, "INVESTOR"
+        );
+
+        // then
+        assertThat(response.issuerId()).isNull();
+    }
+
+    @Test
+    @DisplayName("보상받지 않은 투자자는 취소된 공모의 상세를 조회할 수 없다")
+    void deniesCancelledOfferingToNonCompensatedInvestor() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID investorId = UUID.randomUUID();
+
+        Offering offering = offering(OfferingStatus.CANCELLED);
+        when(offering.getOfferingId()).thenReturn(offeringId);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(subscriptionRepository
+                .existsByOfferingIdAndUserIdAndSubscriptionStatusAndCancellationTypeIsNotNullAndIsDeletedFalse(
+                        offeringId, investorId, SubscriptionStatus.CANCELLED
+                ))
+                .thenReturn(false);
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringQueryService.getOffering(
+                        offeringId, investorId, "INVESTOR"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("인증되지 않은 사용자는 취소된 공모의 상세를 조회할 수 없다")
+    void deniesCancelledOfferingToAnonymousUser() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+
+        Offering offering = offering(OfferingStatus.CANCELLED);
+
+        when(offeringRepository
+                .findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringQueryService.getOffering(
+                        offeringId, null, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ACCESS_DENIED);
+
+        verifyNoInteractions(subscriptionRepository);
     }
 }

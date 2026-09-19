@@ -1,7 +1,7 @@
 package com.moneykk.moneytown.offering.subscription.command.scheduler;
 
+import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCompensationRecoveryBatchException;
 import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCompensationRecoveryTransactionService;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,9 +26,6 @@ public class SubscriptionCompensationRecoveryScheduler {
     private static final long DEFAULT_STUCK_SECONDS = 300L;
     private static final int DEFAULT_BATCH_SIZE = 100;
 
-    private final SubscriptionCompensationRepository
-            subscriptionCompensationRepository;
-
     private final SubscriptionCompensationRecoveryTransactionService
             recoveryTransactionService;
 
@@ -43,14 +40,9 @@ public class SubscriptionCompensationRecoveryScheduler {
     private int batchSize = DEFAULT_BATCH_SIZE;
 
     public SubscriptionCompensationRecoveryScheduler(
-            SubscriptionCompensationRepository
-                    subscriptionCompensationRepository,
             SubscriptionCompensationRecoveryTransactionService
                     recoveryTransactionService
     ) {
-        this.subscriptionCompensationRepository =
-                subscriptionCompensationRepository;
-
         this.recoveryTransactionService =
                 recoveryTransactionService;
     }
@@ -59,10 +51,9 @@ public class SubscriptionCompensationRecoveryScheduler {
      * Wallet 또는 Holding 결과가 일정 시간 이상 완료되지 않은
      * COMPENSATING 청약을 수동 확인 대상으로 격리한다.
      *
-     * 후보 조회에는 잠금을 사용하지 않는다.
-     * 각 청약은 독립된 트랜잭션에서
-     * Offering → Subscription → Compensation 순서로 잠근 뒤
-     * 최신 상태를 다시 확인한다.
+     * 정상 경로에서는 공모를 SKIP LOCKED로 선점하고 청약 한 배치를
+     * Offering → Subscription → Compensation 순서로 잠가 처리한다.
+     * 배치가 실패하면 포함된 청약만 건별 독립 트랜잭션으로 재처리한다.
      */
     @Scheduled(
             fixedDelayString =
@@ -82,55 +73,44 @@ public class SubscriptionCompensationRecoveryScheduler {
         Instant stuckBefore =
                 Instant.now().minusSeconds(stuckSeconds);
 
-        List<UUID> subscriptionIds =
-                findStuckCompensationSubscriptionIds(
-                        stuckBefore
+        try {
+            int manualReviewCount = recoveryTransactionService
+                    .markNextStuckBatchForManualReview(
+                            stuckBefore,
+                            batchSize
+                    );
+
+            if (manualReviewCount > 0) {
+                log.warn(
+                        "장기 미완료 보상 수동 확인 전환 완료. "
+                                + "manualReviewCount={}",
+                        manualReviewCount
                 );
-
-        if (subscriptionIds.isEmpty()) {
-            return;
-        }
-
-        int manualReviewCount =
-                recoverIndividually(
-                        subscriptionIds,
-                        stuckBefore
-                );
-
-        if (manualReviewCount > 0) {
+            }
+        } catch (SubscriptionCompensationRecoveryBatchException e) {
             log.warn(
-                    "장기 미완료 보상 수동 확인 전환 완료. "
-                            + "candidateCount={}, manualReviewCount={}",
-                    subscriptionIds.size(),
-                    manualReviewCount
+                    "장기 미완료 보상 복구 배치 실패. "
+                            + "건별 재처리를 시작합니다. "
+                            + "offeringId={}, batchSize={}",
+                    e.getOfferingId(),
+                    e.getSubscriptionIds().size(),
+                    e
+            );
+
+            recoverIndividually(
+                    e.getSubscriptionIds(),
+                    stuckBefore
+            );
+        } catch (Exception e) {
+            log.error(
+                    "장기 미완료 보상 대상 선점 또는 배치 처리 실패",
+                    e
             );
         }
     }
 
     private boolean hasValidConfiguration() {
         return stuckSeconds > 0 && batchSize > 0;
-    }
-
-    /**
-     * 후보 조회에 실패하면 빈 목록을 반환하여
-     * 현재 스케줄 실행을 종료한다.
-     */
-    private List<UUID> findStuckCompensationSubscriptionIds(
-            Instant stuckBefore
-    ) {
-        try {
-            return subscriptionCompensationRepository
-                    .findStuckCompensationSubscriptionIds(
-                            stuckBefore,
-                            batchSize
-                    );
-        } catch (Exception e) {
-            log.error(
-                    "장기 미완료 보상 후보 조회 실패",
-                    e
-            );
-            return List.of();
-        }
     }
 
     /**

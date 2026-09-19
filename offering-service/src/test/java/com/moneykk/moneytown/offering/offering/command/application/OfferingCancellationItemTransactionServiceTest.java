@@ -124,15 +124,21 @@ class OfferingCancellationItemTransactionServiceTest {
     }
 
     @Test
-    @DisplayName("관리자 중단 공모가 아니면 청약을 조회하지 않는다")
-    void doesNotCompensateNonAdminCancellationOffering() {
+    @DisplayName("모집 미달 공모의 보상 대상 청약 한 건을 독립 처리한다")
+    void compensatesUnderSubscribedOffering() {
         // given
         UUID offeringId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
         UUID subscriptionId = UUID.randomUUID();
 
         Offering offering = org.mockito.Mockito.mock(
                 Offering.class
         );
+
+        Subscription subscription =
+                org.mockito.Mockito.mock(
+                        Subscription.class
+                );
 
         when(
                 offeringRepository.findByIdForUpdate(offeringId)
@@ -148,6 +154,23 @@ class OfferingCancellationItemTransactionServiceTest {
                                 .UNDER_SUBSCRIBED
                 );
 
+        when(offering.getAssetId())
+                .thenReturn(assetId);
+
+        when(
+                subscriptionRepository
+                        .findByIdForUpdate(subscriptionId)
+        ).thenReturn(Optional.of(subscription));
+
+        when(subscription.getOfferingId())
+                .thenReturn(offeringId);
+
+        when(subscription.getSubscriptionStatus())
+                .thenReturn(SubscriptionStatus.CONFIRMED);
+
+        when(subscription.getSubscriptionId())
+                .thenReturn(subscriptionId);
+
         // when
         boolean compensated = service.compensate(
                 offeringId,
@@ -155,13 +178,23 @@ class OfferingCancellationItemTransactionServiceTest {
         );
 
         // then
-        assertThat(compensated).isFalse();
+        assertThat(compensated).isTrue();
 
-        verifyNoInteractions(
-                subscriptionRepository,
-                subscriptionCompensationRepository,
-                subscriptionEventPublisher
+        verify(subscription).startCompensation(
+                CancellationType.OFFERING_UNDER_SUBSCRIBED
         );
+
+        verify(subscriptionCompensationRepository)
+                .save(any(SubscriptionCompensation.class));
+
+        verify(subscriptionEventPublisher)
+                .publishCompensationRequested(
+                        subscription,
+                        assetId,
+                        offeringId.toString()
+                );
+
+        verify(subscriptionCompensationRepository).flush();
     }
 
     @Test

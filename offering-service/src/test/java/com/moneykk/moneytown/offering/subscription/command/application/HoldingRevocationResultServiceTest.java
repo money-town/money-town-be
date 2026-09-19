@@ -219,6 +219,157 @@ class HoldingRevocationResultServiceTest {
                 .isSameAs(failure);
     }
 
+    @Test
+    @DisplayName("HoldingRevocationSucceeded가 아닌 이벤트 타입은 거부한다")
+    void rejectsWrongEventType() {
+        EventEnvelope<HoldingRevocationSucceededPayload> event =
+                EventEnvelope.of(
+                        "WrongType", subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(), CORRELATION_ID,
+                        new HoldingRevocationSucceededPayload(
+                                assetId, holdingId, 10L, "REVOKED", null
+                        )
+                );
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("HoldingRevocationSucceeded");
+
+        verifyNoInteractions(processedEventService);
+    }
+
+    @Test
+    @DisplayName("REVOKED 결과에 holdingId가 없으면 거부한다")
+    void rejectsRevokedWithoutHoldingId() {
+        EventEnvelope<HoldingRevocationSucceededPayload> event =
+                success(new HoldingRevocationSucceededPayload(
+                        assetId, null, 10L, "REVOKED", null
+                ));
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("holdingId");
+    }
+
+    @Test
+    @DisplayName("알 수 없는 result는 성공 이벤트 처리를 거부한다")
+    void rejectsUnknownResult() {
+        EventEnvelope<HoldingRevocationSucceededPayload> event =
+                success(new HoldingRevocationSucceededPayload(
+                        assetId, holdingId, 10L, "UNKNOWN", null
+                ));
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("REVOKED");
+    }
+
+    @Test
+    @DisplayName("청약의 공모 ID를 찾을 수 없으면 처리를 거부한다")
+    void rejectsWhenOfferingIdLookupMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.handleSucceeded(revoked(10L), GROUP))
+                .isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+                .satisfies(exception -> assertThat(
+                        ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                                .getErrorCode()
+                ).isEqualTo(
+                        com.moneykk.moneytown.offering.global.exception
+                                .SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+                ));
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 처리를 거부한다")
+    void rejectsWhenOfferingMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.handleSucceeded(revoked(10L), GROUP))
+                .isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+                .satisfies(exception -> assertThat(
+                        ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                                .getErrorCode()
+                ).isEqualTo(
+                        com.moneykk.moneytown.offering.global.exception
+                                .OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
+    }
+
+    @Test
+    @DisplayName("보상 대상이 아닌 상태의 청약은 회수 결과를 반영할 수 없다")
+    void rejectsWhenSubscriptionStatusNotCompensatable() {
+        Subscription processingSubscription = Subscription.create(
+                offeringId, UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+        SubscriptionCompensation processingCompensation =
+                SubscriptionCompensation.create(
+                        processingSubscription.getSubscriptionId()
+                );
+
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        Offering offering = Offering.create(
+                assetId, UUID.randomUUID(), "테스트 공모",
+                1_000L, 100L, 1L, 100L,
+                Instant.now().minusSeconds(3_600), Instant.now().minusSeconds(60)
+        );
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                processingSubscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(subscriptionRepository.findByIdForUpdate(
+                processingSubscription.getSubscriptionId()
+        )).thenReturn(Optional.of(processingSubscription));
+
+        when(subscriptionCompensationRepository.findBySubscriptionIdForUpdate(
+                processingSubscription.getSubscriptionId()
+        )).thenReturn(Optional.of(processingCompensation));
+
+        EventEnvelope<HoldingRevocationSucceededPayload> event =
+                EventEnvelope.of(
+                        "HoldingRevocationSucceeded",
+                        processingSubscription.getSubscriptionId().toString(),
+                        processingSubscription.getUserId(),
+                        CORRELATION_ID,
+                        new HoldingRevocationSucceededPayload(
+                                assetId, holdingId, 10L, "REVOKED", null
+                        )
+                );
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("반영할 수 없는 청약 상태");
+    }
+
     private EventEnvelope<HoldingRevocationSucceededPayload> revoked(long quantity) {
         return success(new HoldingRevocationSucceededPayload(
                 assetId, holdingId, quantity, "REVOKED", null

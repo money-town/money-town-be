@@ -13,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.TransientDataAccessResourceException;
 
 import java.util.List;
 import java.util.UUID;
@@ -149,5 +150,117 @@ class SubscriptionConfirmationBatchSchedulerTest {
                         offeringId,
                         normalSubscriptionId
                 );
+    }
+
+    @Test
+    @DisplayName("최대 배치 실행 횟수가 0 이하이면 배치를 실행하지 않는다")
+    void skipsWhenMaxBatchesPerRunIsNotPositive() {
+        confirmationProperties.setMaxBatchesPerRun(0);
+
+        scheduler.confirmNextBatch();
+
+        verifyNoInteractions(
+                subscriptionConfirmationBatchTransactionService
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "건별 재처리 중 재시도 가능한 시스템 장애가 발생하면 "
+                    + "이후 청약은 처리하지 않는다"
+    )
+    void stopsRecoveryOnRetryableSystemFailure() {
+        UUID offeringId = UUID.randomUUID();
+        UUID failedSubscriptionId = UUID.randomUUID();
+        UUID nextSubscriptionId = UUID.randomUUID();
+
+        SubscriptionConfirmationBatchException batchException =
+                new SubscriptionConfirmationBatchException(
+                        offeringId,
+                        List.of(failedSubscriptionId, nextSubscriptionId),
+                        new DataIntegrityViolationException("batch failure")
+                );
+
+        when(subscriptionConfirmationBatchTransactionService
+                .confirmNextBatch())
+                .thenThrow(batchException);
+
+        when(subscriptionConfirmationItemTransactionService
+                .confirm(offeringId, failedSubscriptionId))
+                .thenThrow(new TransientDataAccessResourceException(
+                        "db timeout"
+                ));
+
+        scheduler.confirmNextBatch();
+
+        verify(subscriptionConfirmationItemTransactionService, never())
+                .confirm(offeringId, nextSubscriptionId);
+        verifyNoInteractions(subscriptionConfirmationManualReviewService);
+    }
+
+    @Test
+    @DisplayName(
+            "건별 재처리 중 격리할 수 없는 오류가 발생하면 "
+                    + "이후 청약은 처리하지 않는다"
+    )
+    void stopsRecoveryOnUnknownItemFailure() {
+        UUID offeringId = UUID.randomUUID();
+        UUID failedSubscriptionId = UUID.randomUUID();
+        UUID nextSubscriptionId = UUID.randomUUID();
+
+        SubscriptionConfirmationBatchException batchException =
+                new SubscriptionConfirmationBatchException(
+                        offeringId,
+                        List.of(failedSubscriptionId, nextSubscriptionId),
+                        new DataIntegrityViolationException("batch failure")
+                );
+
+        when(subscriptionConfirmationBatchTransactionService
+                .confirmNextBatch())
+                .thenThrow(batchException);
+
+        when(subscriptionConfirmationItemTransactionService
+                .confirm(offeringId, failedSubscriptionId))
+                .thenThrow(new IllegalStateException("unknown failure"));
+
+        scheduler.confirmNextBatch();
+
+        verify(subscriptionConfirmationItemTransactionService, never())
+                .confirm(offeringId, nextSubscriptionId);
+        verifyNoInteractions(subscriptionConfirmationManualReviewService);
+    }
+
+    @Test
+    @DisplayName("MANUAL_REVIEW 전환에 실패하면 이후 청약은 처리하지 않는다")
+    void stopsRecoveryWhenManualReviewMarkingFails() {
+        UUID offeringId = UUID.randomUUID();
+        UUID failedSubscriptionId = UUID.randomUUID();
+        UUID nextSubscriptionId = UUID.randomUUID();
+
+        SubscriptionConfirmationBatchException batchException =
+                new SubscriptionConfirmationBatchException(
+                        offeringId,
+                        List.of(failedSubscriptionId, nextSubscriptionId),
+                        new DataIntegrityViolationException("batch failure")
+                );
+
+        when(subscriptionConfirmationBatchTransactionService
+                .confirmNextBatch())
+                .thenThrow(batchException);
+
+        when(subscriptionConfirmationItemTransactionService
+                .confirm(offeringId, failedSubscriptionId))
+                .thenThrow(new DataIntegrityViolationException(
+                        "item failure"
+                ));
+
+        when(subscriptionConfirmationManualReviewService
+                .markForManualReview(offeringId, failedSubscriptionId))
+                .thenThrow(new RuntimeException("manual review failure"));
+
+        scheduler.confirmNextBatch();
+
+        verify(subscriptionConfirmationItemTransactionService, never())
+                .confirm(offeringId, nextSubscriptionId);
     }
 }

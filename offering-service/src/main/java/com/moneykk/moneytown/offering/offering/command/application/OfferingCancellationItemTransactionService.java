@@ -64,16 +64,17 @@ public class OfferingCancellationItemTransactionService {
                 );
 
         /*
-         * 관리자 공모 중단 작업이 이미 끝났거나
-         * 다른 취소 유형이면 현재 건별 복구 작업에서 처리하지 않는다.
+         * 공모 취소 작업이 이미 끝났으면
+         * 현재 건별 복구 작업에서 처리하지 않는다.
          */
         if (offering.getOfferingStatus()
-                != OfferingStatus.CANCELLING
-                || offering.getCancellationType()
-                != com.moneykk.moneytown.offering.offering.domain.entity
-                .CancellationType.ADMIN_CANCELLED) {
+                != OfferingStatus.CANCELLING) {
             return false;
         }
+
+        CancellationType subscriptionCancellationType =
+                OfferingCancellationTypeMapper
+                        .toSubscriptionType(offering);
 
         Subscription subscription =
                 subscriptionRepository
@@ -105,7 +106,7 @@ public class OfferingCancellationItemTransactionService {
         }
 
         subscription.startCompensation(
-                CancellationType.OFFERING_ADMIN_CANCELLED
+                subscriptionCancellationType
         );
 
         SubscriptionCompensation compensation =

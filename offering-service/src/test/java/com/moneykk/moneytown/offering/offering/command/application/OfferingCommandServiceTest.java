@@ -4,19 +4,27 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingCreateRequest;
+import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingRejectionRequest;
 import com.moneykk.moneytown.offering.offering.command.dto.request.OfferingUpdateRequest;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingApprovalResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingCreateResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingRejectionResponse;
+import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingReviewRequestResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingUpdateResponse;
 import com.moneykk.moneytown.offering.offering.command.dto.response.OfferingDeleteResponse;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
+import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOfferingInfoResponse;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
+import feign.FeignException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -640,6 +648,821 @@ class OfferingCommandServiceTest {
                 1_000L,
                 0L,
                 "APPROVED"
+        );
+    }
+
+    @Test
+    @DisplayName("소유자인 ISSUER가 유효한 자산으로 공모 심사를 요청한다")
+    void requestsReviewForOwningIssuer() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+        when(offering.getAssetId()).thenReturn(assetId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(
+                        availableAsset(assetId, issuerId), "자산 조회 성공"
+                ));
+
+        OfferingReviewRequestResponse expectedResponse =
+                mock(OfferingReviewRequestResponse.class);
+
+        when(offeringTransactionService.requestReview(offeringId, issuerId))
+                .thenReturn(expectedResponse);
+
+        // when
+        OfferingReviewRequestResponse response =
+                offeringCommandService.requestReview(offeringId, issuerId);
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+        verify(offeringTransactionService).requestReview(offeringId, issuerId);
+    }
+
+    @Test
+    @DisplayName("공모 소유자가 아닌 ISSUER는 심사를 요청할 수 없다")
+    void rejectsReviewRequestByNonOwner() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID otherIssuerId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(ownerId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.requestReview(
+                        offeringId, otherIssuerId
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ACCESS_DENIED);
+
+        verifyNoInteractions(userServiceClient, assetServiceClient, offeringTransactionService);
+    }
+
+    @Test
+    @DisplayName("심사 요청 시 자산이 APPROVED 상태가 아니면 거부한다")
+    void rejectsReviewRequestWhenAssetNotApproved() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+        when(offering.getAssetId()).thenReturn(assetId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse pendingAsset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", "테스트 자산",
+                10_000L, 1_000L, 0L, "PENDING"
+        );
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(pendingAsset, "자산 조회 성공"));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.requestReview(offeringId, issuerId)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ASSET_NOT_AVAILABLE);
+
+        verifyNoInteractions(offeringTransactionService);
+    }
+
+    @Test
+    @DisplayName("심사 요청 시 자산 소유자가 다르면 거부한다")
+    void rejectsReviewRequestWhenAssetOwnerMismatches() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID otherOwnerId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+        when(offering.getAssetId()).thenReturn(assetId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(
+                        availableAsset(assetId, otherOwnerId), "자산 조회 성공"
+                ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.requestReview(offeringId, issuerId)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ASSET_ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("심사 요청 시 자산을 찾을 수 없으면 거부한다")
+    void rejectsReviewRequestWhenAssetNotFound() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+        when(offering.getAssetId()).thenReturn(assetId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenThrow(mock(FeignException.NotFound.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.requestReview(offeringId, issuerId)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ASSET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("심사 요청 시 자산 서비스 호출이 실패하면 거부한다")
+    void rejectsReviewRequestWhenAssetServiceUnavailable() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+        when(offering.getAssetId()).thenReturn(assetId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenThrow(mock(FeignException.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.requestReview(offeringId, issuerId)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.ASSET_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("존재하는 공모를 승인하면 승인 결과를 반환한다")
+    void approvesExistingOffering() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID reviewerId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getOfferingId()).thenReturn(offeringId);
+        when(offering.getOfferingStatus()).thenReturn(OfferingStatus.SCHEDULED);
+        when(offering.getReviewedAt()).thenReturn(Instant.now());
+        when(offering.getReviewedBy()).thenReturn(reviewerId);
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when
+        OfferingApprovalResponse response =
+                offeringCommandService.approveOffering(offeringId, reviewerId);
+
+        // then
+        assertThat(response.offeringId()).isEqualTo(offeringId);
+        assertThat(response.offeringStatus()).isEqualTo(OfferingStatus.SCHEDULED);
+        assertThat(response.reviewedBy()).isEqualTo(reviewerId);
+
+        verify(offering).approve(reviewerId);
+    }
+
+    @Test
+    @DisplayName("승인 대상 공모를 찾을 수 없으면 거부한다")
+    void rejectsApprovalWhenOfferingNotFound() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID reviewerId = UUID.randomUUID();
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.approveOffering(offeringId, reviewerId)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("존재하는 공모를 반려하면 반려 결과를 반환한다")
+    void rejectsExistingOffering() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID reviewerId = UUID.randomUUID();
+        OfferingRejectionRequest request =
+                new OfferingRejectionRequest("자산 증빙 부족");
+
+        Offering offering = mock(Offering.class);
+        when(offering.getOfferingId()).thenReturn(offeringId);
+        when(offering.getOfferingStatus()).thenReturn(OfferingStatus.REJECTED);
+        when(offering.getRejectionReason()).thenReturn("자산 증빙 부족");
+        when(offering.getReviewedAt()).thenReturn(Instant.now());
+        when(offering.getReviewedBy()).thenReturn(reviewerId);
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when
+        OfferingRejectionResponse response =
+                offeringCommandService.rejectOffering(
+                        offeringId, reviewerId, request
+                );
+
+        // then
+        assertThat(response.offeringId()).isEqualTo(offeringId);
+        assertThat(response.offeringStatus()).isEqualTo(OfferingStatus.REJECTED);
+        assertThat(response.rejectionReason()).isEqualTo("자산 증빙 부족");
+
+        verify(offering).reject(reviewerId, request.rejectionReason());
+    }
+
+    @Test
+    @DisplayName("반려 대상 공모를 찾을 수 없으면 거부한다")
+    void rejectsRejectionWhenOfferingNotFound() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID reviewerId = UUID.randomUUID();
+        OfferingRejectionRequest request =
+                new OfferingRejectionRequest("사유");
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.rejectOffering(
+                        offeringId, reviewerId, request
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("소유자인 ISSUER가 자격을 검증받아 공모를 수정한다")
+    void updatesOfferingForOwningIssuer() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(issuerId);
+        when(offering.getAssetId()).thenReturn(assetId);
+        when(offering.getTotalQuantity()).thenReturn(100L);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse asset = availableAsset(assetId, issuerId);
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(asset, "자산 조회 성공"));
+
+        OfferingUpdateRequest request = emptyUpdateRequest();
+        OfferingUpdateResponse expectedResponse =
+                mock(OfferingUpdateResponse.class);
+
+        when(offeringTransactionService.updateOffering(
+                offeringId, issuerId, "ISSUER", request
+        )).thenReturn(expectedResponse);
+
+        // when
+        OfferingUpdateResponse response = offeringCommandService.updateOffering(
+                offeringId, issuerId, "ISSUER", request
+        );
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+        verify(userServiceClient).getInvestmentEligibility(issuerId);
+    }
+
+    @Test
+    @DisplayName("소유자도 관리자도 아니면 공모 수정을 거부한다")
+    void rejectsUpdateWhenUserIsNeitherOwnerNorAdmin() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID otherUserId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(ownerId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.updateOffering(
+                        offeringId, otherUserId, "ISSUER", emptyUpdateRequest()
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ACCESS_DENIED);
+
+        verifyNoInteractions(userServiceClient, assetServiceClient, offeringTransactionService);
+    }
+
+    @Test
+    @DisplayName("수정 대상 공모를 찾을 수 없으면 거부한다")
+    void rejectsUpdateWhenOfferingNotFound() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.updateOffering(
+                        offeringId, userId, "ADMIN", emptyUpdateRequest()
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("소유자도 관리자도 아니면 공모 삭제를 거부한다")
+    void rejectsDeleteWhenUserIsNeitherOwnerNorAdmin() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID otherUserId = UUID.randomUUID();
+
+        Offering offering = mock(Offering.class);
+        when(offering.getIssuerId()).thenReturn(ownerId);
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.of(offering));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.deleteOffering(
+                        offeringId, otherUserId, "ISSUER"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ACCESS_DENIED);
+
+        verifyNoInteractions(userServiceClient, offeringTransactionService);
+    }
+
+    @Test
+    @DisplayName("삭제 대상 공모를 찾을 수 없으면 거부한다")
+    void rejectsDeleteWhenOfferingNotFound() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(offeringRepository.findByOfferingIdAndIsDeletedFalse(offeringId))
+                .thenReturn(Optional.empty());
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.deleteOffering(
+                        offeringId, userId, "ADMIN"
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_NOT_FOUND);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0L, -1L})
+    @DisplayName("총 모집 수량이 0 이하이면 공모 생성을 거부한다")
+    void rejectsCreateWhenTotalQuantityIsNotPositive(long totalQuantity) {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        OfferingCreateRequest request = new OfferingCreateRequest(
+                assetId, totalQuantity, 1L, 10L,
+                LocalDateTime.now().plusHours(1),
+                LocalDateTime.now().plusHours(2)
+        );
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.INVALID_OFFERING_QUANTITY);
+
+        verifyNoInteractions(assetServiceClient);
+    }
+
+    @Test
+    @DisplayName("자산을 찾을 수 없으면 공모 생성을 거부한다")
+    void rejectsCreateWhenAssetNotFound() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenThrow(mock(FeignException.NotFound.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ASSET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("자산 서비스 호출이 실패하면 공모 생성을 거부한다")
+    void rejectsCreateWhenAssetServiceUnavailable() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenThrow(mock(FeignException.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.ASSET_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("자산 응답에 필수값이 없으면 공모 생성을 거부한다")
+    void rejectsCreateWhenAssetResponseIsInvalid() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse invalidAsset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", "테스트 자산",
+                null, 1_000L, 0L, "APPROVED"
+        );
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(invalidAsset, "자산 조회 성공"));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.ASSET_RESPONSE_INVALID);
+    }
+
+    @Test
+    @DisplayName("자산이 APPROVED 상태가 아니면 공모 생성을 거부한다")
+    void rejectsCreateWhenAssetNotApproved() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse pendingAsset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", "테스트 자산",
+                10_000L, 1_000L, 0L, "PENDING"
+        );
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(pendingAsset, "자산 조회 성공"));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ASSET_NOT_AVAILABLE);
+    }
+
+    @Test
+    @DisplayName("자산 소유자가 요청한 ISSUER와 다르면 공모 생성을 거부한다")
+    void rejectsCreateWhenAssetOwnerMismatches() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        UUID otherOwnerId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(
+                        availableAsset(assetId, otherOwnerId), "자산 조회 성공"
+                ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_ASSET_ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("배정된 지분 수량이 전체 발행 수량을 초과하면 공모 생성을 거부한다")
+    void rejectsCreateWhenAllocatedQuantityExceedsTotalShareQuantity() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse invalidStateAsset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", "테스트 자산",
+                10_000L, 1_000L, 2_000L, "APPROVED"
+        );
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(invalidStateAsset, "자산 조회 성공"));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.ASSET_QUANTITY_STATE_INVALID);
+    }
+
+    @Test
+    @DisplayName("요청 수량이 가용 지분 수량을 초과하면 공모 생성을 거부한다")
+    void rejectsCreateWhenRequestedQuantityExceedsAvailable() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+
+        // availableShareQuantity = 1_000 - 950 = 50, request totalQuantity = 100
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse limitedAsset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", "테스트 자산",
+                10_000L, 1_000L, 950L, "APPROVED"
+        );
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(limitedAsset, "자산 조회 성공"));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_QUANTITY_EXCEEDS_AVAILABLE);
+    }
+
+    @Test
+    @DisplayName("User Service에서 ISSUER를 찾을 수 없으면 공모 생성을 거부한다")
+    void rejectsCreateWhenIssuerNotFound() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(UUID.randomUUID());
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenThrow(mock(FeignException.NotFound.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.OFFERING_USER_NOT_FOUND);
+
+        verifyNoInteractions(assetServiceClient);
+    }
+
+    @Test
+    @DisplayName("User Service 호출이 실패하면 공모 생성을 거부한다")
+    void rejectsCreateWhenUserServiceUnavailable() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(UUID.randomUUID());
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenThrow(mock(FeignException.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.USER_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("자산명이 비어 있으면 공모 제목을 생성할 수 없다")
+    void rejectsCreateWhenAssetNameIsBlank() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        AssetOfferingInfoResponse blankNameAsset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", "   ",
+                10_000L, 1_000L, 0L, "APPROVED"
+        );
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(blankNameAsset, "자산 조회 성공"));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.ASSET_RESPONSE_INVALID);
+    }
+
+    @Test
+    @DisplayName("자산명이 길면 공모 제목을 200자 이내로 잘라서 생성한다")
+    void truncatesLongAssetNameInOfferingTitle() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        UUID assetId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(assetId);
+
+        String longAssetName = "가".repeat(300);
+
+        AssetOfferingInfoResponse asset = new AssetOfferingInfoResponse(
+                assetId, issuerId, "REAL_ESTATE", longAssetName,
+                10_000L, 1_000L, 0L, "APPROVED"
+        );
+
+        String expectedTitle =
+                longAssetName.substring(0, 200 - " 공모".length()) + " 공모";
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenReturn(ApiResponse.success(
+                        eligibleIssuer(issuerId), "사용자 조회 성공"
+                ));
+
+        when(assetServiceClient.getAsset("SYSTEM", assetId))
+                .thenReturn(ApiResponse.success(asset, "자산 조회 성공"));
+
+        OfferingCreateResponse expectedResponse =
+                mock(OfferingCreateResponse.class);
+
+        when(offeringTransactionService.createOffering(
+                issuerId, request, expectedTitle, asset.unitPrice()
+        )).thenReturn(expectedResponse);
+
+        // when
+        OfferingCreateResponse response =
+                offeringCommandService.create(issuerId, request);
+
+        // then
+        assertThat(response).isSameAs(expectedResponse);
+        assertThat(expectedTitle).hasSize(200);
+
+        verify(offeringTransactionService).createOffering(
+                issuerId, request, expectedTitle, asset.unitPrice()
         );
     }
 }
