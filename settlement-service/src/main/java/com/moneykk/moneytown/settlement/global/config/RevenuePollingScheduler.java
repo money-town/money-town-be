@@ -29,13 +29,14 @@ import java.util.UUID;
 @Slf4j
 public class RevenuePollingScheduler {
 
-    private static final long POLL_INTERVAL_MS = 3 * 60 * 1000L;
+    private static final long POLL_INTERVAL_MS = 30 * 60 * 1000L;
     private static final int MAX_PAGES = 1000;
     private static final String SYSTEM_ROLE = "SYSTEM";
 
     // 폴링 중 자연스럽게 발생할 수 있는, 재시도가 필요 없는 상태 — 경고 없이 건너뛴다.
+    // SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE는 openBatchAutomatically가 멱등하게
+    // 바뀌면서더 이상 예외로 던져지지 않는다 — 이제 여기 남겨두면 진짜 장애를 조용히 삼킬 위험만 있음
     private static final Set<SettlementErrorCode> EXPECTED_SKIP_REASONS = Set.of(
-            SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE,
             SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET
     );
 
@@ -73,7 +74,7 @@ public class RevenuePollingScheduler {
             cursor = nextCursor;
         }
 
-        // 매 3분 도는 스케줄러라, 처리한 게 없는 조용한 주기까지 매번 남기면 로그만 쌓인다 — 처리 건이 있을 때만 남긴다.
+        // 백스톱 스케줄러라 처리한 게 없는 조용한 주기까지 남기지 않는다.
         if (processedCount > 0) {
             log.info("정산 대기 수익 폴링 완료 (처리 시도 건수={})", processedCount);
         }
@@ -83,11 +84,20 @@ public class RevenuePollingScheduler {
         try {
             SettlementBatchResponse response =
                     settlementCommandService.openBatchAutomatically(revenue.assetId(), revenue.revenueId());
+            // newlyCreated는 게이트가 아니라 관측 전용이다 — 기존 배치를 재사용한 경우에도 notifyTransferred는 반드시 호출
+            // 그렇지 않으면 revenue가 TRANSFERRED로 못 넘어가는 걸 복구할 스케줄러가 없음
+            if (!response.newlyCreated()) {
+                meterRegistry.counter("settlement.batch.auto_open", "result", "recovered_existing").increment();
+            }
             revenueTransferStatusNotifier.notifyTransferred(response.revenueId());
             dividendDisbursementService.disburseAsync(response.settlementBatchId());
         } catch (BusinessException e) {
             if (EXPECTED_SKIP_REASONS.contains(e.getErrorCode())) {
-                meterRegistry.counter("settlement.batch.auto_open", "result", "skipped").increment();
+                meterRegistry.counter(
+                        "settlement.batch.auto_open",
+                        "result",
+                        "skipped_in_progress"
+                ).increment();
                 log.debug("정산 회차 자동 개시 건너뜀 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             } else {
                 meterRegistry.counter("settlement.batch.auto_open", "result", "failed").increment();

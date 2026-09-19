@@ -2,6 +2,7 @@ package com.moneykk.moneytown.asset.controller;
 
 import com.moneykk.moneytown.asset.dto.request.RevenueTransferStatusRequest;
 import com.moneykk.moneytown.asset.entity.RevenueTransferStatus;
+import com.moneykk.moneytown.asset.global.outbox.OutboxEventStore;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueRepository;
@@ -129,7 +130,7 @@ class RevenueControllerTest {
         RevenueRepository repository = mock(RevenueRepository.class);
         RevenueQueryRepository queryRepository = mock(RevenueQueryRepository.class);
         RevenueCommandService service = new RevenueCommandService(repository, queryRepository,
-                mock(AssetQueryRepository.class));
+                mock(AssetQueryRepository.class), mock(OutboxEventStore.class));
         mvc(service).perform(patch(url).header("X-User-Role", role)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"transferStatus\":\"TRANSFERRED\"}"))

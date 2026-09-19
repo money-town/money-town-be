@@ -14,6 +14,7 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.List;
 
@@ -29,7 +30,7 @@ class SettlementBatchWriter {
     private final HoldingSnapshotRepository holdingSnapshotRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
 
-    @Transactional(timeout = 20)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 20)
     public void persist(SettlementBatch batch, HoldingSnapshot snapshot, List<DividendPayout> payouts) {
         log.info("[진단]persist 진입 — 커넥션 획득 완료 (batchId={})", batch.getId());
         saveNewBatch(batch);
