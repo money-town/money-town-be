@@ -23,6 +23,13 @@ import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserSer
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.PreFdsCheckResponse;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import feign.FeignException;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -81,8 +88,22 @@ class SubscriptionCommandServiceTest {
     @Mock
     private UserServiceClient userServiceClient;
 
+    @Mock
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+
+    @Mock
+    private BulkheadRegistry bulkheadRegistry;
+
     @InjectMocks
     private SubscriptionCommandService subscriptionCommandService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(circuitBreakerRegistry.circuitBreaker(anyString()))
+                .thenReturn(CircuitBreaker.ofDefaults("user-service"));
+        lenient().when(bulkheadRegistry.bulkhead(anyString()))
+                .thenReturn(Bulkhead.ofDefaults("user-service"));
+    }
 
     @ParameterizedTest
     @NullAndEmptySource
@@ -1409,6 +1430,86 @@ class SubscriptionCommandServiceTest {
 
         when(userServiceClient.getInvestmentEligibility(userId))
                 .thenThrow(mock(FeignException.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> subscriptionCommandService.create(
+                        offeringId, userId, idempotencyKey, request, correlationId
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.USER_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("User Service 서킷이 열려 호출이 차단되면 사용자 상태 조회 서비스 오류로 처리한다")
+    void rejectsSubscriptionWhenUserServiceCircuitIsOpen() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        String idempotencyKey = "user-service-circuit-open-key";
+        String correlationId = UUID.randomUUID().toString();
+        String requestHash = "request-hash";
+
+        SubscriptionCreateRequest request =
+                new SubscriptionCreateRequest(10L);
+
+        when(subscriptionRequestHasher.hash(offeringId, 10L))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(userId),
+                eq(IdempotencyOperation.CREATE_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq("SUBSCRIPTION")
+        )).thenReturn(1);
+
+        when(userServiceClient.getInvestmentEligibility(userId))
+                .thenThrow(CallNotPermittedException.createCallNotPermittedException(
+                        CircuitBreaker.ofDefaults("user-service")
+                ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> subscriptionCommandService.create(
+                        offeringId, userId, idempotencyKey, request, correlationId
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.USER_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("User Service 동시 호출 제한(Bulkhead)에 걸리면 사용자 상태 조회 서비스 오류로 처리한다")
+    void rejectsSubscriptionWhenUserServiceBulkheadIsFull() {
+        // given
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        String idempotencyKey = "user-service-bulkhead-full-key";
+        String correlationId = UUID.randomUUID().toString();
+        String requestHash = "request-hash";
+
+        SubscriptionCreateRequest request =
+                new SubscriptionCreateRequest(10L);
+
+        when(subscriptionRequestHasher.hash(offeringId, 10L))
+                .thenReturn(requestHash);
+
+        when(subscriptionIdempotencyService.tryBegin(
+                any(UUID.class), eq(userId),
+                eq(IdempotencyOperation.CREATE_SUBSCRIPTION.name()),
+                eq(idempotencyKey), eq(requestHash), eq("SUBSCRIPTION")
+        )).thenReturn(1);
+
+        when(userServiceClient.getInvestmentEligibility(userId))
+                .thenThrow(BulkheadFullException.createBulkheadFullException(
+                        Bulkhead.ofDefaults("user-service")
+                ));
 
         // when & then
         BusinessException exception = assertThrows(
