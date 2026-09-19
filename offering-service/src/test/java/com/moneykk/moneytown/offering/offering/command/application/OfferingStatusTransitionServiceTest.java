@@ -9,17 +9,9 @@ import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.offering.domain.repository.projection.UnderSubscribedOfferingTarget;
-import com.moneykk.moneytown.offering.subscription.domain.entity.CancellationType;
-import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionCompensation;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionCompensationRepository;
-import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
-import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -35,7 +27,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -43,36 +34,23 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class OfferingStatusTransitionServiceTest {
 
-    private static final List<SubscriptionStatus>
-            COMPENSATABLE_STATUSES = List.of(
-            SubscriptionStatus.PROCESSING,
-            SubscriptionStatus.HOLD_SUCCEEDED,
-            SubscriptionStatus.CONFIRMED
-    );
-
     @Mock
     private OfferingRepository offeringRepository;
 
     @Mock
-    private SubscriptionRepository subscriptionRepository;
+    private OfferingCompensationCompletionService
+            offeringCompensationCompletionService;
 
     @Mock
-    private SubscriptionEventPublisher subscriptionEventPublisher;
-
-    @Mock
-    private SubscriptionCompensationRepository subscriptionCompensationRepository;
-
-    @Mock
-    private OfferingCompensationCompletionService offeringCompensationCompletionService;
-
-    @Mock
-    private OfferingUnderSubscribedTransactionService offeringUnderSubscribedTransactionService;
+    private OfferingUnderSubscribedTransactionService
+            offeringUnderSubscribedTransactionService;
 
     @Mock
     private OfferingSchedulerMetrics offeringSchedulerMetrics;
 
     @InjectMocks
-    private OfferingStatusTransitionService offeringStatusTransitionService;
+    private OfferingStatusTransitionService
+            offeringStatusTransitionService;
 
     @Test
     @DisplayName("SCHEDULED 공모의 OPEN 전환 건수를 반환한다")
@@ -262,8 +240,11 @@ class OfferingStatusTransitionServiceTest {
     }
 
     @Test
-    @DisplayName("보상 대상 청약이 없는 SCHEDULED 공모는 관리자 중단 요청에서 즉시 취소된다")
-    void cancelsScheduledOfferingImmediatelyByAdmin() {
+    @DisplayName(
+            "미해결 청약이 없는 공모는 "
+                    + "관리자 중단 요청에서 즉시 취소된다"
+    )
+    void cancelsOfferingImmediatelyWhenNoUnresolvedSubscriptionExists() {
         // given
         UUID offeringId = UUID.randomUUID();
         String correlationId = UUID.randomUUID().toString();
@@ -273,18 +254,15 @@ class OfferingStatusTransitionServiceTest {
         when(offering.getOfferingId())
                 .thenReturn(offeringId);
 
+        /*
+         * 완료 서비스가 미해결 청약이 없다고 판단하여
+         * 공모를 CANCELLED로 변경한 이후의 상태를 표현한다.
+         */
         when(offering.getOfferingStatus())
                 .thenReturn(OfferingStatus.CANCELLED);
 
         when(offeringRepository.findByIdForUpdate(offeringId))
                 .thenReturn(Optional.of(offering));
-
-        when(subscriptionRepository
-                .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-                        offeringId,
-                        COMPENSATABLE_STATUSES
-                ))
-                .thenReturn(List.of());
 
         // when
         OfferingCancellationResponse response =
@@ -304,46 +282,32 @@ class OfferingStatusTransitionServiceTest {
 
         verify(offeringCompensationCompletionService)
                 .completeIfReady(offeringId);
-
-        verifyNoInteractions(
-                subscriptionCompensationRepository,
-                subscriptionEventPublisher
-        );
     }
 
     @Test
-    @DisplayName("보상 대상 청약이 있는 OPEN 공모는 관리자 중단 후 보상 요청을 저장한다")
-    void startsCompensationWhenAdminCancelsOpenOffering() {
+    @DisplayName(
+            "미해결 청약이 있는 공모는 CANCELLING 상태로 "
+                    + "보상 배치 처리를 기다린다"
+    )
+    void leavesOfferingCancellingWhenUnresolvedSubscriptionExists() {
         // given
         UUID offeringId = UUID.randomUUID();
-        UUID assetId = UUID.randomUUID();
-        UUID subscriptionId = UUID.randomUUID();
         String correlationId = UUID.randomUUID().toString();
 
         Offering offering = mock(Offering.class);
-        Subscription subscription = mock(Subscription.class);
 
         when(offering.getOfferingId())
                 .thenReturn(offeringId);
 
-        when(offering.getAssetId())
-                .thenReturn(assetId);
-
+        /*
+         * 완료 서비스가 미해결 청약을 발견해
+         * CANCELLING 상태를 유지한 상황을 표현한다.
+         */
         when(offering.getOfferingStatus())
                 .thenReturn(OfferingStatus.CANCELLING);
 
-        when(subscription.getSubscriptionId())
-                .thenReturn(subscriptionId);
-
         when(offeringRepository.findByIdForUpdate(offeringId))
                 .thenReturn(Optional.of(offering));
-
-        when(subscriptionRepository
-                .findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-                        offeringId,
-                        COMPENSATABLE_STATUSES
-                ))
-                .thenReturn(List.of(subscription));
 
         // when
         OfferingCancellationResponse response =
@@ -361,32 +325,13 @@ class OfferingStatusTransitionServiceTest {
 
         verify(offering).startAdminCancellation();
 
-        verify(subscription)
-                .startCompensation(
-                        CancellationType.OFFERING_ADMIN_CANCELLED
-                );
-
-        ArgumentCaptor<SubscriptionCompensation>
-                compensationCaptor =
-                ArgumentCaptor.forClass(
-                        SubscriptionCompensation.class
-                );
-
-        verify(subscriptionCompensationRepository)
-                .save(compensationCaptor.capture());
-
-        assertThat(
-                compensationCaptor.getValue()
-                        .getSubscriptionId()
-        ).isEqualTo(subscriptionId);
-
-        verify(subscriptionEventPublisher)
-                .publishCompensationRequested(
-                        subscription,
-                        assetId,
-                        correlationId
-                );
-
+        /*
+         * HTTP 요청에서는 개별 청약을 조회하거나
+         * 보상 Outbox를 만들지 않는다.
+         *
+         * 완료 가능 여부만 검사하고, 실제 보상 시작은
+         * OfferingCancellationBatchScheduler가 담당한다.
+         */
         verify(offeringCompensationCompletionService)
                 .completeIfReady(offeringId);
     }
@@ -420,9 +365,6 @@ class OfferingStatusTransitionServiceTest {
                 );
 
         verifyNoInteractions(
-                subscriptionRepository,
-                subscriptionCompensationRepository,
-                subscriptionEventPublisher,
                 offeringCompensationCompletionService
         );
     }
@@ -431,8 +373,11 @@ class OfferingStatusTransitionServiceTest {
     @DisplayName("첫 배치가 처리되지 않아도 다음 키셋 배치를 계속 처리한다")
     void continuesWithNextKeysetBatchWhenFirstBatchIsNotProcessed() {
         // given
-        Instant firstEndAt = Instant.parse("2026-09-01T00:00:00Z");
-        Instant nextEndAt = Instant.parse("2026-09-02T00:00:00Z");
+        Instant firstEndAt =
+                Instant.parse("2026-09-01T00:00:00Z");
+
+        Instant nextEndAt =
+                Instant.parse("2026-09-02T00:00:00Z");
 
         List<UnderSubscribedOfferingTarget> firstBatch =
                 java.util.stream.IntStream.range(0, 100)
@@ -444,7 +389,8 @@ class OfferingStatusTransitionServiceTest {
                         )
                         .sorted(
                                 java.util.Comparator.comparing(
-                                        UnderSubscribedOfferingTarget::offeringId
+                                        UnderSubscribedOfferingTarget
+                                                ::offeringId
                                 )
                         )
                         .toList();
@@ -454,10 +400,12 @@ class OfferingStatusTransitionServiceTest {
 
         UUID nextOfferingId = UUID.randomUUID();
 
-        when(offeringRepository.findUnderSubscribedOfferingTargets(
-                any(Instant.class),
-                any(Pageable.class)
-        )).thenReturn(firstBatch);
+        when(offeringRepository
+                .findUnderSubscribedOfferingTargets(
+                        any(Instant.class),
+                        any(Pageable.class)
+                ))
+                .thenReturn(firstBatch);
 
         when(offeringRepository
                 .findUnderSubscribedOfferingTargetsAfter(

@@ -12,6 +12,9 @@ import org.springframework.kafka.support.SendResult;
 import org.springframework.test.util.ReflectionTestUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -562,6 +565,14 @@ class OutboxPublishSchedulerTest {
             int maxInFlight,
             Executor publishExecutor
     ) {
+        return createScheduler(maxInFlight, publishExecutor, Runnable::run);
+    }
+
+    private OutboxPublishScheduler createScheduler(
+            int maxInFlight,
+            Executor publishExecutor,
+            Executor callbackExecutor
+    ) {
         OutboxPublishMonitor monitor =
                 new OutboxPublishMonitor(
                         outboxPublishService,
@@ -575,8 +586,7 @@ class OutboxPublishSchedulerTest {
                         outboxKafkaPublisher,
                         new ObjectMapper(),
                         publishExecutor,
-                        // callback executor
-                        Runnable::run,
+                        callbackExecutor,
                         monitor,
                         offeringSchedulerMetrics
                 );
@@ -585,6 +595,12 @@ class OutboxPublishSchedulerTest {
                 createdScheduler,
                 "batchSize",
                 10
+        );
+
+        ReflectionTestUtils.setField(
+                createdScheduler,
+                "completionTimeoutSeconds",
+                70L
         );
 
         return createdScheduler;
@@ -674,6 +690,321 @@ class OutboxPublishSchedulerTest {
         scheduler.recoverExpiredEvents();
 
         verify(offeringSchedulerMetrics)
+                .recordOutboxRecoveryFailure();
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 Outbox 이벤트는 즉시 영구 실패로 기록한다")
+    void marksUnsupportedEventAsPermanentFailure() {
+        UUID eventId = UUID.randomUUID();
+
+        String envelopeJson = """
+            {
+              "eventId": "%s",
+              "eventType": "UnsupportedEvent",
+              "userId": "%s"
+            }
+            """.formatted(
+                eventId,
+                UUID.randomUUID()
+        );
+
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        eventId,
+                        "subscription-events",
+                        envelopeJson,
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("Kafka key 규칙이 정의되지 않은 이벤트")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("Kafka key 규칙이 정의되지 않은 이벤트")
+                );
+
+        verify(outboxPublishService, never())
+                .markFailedAttempt(any(), anyString());
+
+        verify(outboxKafkaPublisher, never())
+                .publish(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("envelope이 JSON 객체가 아니면 즉시 영구 실패로 기록한다")
+    void marksPermanentFailureWhenEnvelopeIsNotJsonObject() {
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        UUID.randomUUID(),
+                        "subscription-events",
+                        "[]",
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("Outbox 메시지가 JSON 객체가 아닙니다")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("Outbox 메시지가 JSON 객체가 아닙니다")
+                );
+
+        verify(outboxKafkaPublisher, never())
+                .publish(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("envelope의 eventId가 Outbox 이벤트와 다르면 즉시 영구 실패로 기록한다")
+    void marksPermanentFailureWhenEventIdMismatches() {
+        UUID eventId = UUID.randomUUID();
+
+        String envelopeJson = """
+                {
+                  "eventId": "%s",
+                  "eventType": "SubscriptionReserved",
+                  "userId": "%s"
+                }
+                """.formatted(UUID.randomUUID(), UUID.randomUUID());
+
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        eventId,
+                        "subscription-reserved",
+                        envelopeJson,
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("eventId가 일치하지 않습니다")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("eventId가 일치하지 않습니다")
+                );
+    }
+
+    @Test
+    @DisplayName("실패 원인 메시지가 없으면 예외 클래스 이름만으로 실패를 기록한다")
+    void formatsFailureWithoutMessageUsingExceptionNameOnly() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenThrow(new IllegalStateException());
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(event),
+                eq("IllegalStateException")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markFailedAttempt(eq(event), eq("IllegalStateException"));
+    }
+
+    @Test
+    @DisplayName("발행 성공 후 DB 기록이 실패해도 예외를 전파하지 않는다")
+    void recordPublishedSwallowsExceptionFromMarkPublished() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(successfulFuture());
+
+        when(outboxPublishService.markPublished(event))
+                .thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService).markPublished(event);
+    }
+
+    @Test
+    @DisplayName("영구 실패 기록 중 DB 오류가 발생해도 예외를 전파하지 않는다")
+    void recordPermanentFailureSwallowsExceptionFromMarkPermanentFailure() {
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        UUID.randomUUID(),
+                        "subscription-events",
+                        "[]",
+                        Instant.parse("2026-09-17T01:00:00Z")
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxPublishService.markPermanentFailure(
+                eq(event),
+                contains("Outbox 메시지가 JSON 객체가 아닙니다")
+        )).thenThrow(new RuntimeException("DB 오류"));
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markPermanentFailure(
+                        eq(event),
+                        contains("Outbox 메시지가 JSON 객체가 아닙니다")
+                );
+    }
+
+    @Test
+    @DisplayName("발행 성공 결과가 반영되지 않아도 예외를 전파하지 않는다")
+    void logsWarningWhenMarkPublishedNotUpdated() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(successfulFuture());
+
+        when(outboxPublishService.markPublished(event))
+                .thenReturn(false);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService).markPublished(event);
+    }
+
+    @Test
+    @DisplayName("발행 슬롯 확보 중 예외가 발생하면 이벤트를 선점하지 않고 실패를 기록한다")
+    void recordsFailureWhenReservingSlotsThrows() {
+        OutboxPublishMonitor failingMonitor = mock(OutboxPublishMonitor.class);
+
+        when(failingMonitor.reserveSlots(anyInt()))
+                .thenThrow(new RuntimeException("모니터 오류"));
+
+        OutboxPublishScheduler failingScheduler =
+                new OutboxPublishScheduler(
+                        outboxPublishService,
+                        outboxKafkaPublisher,
+                        new ObjectMapper(),
+                        Runnable::run,
+                        Runnable::run,
+                        failingMonitor,
+                        offeringSchedulerMetrics
+                );
+
+        ReflectionTestUtils.setField(failingScheduler, "batchSize", 10);
+        ReflectionTestUtils.setField(
+                failingScheduler, "completionTimeoutSeconds", 70L
+        );
+
+        failingScheduler.publishPendingEvents();
+
+        verify(offeringSchedulerMetrics)
+                .recordOutboxPublishBatchFailure();
+
+        verify(outboxPublishService, never())
+                .claimPendingEvents(anyInt());
+    }
+
+    @Test
+    @DisplayName("Kafka 발행 Future가 null이면 실패로 기록한다")
+    void marksFailureWhenPublishFutureIsNull() {
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(null);
+
+        when(outboxPublishService.markFailedAttempt(
+                eq(event),
+                contains("IllegalStateException: Kafka 발행 Future가 null입니다")
+        )).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService)
+                .markFailedAttempt(
+                        eq(event),
+                        contains(
+                                "IllegalStateException: "
+                                        + "Kafka 발행 Future가 null입니다"
+                        )
+                );
+    }
+
+    @Test
+    @DisplayName("완료 콜백 등록 자체가 실패해도 예외를 전파하지 않는다")
+    void swallowsExceptionWhenRegisteringCompletionCallbackFails() {
+        scheduler = createScheduler(
+                20,
+                Runnable::run,
+                command -> {
+                    throw new RejectedExecutionException(
+                            "callback executor saturated"
+                    );
+                }
+        );
+
+        UUID userId = UUID.randomUUID();
+        OutboxPublishService.ClaimedEvent event = createEvent(userId);
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+
+        when(outboxKafkaPublisher.publish(event, userId.toString()))
+                .thenReturn(successfulFuture());
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxPublishService, never())
+                .markPublished(any());
+
+        verify(outboxPublishService, never())
+                .markFailedAttempt(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("처리 기한을 초과한 이벤트가 있으면 복구 건수를 경고 로그로 남긴다")
+    void recoversExpiredEventsAndRecordsCount() {
+        when(outboxPublishService.recoverExpiredProcessing(100))
+                .thenReturn(3);
+
+        scheduler.recoverExpiredEvents();
+
+        verify(outboxPublishService)
+                .recoverExpiredProcessing(100);
+
+        verify(offeringSchedulerMetrics, never())
                 .recordOutboxRecoveryFailure();
     }
 

@@ -3,7 +3,6 @@ package com.moneykk.moneytown.offering.subscription.domain.repository;
 import com.moneykk.moneytown.offering.subscription.domain.entity.HoldingAllocationStatus;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
-import com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 
@@ -106,18 +105,40 @@ public interface SubscriptionRepository
             @Param("subscriptionId") UUID subscriptionId
     );
 
-
     /**
-     * 모집 미달 또는 공모 중단 시 보상 대상 청약을 조회한다.
+     * 공모 취소 시 보상을 시작할 청약 한 배치를 잠금 조회한다.
      *
-     * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 등 전달받은 상태에
-     * 해당하면서 삭제되지 않은 청약만 잠금 조회한다.
+     * PROCESSING, HOLD_SUCCEEDED, CONFIRMED 상태이면서
+     * 삭제되지 않은 청약만 subscriptionId 순서로 조회한다.
+     *
+     * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가
+     * 동시에 실행되어도 이미 처리 중인 청약은 기다리지 않고
+     * 다음 청약을 조회한다.
+     *
+     * 호출 서비스는 반드시 트랜잭션 안에서 먼저 Offering을
+     * 잠근 후 이 메서드를 호출해야 한다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    List<Subscription> findAllByOfferingIdAndSubscriptionStatusInAndIsDeletedFalse(
-            UUID offeringId,
-            List<SubscriptionStatus> subscriptionStatuses
+    @Query(
+            value = """
+        SELECT s.*
+          FROM p_subscriptions s
+         WHERE s.offering_id = :offeringId
+           AND s.subscription_status IN (
+               'PROCESSING',
+               'HOLD_SUCCEEDED',
+               'CONFIRMED'
+           )
+           AND s.is_deleted = FALSE
+         ORDER BY s.subscription_id ASC
+         LIMIT :batchSize
+         FOR UPDATE OF s SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<Subscription> findCompensationBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
+            @Param("batchSize") int batchSize
     );
 
     /**
@@ -145,93 +166,95 @@ public interface SubscriptionRepository
     );
 
     /**
-     * SOLD_OUT 공모의 최종 확정을 위해
-     * 현재 수량이 확보되어 있는 모든 청약을 잠금 조회한다.
+     * 최종 확정 가능한 HOLD_SUCCEEDED 청약을 제한된 개수만 잠금 조회한다.
      *
-     * Hold 실패 후 수량이 복원된 REJECTED 청약은
-     * quantityReserved=false이므로 조회 대상에서 제외한다.
+     * 호출 서비스는 반드시 같은 트랜잭션에서 Offering을 먼저 잠가야 한다.
+     * 공모 잠금으로 관리자 중단 및 다른 확정 배치와의 동시 실행을 직렬화하고,
+     * 청약은 subscriptionId 순서로 잠가 교착 가능성을 줄인다.
      *
-     * 공모 취소 처리와 잠금 순서를 통일하기 위해
-     * 호출하는 서비스에서 공모를 먼저 잠근 후 이 메서드를 호출해야 한다.
-     *
-     * subscriptionId 순서로 잠가 동시 처리 시 교착 가능성을 줄인다.
+     * List 반환이므로 Pageable을 사용해도 COUNT 쿼리는 실행되지 않는다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
-        SELECT s
-          FROM Subscription s
-         WHERE s.offeringId = :offeringId
-           AND s.quantityReserved = true
-           AND s.isDeleted = false
-         ORDER BY s.subscriptionId
-        """)
-    List<Subscription> findAllReservedByOfferingIdForUpdate(
-            @Param("offeringId") UUID offeringId
-    );
-
-    /**
-     * 예약 유효시간이 만료된 PROCESSING 청약의
-     * 첫 번째 배치를 조회한다.
-     *
-     * 이 메서드는 처리 대상과 키셋 커서만 조회하며
-     * 청약 행을 잠그지 않는다.
-     *
-     * 실제 상태 검증, 잠금, 보상 정보 생성 및 Outbox 저장은
-     * SubscriptionTimeoutTransactionService에서
-     * 청약 한 건마다 별도 트랜잭션으로 처리한다.
-     */
-    @Query("""
-    SELECT new com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget(
-               s.subscriptionId,
-               s.reservationExpiresAt
-           )
+    SELECT s
       FROM Subscription s
-     WHERE s.subscriptionStatus =
-           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
-       AND s.reservationExpiresAt <= :now
+     WHERE s.offeringId = :offeringId
+       AND s.subscriptionStatus =
+           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.HOLD_SUCCEEDED
+       AND s.quantityReserved = true
        AND s.isDeleted = false
-     ORDER BY s.reservationExpiresAt ASC,
-              s.subscriptionId ASC
+     ORDER BY s.subscriptionId ASC
     """)
-    List<ExpiredProcessingSubscriptionTarget>
-    findExpiredProcessingSubscriptionTargets(
-            @Param("now") Instant now,
+    List<Subscription> findHoldSucceededBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
             Pageable pageable
     );
 
     /**
-     * 주어진 키셋 커서 이후의 만료된 PROCESSING 청약을 조회한다.
+     * 선점한 공모에서 예약 시간이 만료된 PROCESSING 청약을
+     * 제한된 개수만 잠금 조회한다.
      *
-     * 이전 배치에서 처리에 실패한 청약이 PROCESSING 상태로
-     * 남아 있어도 같은 실행에서는 후속 청약을 계속 조회한다.
+     * 호출 서비스는 같은 트랜잭션에서 Offering을 먼저 잠가야 한다.
+     * FOR UPDATE SKIP LOCKED를 사용하므로 다른 트랜잭션이 처리 중인
+     * 청약은 기다리지 않고 건너뛴다.
      */
-    @Query("""
-    SELECT new com.moneykk.moneytown.offering.subscription.domain.repository.projection.ExpiredProcessingSubscriptionTarget(
-               s.subscriptionId,
-               s.reservationExpiresAt
-           )
-      FROM Subscription s
-     WHERE s.subscriptionStatus =
-           com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus.PROCESSING
-       AND s.reservationExpiresAt <= :now
-       AND s.isDeleted = false
-       AND (
-           s.reservationExpiresAt > :lastReservationExpiresAt
-           OR (
-               s.reservationExpiresAt = :lastReservationExpiresAt
-               AND s.subscriptionId > :lastSubscriptionId
-           )
-       )
-     ORDER BY s.reservationExpiresAt ASC,
-              s.subscriptionId ASC
-    """)
-    List<ExpiredProcessingSubscriptionTarget>
-    findExpiredProcessingSubscriptionTargetsAfter(
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT s.*
+          FROM p_subscriptions s
+         WHERE s.offering_id = :offeringId
+           AND s.subscription_status = 'PROCESSING'
+           AND s.reservation_expires_at <= :now
+           AND s.is_deleted = FALSE
+         ORDER BY s.reservation_expires_at ASC,
+                  s.subscription_id ASC
+         LIMIT :batchSize
+         FOR UPDATE OF s SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<Subscription> findExpiredProcessingBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
             @Param("now") Instant now,
-            @Param("lastReservationExpiresAt") Instant lastReservationExpiresAt,
-            @Param("lastSubscriptionId") UUID lastSubscriptionId,
-            Pageable pageable
+            @Param("batchSize") int batchSize
+    );
+
+    /**
+     * 선점한 공모에서 장시간 외부 결과가 완료되지 않은
+     * COMPENSATING 청약을 제한된 개수만 잠금 조회한다.
+     *
+     * 호출 서비스는 같은 트랜잭션에서 Offering을 먼저 잠가야 한다.
+     * Subscription을 잠근 뒤 보상 진행 정보를 잠그면 전체 보상
+     * 처리 경로가 동일한 잠금 순서를 사용한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT s.*
+          FROM p_subscriptions s
+          JOIN p_subscription_compensations c
+            ON c.subscription_id = s.subscription_id
+         WHERE s.offering_id = :offeringId
+           AND s.subscription_status = 'COMPENSATING'
+           AND s.is_deleted = FALSE
+           AND c.updated_at <= :stuckBefore
+           AND (
+               c.wallet_status <> 'SUCCEEDED'
+               OR c.holding_status <> 'SUCCEEDED'
+           )
+         ORDER BY c.updated_at ASC,
+                  c.subscription_id ASC
+         LIMIT :batchSize
+         FOR UPDATE OF s SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    List<Subscription> findStuckCompensationBatchForUpdate(
+            @Param("offeringId") UUID offeringId,
+            @Param("stuckBefore") Instant stuckBefore,
+            @Param("batchSize") int batchSize
     );
 
     /**

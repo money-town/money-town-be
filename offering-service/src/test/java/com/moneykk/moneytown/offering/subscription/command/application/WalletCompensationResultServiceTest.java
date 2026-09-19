@@ -310,6 +310,210 @@ class WalletCompensationResultServiceTest {
                 .isSameAs(failure);
     }
 
+    @Test
+    @DisplayName("WalletCompensationSucceeded가 아닌 이벤트 타입은 거부한다")
+    void rejectsWrongSucceededEventType() {
+        EventEnvelope<WalletCompensationResultPayload> event =
+                envelope("WrongType", new WalletCompensationResultPayload(
+                        10L, 20L, "NONE", null, null, null
+                ));
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("WalletCompensationSucceeded");
+
+        verifyNoInteractions(processedEventService);
+    }
+
+    @Test
+    @DisplayName("compensationType이 RELEASE/REFUND/NONE이 아니면 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithInvalidCompensationType() {
+        EventEnvelope<WalletCompensationResultPayload> event =
+                envelope("WalletCompensationSucceeded",
+                        new WalletCompensationResultPayload(
+                                10L, 20L, "UNKNOWN", 30L,
+                                subscription.getAmount(), null
+                        ));
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("compensationType");
+    }
+
+    @Test
+    @DisplayName("RELEASE 성공 결과의 holdId가 양수가 아니면 거부한다")
+    void rejectsReleaseSuccessWithInvalidHoldId() {
+        EventEnvelope<WalletCompensationResultPayload> event =
+                envelope("WalletCompensationSucceeded",
+                        new WalletCompensationResultPayload(
+                                0L, 20L, "RELEASE", 30L,
+                                subscription.getAmount(), null
+                        ));
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("holdId");
+    }
+
+    @Test
+    @DisplayName("reason이 없으면 실패 이벤트를 거부한다")
+    void rejectsFailedEventWithoutReason() {
+        EventEnvelope<WalletCompensationResultPayload> event =
+                envelope("WalletCompensationFailed",
+                        new WalletCompensationResultPayload(
+                                null, null, null, null, null, " "
+                        ));
+
+        assertThatThrownBy(() -> service.handleFailed(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reason");
+    }
+
+    @Test
+    @DisplayName("실패 결과에 compensationType이 있으면 거부한다")
+    void rejectsFailedEventWithCompensationType() {
+        EventEnvelope<WalletCompensationResultPayload> event =
+                envelope("WalletCompensationFailed",
+                        new WalletCompensationResultPayload(
+                                null, null, "RELEASE", null, null,
+                                "HOLD_NOT_FOUND"
+                        ));
+
+        assertThatThrownBy(() -> service.handleFailed(event, GROUP))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("compensationType");
+    }
+
+    @Test
+    @DisplayName("청약의 공모 ID를 찾을 수 없으면 처리를 거부한다")
+    void rejectsWhenOfferingIdLookupMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.handleSucceeded(success("NONE"), GROUP))
+                .isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+                .satisfies(exception -> assertThat(
+                        ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                                .getErrorCode()
+                ).isEqualTo(
+                        com.moneykk.moneytown.offering.global.exception
+                                .SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND
+                ));
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 처리를 거부한다")
+    void rejectsWhenOfferingMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.handleSucceeded(success("NONE"), GROUP))
+                .isInstanceOf(com.moneykk.moneytown.common.exception.BusinessException.class)
+                .satisfies(exception -> assertThat(
+                        ((com.moneykk.moneytown.common.exception.BusinessException) exception)
+                                .getErrorCode()
+                ).isEqualTo(
+                        com.moneykk.moneytown.offering.global.exception
+                                .OfferingErrorCode.OFFERING_NOT_FOUND
+                ));
+    }
+
+    @Test
+    @DisplayName("보상 진행 정보가 없으면 처리를 거부한다")
+    void rejectsWhenCompensationRecordMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(mock(Offering.class)));
+
+        when(subscriptionRepository.findByIdForUpdate(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(subscription));
+
+        when(subscriptionCompensationRepository.findBySubscriptionIdForUpdate(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.handleSucceeded(success("NONE"), GROUP))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("보상 진행 정보가 없습니다");
+    }
+
+    @Test
+    @DisplayName("보상 대상이 아닌 상태의 청약은 Wallet 결과를 반영할 수 없다")
+    void rejectsWhenSubscriptionStatusNotCompensatable() {
+        Subscription processingSubscription = Subscription.create(
+                offeringId, UUID.randomUUID(), 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+
+        SubscriptionCompensation processingCompensation =
+                SubscriptionCompensation.create(
+                        processingSubscription.getSubscriptionId()
+                );
+
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(any(), eq(GROUP), any(Runnable.class));
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                processingSubscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(mock(Offering.class)));
+
+        when(subscriptionRepository.findByIdForUpdate(
+                processingSubscription.getSubscriptionId()
+        )).thenReturn(Optional.of(processingSubscription));
+
+        when(subscriptionCompensationRepository.findBySubscriptionIdForUpdate(
+                processingSubscription.getSubscriptionId()
+        )).thenReturn(Optional.of(processingCompensation));
+
+        EventEnvelope<WalletCompensationResultPayload> event =
+                EventEnvelope.of(
+                        "WalletCompensationSucceeded",
+                        processingSubscription.getSubscriptionId().toString(),
+                        processingSubscription.getUserId(),
+                        CORRELATION_ID,
+                        new WalletCompensationResultPayload(
+                                null, null, "NONE", null, null, null
+                        )
+                );
+
+        assertThatThrownBy(() -> service.handleSucceeded(event, GROUP))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("반영할 수 없는 청약 상태");
+    }
+
     private EventEnvelope<WalletCompensationResultPayload> success(String type) {
         boolean none = "NONE".equals(type);
         return envelope("WalletCompensationSucceeded",

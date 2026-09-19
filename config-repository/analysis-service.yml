@@ -47,9 +47,9 @@ spring:
             read-timeout: 5000          # ms
             logger-level: basic
           offering-service:
-            read-timeout: 3000
+            read-timeout: 6000
           asset-service:
-            read-timeout: 5000          # 벌크 조회라 좀 넉넉히
+            read-timeout: 6000          # 벌크 조회라 좀 넉넉히
 
 resilience4j:
   retry:

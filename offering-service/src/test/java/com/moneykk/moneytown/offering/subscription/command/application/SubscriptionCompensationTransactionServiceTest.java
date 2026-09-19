@@ -744,6 +744,145 @@ class SubscriptionCompensationTransactionServiceTest {
     /**
      * 공모 취소 보상이 진행되다가 운영 확인이 필요해진 청약을 만든다.
      */
+    @Test
+    @DisplayName("청약의 공모 ID를 찾을 수 없으면 보상을 거부한다")
+    void rejectsCompensateWhenOfferingIdLookupMissing() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(subscriptionId))
+                .thenReturn(Optional.empty());
+
+        var exception = assertThrows(BusinessException.class, () ->
+                service.compensate(
+                        subscriptionId, adminId, IDEMPOTENCY_KEY,
+                        CORRELATION_ID, null, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 보상을 거부한다")
+    void rejectsCompensateWhenOfferingMissing() {
+        UUID offeringId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(subscriptionId))
+                .thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        var exception = assertThrows(BusinessException.class, () ->
+                service.compensate(
+                        subscriptionId, adminId, IDEMPOTENCY_KEY,
+                        CORRELATION_ID, null, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        com.moneykk.moneytown.offering.global.exception
+                                .OfferingErrorCode.OFFERING_NOT_FOUND
+                );
+    }
+
+    @Test
+    @DisplayName("공모 취소나 예약 만료 보상 원인이 없으면 보상을 거부한다")
+    void rejectsCompensateWithoutCompensationCause() {
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Subscription subscription = Subscription.create(
+                offeringId, userId, 10L, 1_000L,
+                Instant.now().plusSeconds(600)
+        );
+        subscription.startHoldFailureCompensation(
+                "INSUFFICIENT_AVAILABLE_BALANCE"
+        );
+        subscription.requireManualReview("OTHER_REASON");
+
+        UUID subscriptionId = subscription.getSubscriptionId();
+
+        Offering offering = org.mockito.Mockito.mock(Offering.class);
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(subscriptionId))
+                .thenReturn(Optional.of(offeringId));
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.of(offering));
+        when(subscriptionRepository.findByIdForUpdate(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        var exception = assertThrows(BusinessException.class, () ->
+                service.compensate(
+                        subscriptionId, adminId, IDEMPOTENCY_KEY,
+                        CORRELATION_ID, null, null
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        SubscriptionErrorCode
+                                .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+                );
+
+        verifyNoInteractions(subscriptionCompensationRepository);
+    }
+
+    @Test
+    @DisplayName("청약을 찾을 수 없으면 기존 보상 결과 완료를 거부한다")
+    void rejectsCompleteExistingResultWhenSubscriptionMissing() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        when(subscriptionRepository.findByIdForUpdate(subscriptionId))
+                .thenReturn(Optional.empty());
+
+        var exception = assertThrows(BusinessException.class, () ->
+                service.completeExistingResult(
+                        subscriptionId, adminId, IDEMPOTENCY_KEY
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("REJECTED나 CANCELLED가 아닌 청약은 기존 보상 결과 완료를 거부한다")
+    void rejectsCompleteExistingResultWhenStatusNotTerminal() {
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        Subscription subscription =
+                createManualReviewSubscription(offeringId, userId);
+
+        UUID subscriptionId = subscription.getSubscriptionId();
+
+        when(subscriptionRepository.findByIdForUpdate(subscriptionId))
+                .thenReturn(Optional.of(subscription));
+
+        var exception = assertThrows(BusinessException.class, () ->
+                service.completeExistingResult(
+                        subscriptionId, adminId, IDEMPOTENCY_KEY
+                )
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(
+                        SubscriptionErrorCode
+                                .SUBSCRIPTION_COMPENSATION_NOT_ALLOWED
+                );
+
+        verifyNoInteractions(idempotencyRequestRepository);
+    }
+
     private Subscription createManualReviewSubscription(
             UUID offeringId,
             UUID userId

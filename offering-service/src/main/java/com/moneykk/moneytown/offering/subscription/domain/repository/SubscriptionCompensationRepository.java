@@ -65,4 +65,5 @@ public interface SubscriptionCompensationRepository
     long countStuckCompensations(
             @Param("stuckBefore") Instant stuckBefore
     );
+
 }
