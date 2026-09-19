@@ -17,4 +17,6 @@ dependencies {
     // PostgreSQL 조건부 UPDATE 동시성 통합 테스트
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+
+    implementation 'io.github.openfeign:feign-micrometer'
 }
