@@ -60,7 +60,7 @@ class SettlementCommandControllerTest {
         UUID settlementBatchId = UUID.randomUUID();
         SettlementBatchResponse response = new SettlementBatchResponse(
                 settlementBatchId, assetId, revenueId, LocalDate.of(2026, 9, 1), 10_000L,
-                SettlementStatus.CALCULATED, 3, Instant.parse("2026-09-01T00:00:00Z"));
+                SettlementStatus.CALCULATED, 3, Instant.parse("2026-09-01T00:00:00Z"), true);
         when(settlementCommandService.openBatch("ADMIN", assetId, revenueId, null)).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/settlements")
@@ -128,7 +128,7 @@ class SettlementCommandControllerTest {
         UUID settlementBatchId = UUID.randomUUID();
         SettlementBatchResponse response = new SettlementBatchResponse(
                 settlementBatchId, UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 10_000L,
-                SettlementStatus.DISBURSING, 2, Instant.parse("2026-09-01T00:00:00Z"));
+                SettlementStatus.DISBURSING, 2, Instant.parse("2026-09-01T00:00:00Z"), false);
         when(settlementCommandService.retryBatch("ADMIN", settlementBatchId)).thenReturn(response);
 
         mockMvc.perform(post("/api/v1/settlements/{settlementBatchId}/retry", settlementBatchId)
