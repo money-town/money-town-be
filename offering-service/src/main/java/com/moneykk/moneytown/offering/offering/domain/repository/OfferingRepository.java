@@ -23,11 +23,6 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     Optional<Offering> findByOfferingIdAndIsDeletedFalse(UUID offeringId);
 
 
-    // TODO: PostgreSQL 기반 DB 통합 테스트 추가
-    // - remainingQuantity == 요청 수량이면 SOLD_OUT 전환 검증
-    // - remainingQuantity > 요청 수량이면 OPEN 유지 검증
-    // - remainingQuantity < 요청 수량이면 UPDATE 0건 검증
-    // - 동시 요청 시 remainingQuantity 음수 및 초과발행 방지 검증
     /**
      * 선착순 청약 수량을 원자적으로 확보한다.
      *
@@ -132,12 +127,12 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
     Optional<Offering> findNextConfirmationTargetForUpdate();
 
     /**
-     * 관리자 중단 보상 배치를 처리할 공모 한 건을 선점한다.
+     * 취소 보상 배치를 처리할 공모 한 건을 선점한다.
      *
      * 다음 조건을 모두 만족하는 공모만 조회한다.
      *
      * 1. CANCELLING 상태
-     * 2. ADMIN_CANCELLED 유형
+     * 2. ADMIN_CANCELLED 또는 UNDER_SUBSCRIBED 유형
      * 3. 아직 보상 시작 전인 청약이 존재
      *
      * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가
@@ -153,7 +148,10 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
           FROM p_offerings o
          WHERE o.is_deleted = FALSE
            AND o.offering_status = 'CANCELLING'
-           AND o.cancellation_type = 'ADMIN_CANCELLED'
+           AND o.cancellation_type IN (
+               'ADMIN_CANCELLED',
+               'UNDER_SUBSCRIBED'
+           )
            AND EXISTS (
                SELECT 1
                  FROM p_subscriptions s
@@ -173,7 +171,103 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
             nativeQuery = true
     )
     Optional<Offering>
-    findNextAdminCancellationTargetForUpdate();
+    findNextCancellationTargetForUpdate();
+
+    /**
+     * 예약 시간이 만료된 PROCESSING 청약을 가진 공모 한 건을 선점한다.
+     *
+     * 공모를 먼저 잠근 뒤 해당 공모의 청약을 잠그도록 강제하여
+     * Wallet 결과 처리와 동일한 Offering -> Subscription 잠금 순서를
+     * 유지한다.
+     *
+     * FOR UPDATE SKIP LOCKED를 사용하므로 여러 인스턴스가 동시에
+     * 실행되면 이미 처리 중인 공모를 기다리지 않고 다른 공모를
+     * 선택한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT o.*
+          FROM p_offerings o
+         WHERE o.is_deleted = FALSE
+           AND EXISTS (
+               SELECT 1
+                 FROM p_subscriptions s
+                WHERE s.offering_id = o.offering_id
+                  AND s.subscription_status = 'PROCESSING'
+                  AND s.reservation_expires_at <= :now
+                  AND s.is_deleted = FALSE
+           )
+         ORDER BY (
+             SELECT MIN(s.reservation_expires_at)
+               FROM p_subscriptions s
+              WHERE s.offering_id = o.offering_id
+                AND s.subscription_status = 'PROCESSING'
+                AND s.reservation_expires_at <= :now
+                AND s.is_deleted = FALSE
+         ) ASC,
+         o.offering_id ASC
+         LIMIT 1
+         FOR UPDATE OF o SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    Optional<Offering>
+    findNextExpiredReservationTargetForUpdate(
+            @Param("now") Instant now
+    );
+
+    /**
+     * 장시간 완료되지 않은 보상을 가진 공모 한 건을 선점한다.
+     *
+     * 공모를 먼저 잠근 뒤 Subscription과 SubscriptionCompensation을
+     * 잠그도록 강제하여 보상 결과 처리와 동일한 잠금 순서를 유지한다.
+     * 여러 인스턴스는 SKIP LOCKED로 서로 다른 공모를 처리한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    @Query(
+            value = """
+        SELECT o.*
+          FROM p_offerings o
+         WHERE o.is_deleted = FALSE
+           AND EXISTS (
+               SELECT 1
+                 FROM p_subscriptions s
+                 JOIN p_subscription_compensations c
+                   ON c.subscription_id = s.subscription_id
+                WHERE s.offering_id = o.offering_id
+                  AND s.subscription_status = 'COMPENSATING'
+                  AND s.is_deleted = FALSE
+                  AND c.updated_at <= :stuckBefore
+                  AND (
+                      c.wallet_status <> 'SUCCEEDED'
+                      OR c.holding_status <> 'SUCCEEDED'
+                  )
+           )
+         ORDER BY (
+             SELECT MIN(c.updated_at)
+               FROM p_subscriptions s
+               JOIN p_subscription_compensations c
+                 ON c.subscription_id = s.subscription_id
+              WHERE s.offering_id = o.offering_id
+                AND s.subscription_status = 'COMPENSATING'
+                AND s.is_deleted = FALSE
+                AND c.updated_at <= :stuckBefore
+                AND (
+                    c.wallet_status <> 'SUCCEEDED'
+                    OR c.holding_status <> 'SUCCEEDED'
+                )
+         ) ASC,
+         o.offering_id ASC
+         LIMIT 1
+         FOR UPDATE OF o SKIP LOCKED
+        """,
+            nativeQuery = true
+    )
+    Optional<Offering>
+    findNextStuckCompensationTargetForUpdate(
+            @Param("stuckBefore") Instant stuckBefore
+    );
 
     /**
      * 시작 시간이 도래한 'SCHEDULED 공모를 OPEN'으로 일괄 전환한다.
@@ -184,13 +278,6 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
      * SCHEDULED → OPEN
      *
      * @return OPEN으로 전환된 공모 수
-     *
-     * TODO: PostgreSQL 기반 DB 통합 테스트 추가
-     * - JPQL Bulk Update가 실제 PostgreSQL에서 정상 실행되는지 검증
-     * - SCHEDULED + startAt <= now + endAt > now → OPEN 전환 검증
-     * - SCHEDULED + endAt <= now → OPEN으로 전환되지 않는지 검증
-     * - 미래 startAt / 다른 상태 / 삭제 공모가 변경되지 않는지 검증
-     * - updatedAt / updatedBy(SYSTEM_USER_ID) 갱신 검증
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -217,12 +304,6 @@ public interface OfferingRepository extends JpaRepository<Offering, UUID> {
      * SOLD_OUT → CLOSED
      *
      * @return CLOSED로 전환된 공모 수
-     *
-     * TODO: PostgreSQL 기반 DB 통합 테스트 추가
-     * - SOLD_OUT + endAt <= now → CLOSED 전환 검증
-     * - SOLD_OUT + 미래 endAt → 상태 유지 검증
-     * - 다른 상태 / 삭제 공모가 변경되지 않는지 검증
-     * - updatedAt / updatedBy(SYSTEM_USER_ID) 갱신 검증
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

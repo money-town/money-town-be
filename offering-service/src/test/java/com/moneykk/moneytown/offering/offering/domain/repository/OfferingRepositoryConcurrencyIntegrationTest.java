@@ -18,6 +18,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -214,6 +215,72 @@ class OfferingRepositoryConcurrencyIntegrationTest {
                 .isEqualTo("OPEN");
     }
 
+    @Test
+    @DisplayName("모집 기간이 시작된 SCHEDULED 공모만 OPEN으로 전환한다")
+    void opensOnlyEligibleScheduledOfferings() {
+        UUID systemUserId = UUID.randomUUID();
+        UUID eligibleId = insertOfferingForStatusTransition(
+                "SCHEDULED", -3_600, 3_600, false, 100L
+        );
+        UUID endedId = insertOfferingForStatusTransition(
+                "SCHEDULED", -7_200, -3_600, false, 100L
+        );
+        UUID futureId = insertOfferingForStatusTransition(
+                "SCHEDULED", 3_600, 7_200, false, 100L
+        );
+        UUID alreadyOpenId = insertOfferingForStatusTransition(
+                "OPEN", -3_600, 3_600, false, 100L
+        );
+        UUID deletedId = insertOfferingForStatusTransition(
+                "SCHEDULED", -3_600, 3_600, true, 100L
+        );
+        OffsetDateTime previousUpdatedAt = findUpdatedAt(eligibleId);
+
+        Integer updatedCount = transactionTemplate.execute(status ->
+                offeringRepository.openScheduledOfferings(systemUserId)
+        );
+
+        assertThat(updatedCount).isEqualTo(1);
+        assertThat(findOfferingStatus(eligibleId)).isEqualTo("OPEN");
+        assertThat(findOfferingStatus(endedId)).isEqualTo("SCHEDULED");
+        assertThat(findOfferingStatus(futureId)).isEqualTo("SCHEDULED");
+        assertThat(findOfferingStatus(alreadyOpenId)).isEqualTo("OPEN");
+        assertThat(findOfferingStatus(deletedId)).isEqualTo("SCHEDULED");
+        assertThat(findUpdatedBy(eligibleId)).isEqualTo(systemUserId);
+        assertThat(findUpdatedAt(eligibleId)).isAfter(previousUpdatedAt);
+    }
+
+    @Test
+    @DisplayName("모집 종료 시간이 지난 SOLD_OUT 공모만 CLOSED로 전환한다")
+    void closesOnlyEndedSoldOutOfferings() {
+        UUID systemUserId = UUID.randomUUID();
+        UUID eligibleId = insertOfferingForStatusTransition(
+                "SOLD_OUT", -7_200, -3_600, false, 0L
+        );
+        UUID futureEndId = insertOfferingForStatusTransition(
+                "SOLD_OUT", -3_600, 3_600, false, 0L
+        );
+        UUID openId = insertOfferingForStatusTransition(
+                "OPEN", -7_200, -3_600, false, 10L
+        );
+        UUID deletedId = insertOfferingForStatusTransition(
+                "SOLD_OUT", -7_200, -3_600, true, 0L
+        );
+        OffsetDateTime previousUpdatedAt = findUpdatedAt(eligibleId);
+
+        Integer updatedCount = transactionTemplate.execute(status ->
+                offeringRepository.closeSoldOutOfferings(systemUserId)
+        );
+
+        assertThat(updatedCount).isEqualTo(1);
+        assertThat(findOfferingStatus(eligibleId)).isEqualTo("CLOSED");
+        assertThat(findOfferingStatus(futureEndId)).isEqualTo("SOLD_OUT");
+        assertThat(findOfferingStatus(openId)).isEqualTo("OPEN");
+        assertThat(findOfferingStatus(deletedId)).isEqualTo("SOLD_OUT");
+        assertThat(findUpdatedBy(eligibleId)).isEqualTo(systemUserId);
+        assertThat(findUpdatedAt(eligibleId)).isAfter(previousUpdatedAt);
+    }
+
     private List<Integer> reserveConcurrently(
             UUID offeringId,
             int requestCount,
@@ -399,6 +466,51 @@ class OfferingRepositoryConcurrencyIntegrationTest {
         return offeringId;
     }
 
+    private UUID insertOfferingForStatusTransition(
+            String status,
+            long startOffsetSeconds,
+            long endOffsetSeconds,
+            boolean deleted,
+            long remainingQuantity
+    ) {
+        UUID offeringId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO p_offerings (
+                    offering_id, asset_id, issuer_id, title,
+                    price_per_unit, total_quantity, remaining_quantity,
+                    min_subscription_quantity, max_subscription_quantity,
+                    start_at, end_at, offering_status,
+                    created_at, created_by, updated_at, updated_by,
+                    is_deleted
+                ) VALUES (
+                    ?, ?, ?, ?, 10000, 100, ?, 1, 100,
+                    CURRENT_TIMESTAMP
+                        + CAST(? AS DOUBLE PRECISION) * INTERVAL '1 second',
+                    CURRENT_TIMESTAMP
+                        + CAST(? AS DOUBLE PRECISION) * INTERVAL '1 second',
+                    ?, CURRENT_TIMESTAMP, ?,
+                    CURRENT_TIMESTAMP - INTERVAL '1 day', ?, ?
+                )
+                """,
+                offeringId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "공모 상태 전환 통합 테스트",
+                remainingQuantity,
+                startOffsetSeconds,
+                endOffsetSeconds,
+                status,
+                userId,
+                userId,
+                deleted
+        );
+
+        return offeringId;
+    }
+
     private long findRemainingQuantity(
             UUID offeringId
     ) {
@@ -435,5 +547,35 @@ class OfferingRepositoryConcurrencyIntegrationTest {
         assertThat(offeringStatus).isNotNull();
 
         return offeringStatus;
+    }
+
+    private UUID findUpdatedBy(UUID offeringId) {
+        UUID updatedBy = jdbcTemplate.queryForObject(
+                """
+                SELECT updated_by
+                  FROM p_offerings
+                 WHERE offering_id = ?
+                """,
+                UUID.class,
+                offeringId
+        );
+
+        assertThat(updatedBy).isNotNull();
+        return updatedBy;
+    }
+
+    private OffsetDateTime findUpdatedAt(UUID offeringId) {
+        OffsetDateTime updatedAt = jdbcTemplate.queryForObject(
+                """
+                SELECT updated_at
+                  FROM p_offerings
+                 WHERE offering_id = ?
+                """,
+                OffsetDateTime.class,
+                offeringId
+        );
+
+        assertThat(updatedAt).isNotNull();
+        return updatedAt;
     }
 }

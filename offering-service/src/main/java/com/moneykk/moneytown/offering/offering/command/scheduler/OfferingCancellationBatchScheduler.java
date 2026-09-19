@@ -30,8 +30,10 @@ public class OfferingCancellationBatchScheduler {
     private final OfferingCancellationManualReviewService
             offeringCancellationManualReviewService;
 
+    private final OfferingSchedulerMetrics offeringSchedulerMetrics;
+
     /**
-     * 관리자 중단 상태인 공모의 보상 대상 청약을 배치 처리한다.
+     * 취소 처리 중인 공모의 보상 대상 청약을 배치 처리한다.
      *
      * 정상 상황에서는 청약 여러 건을 하나의 트랜잭션으로 처리한다.
      * 배치 처리에 실패하면 해당 배치의 청약만 건별 독립
@@ -49,14 +51,14 @@ public class OfferingCancellationBatchScheduler {
 
             if (compensatedCount > 0) {
                 log.info(
-                        "관리자 공모 중단 보상 스케줄 배치 처리 완료. "
+                        "공모 취소 보상 스케줄 배치 처리 완료. "
                                 + "compensatedCount={}",
                         compensatedCount
                 );
             }
         } catch (OfferingCancellationBatchException e) {
             log.warn(
-                    "관리자 공모 중단 보상 배치 실패. "
+                    "공모 취소 보상 배치 실패. "
                             + "건별 격리 처리를 시작합니다. "
                             + "offeringId={}, batchSize={}",
                     e.getOfferingId(),
@@ -72,8 +74,11 @@ public class OfferingCancellationBatchScheduler {
              *
              * 상태를 변경하지 않고 다음 스케줄 실행에서 재시도한다.
              */
+            offeringSchedulerMetrics
+                    .recordOfferingCancellationBatchFailure();
+
             log.error(
-                    "관리자 공모 중단 보상 스케줄 실행 실패",
+                    "공모 취소 보상 스케줄 실행 실패",
                     e
             );
         }
@@ -118,7 +123,7 @@ public class OfferingCancellationBatchScheduler {
                      * 현재 건별 복구를 중단하고 다음 주기에 재시도한다.
                      */
                     log.error(
-                            "관리자 공모 중단 건별 보상 중 "
+                            "공모 취소 건별 보상 중 "
                                     + "재시도 가능한 시스템 장애 발생. "
                                     + "offeringId={}, subscriptionId={}",
                             offeringId,
@@ -136,7 +141,7 @@ public class OfferingCancellationBatchScheduler {
                      * MANUAL_REVIEW 전환을 막기 위해 격리하지 않는다.
                      */
                     log.error(
-                            "관리자 공모 중단 건별 보상 중 "
+                            "공모 취소 건별 보상 중 "
                                     + "격리 여부를 판단할 수 없는 오류 발생. "
                                     + "offeringId={}, subscriptionId={}",
                             offeringId,
@@ -165,7 +170,7 @@ public class OfferingCancellationBatchScheduler {
                      * 배치 대상으로 조회될 수 있도록 그대로 둔다.
                      */
                     log.error(
-                            "관리자 공모 중단 실패 청약의 "
+                            "공모 취소 실패 청약의 "
                                     + "MANUAL_REVIEW 전환 실패. "
                                     + "offeringId={}, subscriptionId={}",
                             offeringId,
@@ -179,7 +184,7 @@ public class OfferingCancellationBatchScheduler {
         }
 
         log.info(
-                "관리자 공모 중단 실패 배치 건별 처리 완료. "
+                "공모 취소 실패 배치 건별 처리 완료. "
                         + "offeringId={}, compensatedCount={}, "
                         + "manualReviewCount={}",
                 offeringId,

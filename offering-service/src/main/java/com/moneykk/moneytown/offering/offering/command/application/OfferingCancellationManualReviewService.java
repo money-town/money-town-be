@@ -37,7 +37,7 @@ public class OfferingCancellationManualReviewService {
     private final SubscriptionRepository subscriptionRepository;
 
     /**
-     * 관리자 공모 중단 보상을 자동으로 시작하지 못한 청약을
+     * 공모 취소 보상을 자동으로 시작하지 못한 청약을
      * 수동 확인 대상으로 격리한다.
      *
      * 공모 중단 취소 유형을 먼저 기록한 뒤 MANUAL_REVIEW로
@@ -59,12 +59,13 @@ public class OfferingCancellationManualReviewService {
                 );
 
         if (offering.getOfferingStatus()
-                != OfferingStatus.CANCELLING
-                || offering.getCancellationType()
-                != com.moneykk.moneytown.offering.offering.domain.entity
-                .CancellationType.ADMIN_CANCELLED) {
+                != OfferingStatus.CANCELLING) {
             return false;
         }
+
+        CancellationType subscriptionCancellationType =
+                OfferingCancellationTypeMapper
+                        .toSubscriptionType(offering);
 
         Subscription subscription =
                 subscriptionRepository
@@ -92,7 +93,7 @@ public class OfferingCancellationManualReviewService {
          * 전환한 뒤 MANUAL_REVIEW로 격리한다.
          */
         subscription.startCompensation(
-                CancellationType.OFFERING_ADMIN_CANCELLED
+                subscriptionCancellationType
         );
 
         subscription.requireManualReview(
@@ -100,9 +101,11 @@ public class OfferingCancellationManualReviewService {
         );
 
         log.error(
-                "관리자 공모 중단 보상 자동 처리 실패로 수동 확인 전환. "
-                        + "offeringId={}, subscriptionId={}, failureCode={}",
+                "공모 취소 보상 자동 처리 실패로 수동 확인 전환. "
+                        + "offeringId={}, cancellationType={}, "
+                        + "subscriptionId={}, failureCode={}",
                 offeringId,
+                offering.getCancellationType(),
                 subscriptionId,
                 CANCELLATION_BATCH_FAILURE_CODE
         );

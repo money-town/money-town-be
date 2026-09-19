@@ -84,6 +84,10 @@ spring:
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
 
+  timeout:
+    batch-size: ${SUBSCRIPTION_TIMEOUT_BATCH_SIZE:100}
+    max-batches-per-run: ${SUBSCRIPTION_TIMEOUT_MAX_BATCHES_PER_RUN:2}
+
   confirmation:
     batch-size: ${SUBSCRIPTION_CONFIRMATION_BATCH_SIZE:100}
     max-batches-per-run: ${SUBSCRIPTION_CONFIRMATION_MAX_BATCHES_PER_RUN:2}

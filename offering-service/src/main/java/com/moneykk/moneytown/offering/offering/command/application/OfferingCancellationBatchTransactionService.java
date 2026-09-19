@@ -36,7 +36,7 @@ public class OfferingCancellationBatchTransactionService {
             DEFAULT_CANCELLATION_BATCH_SIZE;
 
     /**
-     * 관리자 중단 상태인 공모 한 건을 선점하고
+     * 취소 처리 중인 공모 한 건을 선점하고
      * 보상 대상 청약 한 배치를 COMPENSATING으로 전환한다.
      *
      * 공모 선점부터 청약 잠금, 보상 엔티티 생성,
@@ -53,7 +53,7 @@ public class OfferingCancellationBatchTransactionService {
     public int compensateNextBatch() {
         Offering offering =
                 offeringRepository
-                        .findNextAdminCancellationTargetForUpdate()
+                        .findNextCancellationTargetForUpdate()
                         .orElse(null);
 
         if (offering == null) {
@@ -69,7 +69,7 @@ public class OfferingCancellationBatchTransactionService {
 
         if (compensationBatch.isEmpty()) {
             log.debug(
-                    "관리자 중단 보상 대상 청약 배치가 없음. "
+                    "공모 취소 보상 대상 청약 배치가 없음. "
                             + "offeringId={}",
                     offering.getOfferingId()
             );
@@ -89,6 +89,10 @@ public class OfferingCancellationBatchTransactionService {
         String correlationId =
                 offering.getOfferingId().toString();
 
+        CancellationType subscriptionCancellationType =
+                OfferingCancellationTypeMapper
+                        .toSubscriptionType(offering);
+
         try {
             for (Subscription subscription : compensationBatch) {
                 /*
@@ -96,7 +100,7 @@ public class OfferingCancellationBatchTransactionService {
                  * → COMPENSATING
                  */
                 subscription.startCompensation(
-                        CancellationType.OFFERING_ADMIN_CANCELLED
+                        subscriptionCancellationType
                 );
 
                 /*
@@ -142,9 +146,11 @@ public class OfferingCancellationBatchTransactionService {
         }
 
         log.info(
-                "관리자 공모 중단 보상 배치 처리 완료. "
-                        + "offeringId={}, compensationCount={}",
+                "공모 취소 보상 배치 처리 완료. "
+                        + "offeringId={}, cancellationType={}, "
+                        + "compensationCount={}",
                 offering.getOfferingId(),
+                offering.getCancellationType(),
                 compensationBatch.size()
         );
 

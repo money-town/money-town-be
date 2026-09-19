@@ -1,6 +1,9 @@
 package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
+import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.offering.global.exception.OfferingErrorCode;
+import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
 import com.moneykk.moneytown.offering.global.processed.ProcessedEventService;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
@@ -417,6 +420,191 @@ class HoldingAllocationResultServiceTest {
                 subscriptionRepository,
                 offeringRepository
         );
+    }
+
+    @Test
+    @DisplayName("HoldingAllocationSucceeded가 아닌 이벤트 타입은 거부한다")
+    void rejectsWrongSucceededEventType() {
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                EventEnvelope.of(
+                        "WrongType",
+                        subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(),
+                        CORRELATION_ID,
+                        new HoldingAllocationSucceededPayload(
+                                assetId, holdingId, 10L, "ALLOCATED"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                service.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("HoldingAllocationSucceeded");
+
+        verifyNoInteractions(processedEventService);
+    }
+
+    @Test
+    @DisplayName("correlationId가 없으면 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithoutCorrelationId() {
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                EventEnvelope.of(
+                        "HoldingAllocationSucceeded",
+                        subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(),
+                        " ",
+                        new HoldingAllocationSucceededPayload(
+                                assetId, holdingId, 10L, "ALLOCATED"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                service.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("correlationId");
+    }
+
+    @Test
+    @DisplayName("aggregateId가 UUID 형식이 아니면 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithNonUuidAggregateId() {
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                EventEnvelope.of(
+                        "HoldingAllocationSucceeded",
+                        "not-a-uuid",
+                        subscription.getUserId(),
+                        CORRELATION_ID,
+                        new HoldingAllocationSucceededPayload(
+                                assetId, holdingId, 10L, "ALLOCATED"
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                service.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("UUID");
+    }
+
+    @Test
+    @DisplayName("quantity가 양수가 아니면 성공 이벤트를 거부한다")
+    void rejectsSucceededEventWithInvalidQuantity() {
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                successEvent(
+                        "ALLOCATED", 0L,
+                        subscription.getUserId(), assetId
+                );
+
+        assertThatThrownBy(() ->
+                service.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("quantity");
+
+        verifyNoInteractions(processedEventService);
+    }
+
+    @Test
+    @DisplayName("errorCode가 없거나 너무 길면 실패 이벤트를 거부한다")
+    void rejectsFailedEventWithInvalidErrorCode() {
+        EventEnvelope<HoldingAllocationFailedPayload> event =
+                EventEnvelope.of(
+                        "HoldingAllocationFailed",
+                        subscription.getSubscriptionId().toString(),
+                        subscription.getUserId(),
+                        CORRELATION_ID,
+                        new HoldingAllocationFailedPayload(
+                                assetId, "a".repeat(101), "메시지", true
+                        )
+                );
+
+        assertThatThrownBy(() ->
+                service.handleFailed(event, CONSUMER_GROUP)
+        ).isInstanceOf(IllegalArgumentException.class)
+         .hasMessageContaining("errorCode");
+    }
+
+    @Test
+    @DisplayName("청약의 공모 ID를 찾을 수 없으면 성공 처리를 거부한다")
+    void rejectsSucceededEventWhenOfferingIdLookupMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(
+                any(), eq(CONSUMER_GROUP), any(Runnable.class)
+        );
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.empty());
+
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                successEvent(
+                        "ALLOCATED", 10L,
+                        subscription.getUserId(), assetId
+                );
+
+        assertThatThrownBy(() ->
+                service.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((BusinessException) exception).getErrorCode()
+         ).isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("공모를 찾을 수 없으면 성공 처리를 거부한다")
+    void rejectsSucceededEventWhenOfferingMissing() {
+        doAnswer(invocation -> {
+            Runnable action = invocation.getArgument(2);
+            action.run();
+            return true;
+        }).when(processedEventService).processOnce(
+                any(), eq(CONSUMER_GROUP), any(Runnable.class)
+        );
+
+        when(subscriptionRepository.findOfferingIdBySubscriptionId(
+                subscription.getSubscriptionId()
+        )).thenReturn(Optional.of(offeringId));
+
+        when(offeringRepository.findByIdForUpdate(offeringId))
+                .thenReturn(Optional.empty());
+
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                successEvent(
+                        "ALLOCATED", 10L,
+                        subscription.getUserId(), assetId
+                );
+
+        assertThatThrownBy(() ->
+                service.handleSucceeded(event, CONSUMER_GROUP)
+        ).isInstanceOf(BusinessException.class)
+         .satisfies(exception -> assertThat(
+                 ((BusinessException) exception).getErrorCode()
+         ).isEqualTo(OfferingErrorCode.OFFERING_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("확정 이후 상태가 바뀐 청약에 늦은 배정 성공이 오면 상태를 변경하지 않는다")
+    void ignoresLateSuccessAfterStatusChanged() {
+        stubProcessingAndContext();
+
+        subscription.startCompensation(
+                com.moneykk.moneytown.offering.subscription.domain.entity
+                        .CancellationType.OFFERING_ADMIN_CANCELLED
+        );
+
+        EventEnvelope<HoldingAllocationSucceededPayload> event =
+                successEvent(
+                        "ALLOCATED", 10L,
+                        subscription.getUserId(), assetId
+                );
+
+        boolean result = service.handleSucceeded(event, CONSUMER_GROUP);
+
+        assertThat(result).isTrue();
+        assertThat(subscription.getHoldingAllocationStatus())
+                .isEqualTo(HoldingAllocationStatus.SUCCEEDED);
+        assertThat(subscription.getSubscriptionStatus())
+                .isEqualTo(SubscriptionStatus.COMPENSATING);
     }
 
     /**
