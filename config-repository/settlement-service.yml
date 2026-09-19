@@ -2,6 +2,10 @@ server:
   port: 19097
 
 spring:
+  cloud:
+    openfeign:
+      okhttp:
+        enabled: true
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/settlement_db}
   jpa:
@@ -10,3 +14,25 @@ spring:
         jdbc:
           batch_size: 100
         order_inserts: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    # Consumer 전용이라도 DLT 발행(DeadLetterPublishingRecoverer)이 내부적으로
+    # Kafka Producer를 쓰므로 producer 블록도 포함
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        "[enable.idempotence]": true
+
+    consumer:
+      group-id: ${spring.application.name}
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+    listener:
+      ack-mode: record

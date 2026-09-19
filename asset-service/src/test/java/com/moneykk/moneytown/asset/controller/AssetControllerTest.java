@@ -1,8 +1,8 @@
 package com.moneykk.moneytown.asset.controller;
 
-import com.moneykk.moneytown.asset.client.SettlementServiceClient;
 import com.moneykk.moneytown.asset.dto.request.AssetUpdateRequest;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.asset.global.outbox.OutboxEventStore;
 import com.moneykk.moneytown.asset.entity.Asset;
 import com.moneykk.moneytown.asset.entity.AssetStatus;
 import com.moneykk.moneytown.asset.entity.AssetType;
@@ -174,8 +174,10 @@ class AssetControllerTest {
         AssetCommandService realService = new AssetCommandService(
                 mock(AssetRepository.class),
                 queryRepository,
+                mock(com.moneykk.moneytown.asset.repository.RevenueRepository.class),
                 mock(com.moneykk.moneytown.asset.service.S3StorageService.class),
-                mock(SettlementServiceClient.class),
+                mock(OutboxEventStore.class),
+                mock(io.micrometer.core.instrument.MeterRegistry.class),
                 mock(org.springframework.transaction.support.TransactionTemplate.class)
         );
         MockMvc realMvc = MockMvcBuilders.standaloneSetup(

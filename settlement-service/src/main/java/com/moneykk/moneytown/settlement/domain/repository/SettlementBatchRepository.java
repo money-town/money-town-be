@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public interface SettlementBatchRepository extends JpaRepository<SettlementBatch, UUID> {
 
-    boolean existsByRevenueIdAndIsDeletedFalse(UUID revenueId);
+    Optional<SettlementBatch> findByRevenueIdAndIsDeletedFalse(UUID revenueId);
 
     boolean existsByAssetIdAndStatusNotAndIsDeletedFalse(UUID assetId, SettlementStatus status);
 

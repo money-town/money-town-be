@@ -2,6 +2,7 @@ package com.moneykk.moneytown.asset.repository;
 
 import com.moneykk.moneytown.asset.entity.Revenue;
 import com.moneykk.moneytown.asset.entity.RevenueSourceType;
+import com.moneykk.moneytown.asset.entity.RevenueTransferStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.UUID;
@@ -14,5 +15,10 @@ public interface RevenueRepository extends JpaRepository<Revenue, UUID> {
             UUID assetId,
             RevenueSourceType sourceType,
             String sourceReferenceId
+    );
+
+    boolean existsByAssetIdAndTransferStatusNot(
+            UUID assetId,
+            RevenueTransferStatus transferStatus
     );
 }

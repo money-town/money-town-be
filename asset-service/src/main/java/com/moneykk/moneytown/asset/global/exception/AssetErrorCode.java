@@ -53,6 +53,7 @@ public enum AssetErrorCode implements ErrorCode {
     ASSET_DELETE_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_10", "작성 중이거나 반려된 자산만 삭제할 수 있습니다."),
     HOLDING_ALLOCATION_BLOCKED(HttpStatus.CONFLICT, "ASSET_409_11", "회수 또는 보상 처리된 청약에는 지분을 배정할 수 없습니다."),
     REVENUE_REGISTRATION_NOT_ALLOWED(HttpStatus.CONFLICT, "ASSET_409_12", "승인되어 운영 중인 자산에만 수익을 등록할 수 있습니다."),
+    ASSET_TERMINATION_BLOCKED_BY_PENDING_REVENUE(HttpStatus.CONFLICT, "ASSET_409_13", "정산이 완료되지 않은 수익이 있어 자산 종료를 요청할 수 없습니다."),
 
     ASSET_DOCUMENT_STORAGE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "ASSET_500_01", "자산 문서 저장소 처리에 실패했습니다.");
 

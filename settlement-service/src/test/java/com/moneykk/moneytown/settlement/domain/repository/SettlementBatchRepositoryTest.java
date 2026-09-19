@@ -38,24 +38,24 @@ class SettlementBatchRepositoryTest extends RepositoryTestSupport {
     }
 
     @Test
-    @DisplayName("같은 revenueId로 저장된 회차가 있으면 existsByRevenueIdAndIsDeletedFalse가 true를 반환한다")
+    @DisplayName("같은 revenueId로 저장된 회차를 조회한다")
     void existsByRevenueId_returnsTrue_whenBatchExistsForRevenue() {
         UUID revenueId = UUID.randomUUID();
         persistBatch(UUID.randomUUID(), revenueId, SettlementStatus.PENDING);
 
-        assertThat(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(revenueId)).isTrue();
-        assertThat(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(UUID.randomUUID())).isFalse();
+        assertThat(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(revenueId)).isPresent();
+        assertThat(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(UUID.randomUUID())).isEmpty();
     }
 
     @Test
-    @DisplayName("Soft Delete된 회차는 existsByRevenueIdAndIsDeletedFalse에서 제외된다")
+    @DisplayName("Soft Delete된 회차는 revenueId 조회에서 제외된다")
     void existsByRevenueId_excludesSoftDeletedBatch() {
         UUID revenueId = UUID.randomUUID();
         SettlementBatch batch = persistBatch(UUID.randomUUID(), revenueId, SettlementStatus.PENDING);
         batch.softDelete(UUID.randomUUID());
         settlementBatchRepository.saveAndFlush(batch);
 
-        assertThat(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(revenueId)).isFalse();
+        assertThat(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(revenueId)).isEmpty();
     }
 
     @Test

@@ -12,10 +12,13 @@ import com.moneykk.moneytown.asset.entity.RevenueSourceType;
 import com.moneykk.moneytown.asset.entity.RevenueTransferStatus;
 import com.moneykk.moneytown.asset.entity.RevenueType;
 import com.moneykk.moneytown.asset.global.exception.AssetErrorCode;
+import com.moneykk.moneytown.asset.global.outbox.OutboxEventStore;
+import com.moneykk.moneytown.asset.infrastructure.kafka.event.RevenueReadyPayload;
 import com.moneykk.moneytown.asset.repository.AssetQueryRepository;
 import com.moneykk.moneytown.asset.repository.RevenueRepository;
 import com.moneykk.moneytown.asset.repository.RevenueQueryRepository;
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.common.event.EventEnvelope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +26,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -34,11 +38,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -54,6 +60,9 @@ class RevenueCommandServiceTest {
 
     @Mock
     private RevenueQueryRepository revenueQueryRepository;
+
+    @Mock
+    private OutboxEventStore outboxEventStore;
 
     @InjectMocks
     private RevenueCommandService revenueCommandService;
@@ -123,6 +132,8 @@ class RevenueCommandServiceTest {
         assertEquals(RevenueTransferStatus.READY, response.transferStatus());
         assertNull(response.transferredAt());
         assertNull(response.failureReason());
+        verifyRevenueReadyEvent(
+                revenue.getAssetId(), revenueId, revenue.getUserId());
     }
 
     @Test
@@ -184,6 +195,7 @@ class RevenueCommandServiceTest {
         verify(revenueRepository).existsByAssetIdAndSourceTypeAndSourceReferenceId(
                 assetId, request.sourceType(), request.sourceReferenceId());
         verify(revenueRepository).save(any(Revenue.class));
+        verifyRevenueReadyEvent(assetId, revenueId, userId);
     }
 
     @Test
@@ -397,5 +409,28 @@ class RevenueCommandServiceTest {
         );
         ReflectionTestUtils.setField(revenue, "id", revenueId);
         return revenue;
+    }
+
+    private void verifyRevenueReadyEvent(
+            UUID assetId,
+            UUID revenueId,
+            UUID userId
+    ) {
+        ArgumentCaptor<EventEnvelope<?>> captor =
+                ArgumentCaptor.forClass(EventEnvelope.class);
+        verify(outboxEventStore).save(
+                eq("ASSET"),
+                eq("revenue-ready"),
+                captor.capture()
+        );
+        EventEnvelope<?> envelope = captor.getValue();
+        assertEquals("RevenueReady", envelope.eventType());
+        assertEquals(assetId.toString(), envelope.aggregateId());
+        assertEquals(userId, envelope.userId());
+        assertDoesNotThrow(() -> UUID.fromString(envelope.correlationId()));
+        assertEquals(
+                new RevenueReadyPayload(assetId, revenueId),
+                envelope.payload()
+        );
     }
 }

@@ -87,6 +87,7 @@ class SettlementCommandServiceTest {
         assertThat(response.totalAmount()).isEqualTo(10_000_000L);
         assertThat(response.status()).isEqualTo(SettlementStatus.CALCULATED);
         assertThat(response.payoutCount()).isEqualTo(1);
+        assertThat(response.newlyCreated()).isTrue();
 
         ArgumentCaptor<SettlementBatch> batchCaptor = ArgumentCaptor.forClass(SettlementBatch.class);
         ArgumentCaptor<HoldingSnapshot> snapshotCaptor = ArgumentCaptor.forClass(HoldingSnapshot.class);
@@ -151,14 +152,18 @@ class SettlementCommandServiceTest {
         }
 
         @Test
-        @DisplayName("이미 해당 수익 건으로 정산 회차가 있으면 예외 (openBatch와 동일한 검증을 그대로 적용)")
-        void rejectsWhenBatchAlreadyExistsForRevenue() {
-            when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(true);
+        @DisplayName("이미 해당 수익 건으로 정산 회차가 있으면 예외 없이 기존 회차를 그대로 반환한다 (kafka.md 4-2절 멱등)")
+        void returnsExistingBatchWithoutErrorWhenAlreadyExistsForRevenue() {
+            SettlementBatch existing = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000_000L);
+            when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.of(existing));
+            when(dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(existing.getId())).thenReturn(1L);
 
-            assertThatThrownBy(() -> settlementCommandService.openBatchAutomatically(ASSET_ID, REVENUE_ID))
-                    .isInstanceOf(BusinessException.class)
-                    .extracting(e -> ((BusinessException) e).getErrorCode())
-                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
+            SettlementBatchResponse response = settlementCommandService.openBatchAutomatically(ASSET_ID, REVENUE_ID);
+
+            assertThat(response.settlementBatchId()).isEqualTo(existing.getId());
+            assertThat(response.newlyCreated()).isFalse();
+            assertThat(response.payoutCount()).isEqualTo(1);
+            verifyNoInteractions(assetServiceClient, settlementBatchWriter);
         }
     }
 
@@ -194,22 +199,39 @@ class SettlementCommandServiceTest {
     class DuplicateOrConcurrentBatchGuard {
 
         @Test
-        @DisplayName("이미 해당 수익 건으로 정산 회차가 있으면 예외")
-        void rejectsWhenBatchAlreadyExistsForRevenue() {
-            when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(true);
+        @DisplayName("이미 해당 수익 건으로 정산 회차가 있으면 예외 없이 기존 회차를 그대로 반환한다 (kafka.md 4-2절 멱등)")
+        void returnsExistingBatchWithoutErrorWhenAlreadyExistsForRevenue() {
+            SettlementBatch existing = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000_000L);
+            when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.of(existing));
+            when(dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(existing.getId())).thenReturn(0L);
+
+            SettlementBatchResponse response = settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null);
+
+            assertThat(response.settlementBatchId()).isEqualTo(existing.getId());
+            assertThat(response.newlyCreated()).isFalse();
+            verifyNoInteractions(assetServiceClient);
+        }
+
+        @Test
+        @DisplayName("기존 배치가 요청한 assetId와 다른 자산 소속이면 예외 (revenueId만으로 조회한 배치를 그대로 신뢰하지 않는다)")
+        void rejectsWhenExistingBatchBelongsToDifferentAsset() {
+            UUID otherAssetId = UUID.randomUUID();
+            SettlementBatch existingForOtherAsset = SettlementBatch.open(otherAssetId, REVENUE_ID, RECORD_DATE, 10_000_000L);
+            when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID))
+                    .thenReturn(Optional.of(existingForOtherAsset));
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
                     .isInstanceOf(BusinessException.class)
                     .extracting(e -> ((BusinessException) e).getErrorCode())
-                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE);
+                    .isEqualTo(SettlementErrorCode.REVENUE_ASSET_MISMATCH);
 
-            verifyNoInteractions(assetServiceClient);
+            verifyNoInteractions(assetServiceClient, dividendPayoutRepository);
         }
 
         @Test
         @DisplayName("자산에 이미 진행 중인 회차가 있으면 예외")
         void rejectsWhenAssetHasBatchInProgress() {
-            when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(false);
+            when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.empty());
             when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
                     .thenReturn(true);
 
@@ -221,9 +243,28 @@ class SettlementCommandServiceTest {
             verifyNoInteractions(assetServiceClient);
         }
 
-        // 동시 요청으로 인한 UNIQUE 제약 위반 → BusinessException 변환 로직은 이제
-        // SettlementBatchWriter.persist() 안에서 일어난다 (mvp.md T4로 저장 책임을 분리함).
-        // 해당 시나리오의 테스트는 SettlementBatchWriterTest로 이동했다.
+        @Test
+        @DisplayName("두 요청이 동시에 '기존 배치 없음'을 통과해도, 유니크 제약 위반 쪽은 이긴 쪽의 배치를 멱등 반환한다 (kafka.md 4-2절)")
+        void returnsWinnerBatchWhenConcurrentInsertRaces() {
+            stubNoExistingBatch();
+            stubRevenue(revenue(BigDecimal.valueOf(10_000_000), BigDecimal.ZERO, BigDecimal.ZERO,
+                    RevenueTransferStatus.READY));
+            when(assetHoldingsSnapshotFetcher.fetchAll(ASSET_ID, RECORD_DATE))
+                    .thenReturn(aggregated(100L, List.of(new HoldingItem(UUID.randomUUID(), UUID.randomUUID(), 100L, null))));
+
+            SettlementBatch winnerBatch = SettlementBatch.open(ASSET_ID, REVENUE_ID, RECORD_DATE, 10_000_000L);
+            org.mockito.Mockito.doThrow(new BusinessException(SettlementErrorCode.SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE))
+                    .when(settlementBatchWriter).persist(any(), any(), any());
+            when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID))
+                    .thenReturn(Optional.empty())
+                    .thenReturn(Optional.of(winnerBatch));
+            when(dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(winnerBatch.getId())).thenReturn(1L);
+
+            SettlementBatchResponse response = settlementCommandService.openBatchAutomatically(ASSET_ID, REVENUE_ID);
+
+            assertThat(response.settlementBatchId()).isEqualTo(winnerBatch.getId());
+            assertThat(response.newlyCreated()).isFalse();
+        }
     }
 
     @Nested
@@ -422,7 +463,7 @@ class SettlementCommandServiceTest {
     }
 
     private void stubNoExistingBatch() {
-        when(settlementBatchRepository.existsByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(false);
+        when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.empty());
         when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
                 .thenReturn(false);
     }

@@ -1,5 +1,8 @@
 server:
   port: 19094
+  tomcat:
+    mbeanregistry:
+      enabled: true
 
 spring:
   datasource:
@@ -30,6 +33,19 @@ resilience4j:
     configs:
       default:
         sliding-window-size: 20
+        minimum-number-of-calls: 20
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 5
+
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests:
+          - 100ms
+          - 300ms
+          - 500ms
+          - 1s
