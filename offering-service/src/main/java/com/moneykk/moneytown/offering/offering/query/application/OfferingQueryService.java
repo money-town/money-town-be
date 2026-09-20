@@ -16,6 +16,7 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionSta
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,11 +47,21 @@ public class OfferingQueryService {
     ) {
         // 공개 목록 조회에서 비공개 상태가 검색 조건으로 전달되는 것을 차단한다.
         validatePublicSearchCondition(condition);
-        Page<Offering> offerings =
-                offeringQueryRepository.searchPublicOfferings(
+
+        List<Offering> content =
+                offeringQueryRepository.searchPublicOfferingsContent(
                         condition,
                         pageable
                 );
+
+        // 전체 건수는 짧은 TTL로 캐싱된 값을 사용한다.
+        // 목록 SELECT와 달리 COUNT는 조건에 맞는 모든 행을 순회해야 해
+        // 매치 건수가 클 경우 비용이 크므로, 캐시로 동시 요청의 반복 실행을 줄인다.
+        long total =
+                offeringQueryRepository.countPublicOfferings(condition);
+
+        Page<Offering> offerings =
+                new PageImpl<>(content, pageable, total);
 
         return PageResponse.from(
                 offerings,
