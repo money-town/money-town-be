@@ -23,6 +23,12 @@ import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.Pre
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.PreFdsCheckResponse;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import feign.FeignException;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -49,6 +55,10 @@ public class SubscriptionCommandService {
     // openFeignClient
     private final AnalysisServiceClient analysisServiceClient;
     private final UserServiceClient userServiceClient;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
+    private final BulkheadRegistry bulkheadRegistry;
+
+    private static final String USER_SERVICE_RESILIENCE_KEY = "user-service";
 
     public SubscriptionCreateResult create(
             UUID offeringId,
@@ -480,7 +490,13 @@ public class SubscriptionCommandService {
 
         try {
             ApiResponse<UserInvestmentEligibilityResponse> response =
-                    userServiceClient.getInvestmentEligibility(userId);
+                    Bulkhead.decorateSupplier(
+                            bulkheadRegistry.bulkhead(USER_SERVICE_RESILIENCE_KEY),
+                            CircuitBreaker.decorateSupplier(
+                                    circuitBreakerRegistry.circuitBreaker(USER_SERVICE_RESILIENCE_KEY),
+                                    () -> userServiceClient.getInvestmentEligibility(userId)
+                            )
+                    ).get();
 
             UserInvestmentEligibilityResponse user =
                     response != null
@@ -511,9 +527,11 @@ public class SubscriptionCommandService {
                     SubscriptionErrorCode.USER_NOT_FOUND
             );
 
-        } catch (FeignException e) {
+        } catch (FeignException | CallNotPermittedException | BulkheadFullException e) {
             /*
-             * User Service 4xx/5xx, Timeout, Connection Failure 등
+             * User Service 4xx/5xx, Timeout, Connection Failure,
+             * 반복된 장애로 서킷이 열려 호출이 차단된 경우,
+             * 또는 동시 호출 수 제한(Bulkhead)에 걸려 거절된 경우 등
              * 정상적인 사용자 상태를 확인할 수 없는 경우.
              *
              * 최신 사용자 상태를 확인할 수 없으므로

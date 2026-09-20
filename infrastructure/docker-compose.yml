@@ -27,6 +27,17 @@ services:
     image: pgvector/pgvector:pg18
     restart: unless-stopped
     mem_limit: 768m
+    # 서비스별 느린 쿼리/부하 원인 쿼리를 실측하기 위해 pg_stat_statements를 켠다.
+    # shared_preload_libraries는 재시작 시에만 반영되며, 이 인스턴스를 공유하는
+    # 6개 서비스 DB(user/wallet/asset/offering/settlement/analysis) 모두에 적용된다.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.track=top
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moneytown}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moneytown}
