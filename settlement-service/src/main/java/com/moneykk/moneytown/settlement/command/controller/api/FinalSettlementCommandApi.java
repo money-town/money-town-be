@@ -88,7 +88,7 @@ public interface FinalSettlementCommandApi {
 
     @Operation(
             summary = "최종 정산 지급 건 포기 처리 (T5)",
-            description = "⚠️ 이 API는 관리자가 이미 다른 방법(은행 송금·지갑 재입금 등)으로 실제 원금 반환을 완료한 뒤에만 호출해야 한다. "
+            description = "⚠️ 이 API는 관리자가 이미 다른 방법(은행 송금 등)으로 실제 원금 반환을 완료한 뒤에만 호출해야 한다. "
                     + "'포기'는 자동 재시도 대상에서만 뺀다는 뜻이지 투자자가 돈을 못 받는다는 뜻이 아니다. ADMIN 권한으로 DEAD_LETTER "
                     + "상태인 지급 건 하나를 ABANDONED 처리하며, 배치의 남은 DEAD_LETTER가 전부 사라지면 배치는 CLOSED_ABANDONED로 마감된다."
     )
