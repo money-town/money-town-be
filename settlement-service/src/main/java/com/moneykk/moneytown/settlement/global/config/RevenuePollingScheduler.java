@@ -4,9 +4,13 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.command.application.DividendDisbursementService;
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
+import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
+import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -16,6 +20,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -32,6 +41,12 @@ public class RevenuePollingScheduler {
     private static final long POLL_INTERVAL_MS = 30 * 60 * 1000L;
     private static final int MAX_PAGES = 1000;
     private static final String SYSTEM_ROLE = "SYSTEM";
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+
+    // 자산이 skip되는 이유가 진행 중(DISBURSING 등)인 회차면 정상이다. 실패 상태로 이 시간 넘게 멈춰 있을 때만 "영구 차단"으로 보고 알린다
+    private static final List<SettlementStatus> STUCK_FAILURE_STATUSES =
+            List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED);
+    private static final Duration STUCK_ALERT_THRESHOLD = Duration.ofHours(1);
 
     // 폴링 중 자연스럽게 발생할 수 있는, 재시도가 필요 없는 상태 — 경고 없이 건너뛴다.
     // SETTLEMENT_ALREADY_EXISTS_FOR_REVENUE는 openBatchAutomatically가 멱등하게
@@ -44,6 +59,8 @@ public class RevenuePollingScheduler {
     private final SettlementCommandService settlementCommandService;
     private final RevenueTransferStatusNotifier revenueTransferStatusNotifier;
     private final DividendDisbursementService dividendDisbursementService;
+    private final SettlementBatchRepository settlementBatchRepository;
+    private final SettlementFailureNotifier settlementFailureNotifier;
     private final MeterRegistry meterRegistry;
 
     @Scheduled(fixedDelay = POLL_INTERVAL_MS)
@@ -99,10 +116,34 @@ public class RevenuePollingScheduler {
                         "skipped_in_progress"
                 ).increment();
                 log.debug("정산 회차 자동 개시 건너뜀 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
+                alertIfBlockedByStuckFailedBatch(revenue);
             } else {
                 meterRegistry.counter("settlement.batch.auto_open", "result", "failed").increment();
                 log.warn("정산 회차 자동 개시 실패 (revenueId={}, reason={})", revenue.revenueId(), e.getErrorCode());
             }
         }
+    }
+
+    // 실패한 회차 하나가 자산의 이후 모든 정산을 막는 상황을 알림
+    private void alertIfBlockedByStuckFailedBatch(RevenueResponse revenue) {
+        try {
+            settlementBatchRepository
+                    .findFirstByAssetIdAndStatusInAndIsDeletedFalse(revenue.assetId(), STUCK_FAILURE_STATUSES)
+                    .filter(this::isStuck)
+                    .ifPresent(batch -> {
+                        meterRegistry.counter("settlement.batch.auto_open", "result", "blocked_by_failed_batch").increment();
+                        log.warn("실패 회차가 자산의 다음 정산을 차단 중 (assetId={}, settlementBatchId={}, status={}, 대기 revenueId={})",
+                                batch.getAssetId(), batch.getId(), batch.getStatus(), revenue.revenueId());
+                        settlementFailureNotifier.notifyAssetBlockedByFailedBatch(batch, revenue.revenueId(), LocalDate.now(SEOUL));
+                    });
+        } catch (Exception e) {
+            // 알림 판정 실패가 다른 수익의 정산 개시를 막으면 안 된다.
+            log.warn("차단 회차 알림 판정 실패 (assetId={}, revenueId={})", revenue.assetId(), revenue.revenueId(), e);
+        }
+    }
+
+    private boolean isStuck(SettlementBatch batch) {
+        return batch.getUpdatedAt() != null
+                && batch.getUpdatedAt().isBefore(Instant.now().minus(STUCK_ALERT_THRESHOLD));
     }
 }
