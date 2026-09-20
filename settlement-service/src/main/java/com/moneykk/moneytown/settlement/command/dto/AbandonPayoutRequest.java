@@ -12,7 +12,7 @@ public record AbandonPayoutRequest(
         @NotNull(message = "정산 방식(resolutionType)은 필수입니다.")
         ResolutionType resolutionType,
 
-        @Schema(description = "지급 증빙 번호 — BANK_TRANSFER는 은행 이체 확인번호, WALLET_REDEPOSIT은 지갑 거래 ID, "
+        @Schema(description = "지급 증빙 번호 — BANK_TRANSFER는 은행 이체 확인번호, "
                 + "OTHER는 그 경우에 맞는 참조 번호. 이 API는 관리자가 이미 다른 방법으로 실제 지급을 완료했다는 전제로 호출한다 "
                 + "— 이 필드가 그 증빙이며, 지급 없이 이 API만 호출해서는 안 된다.")
         @NotBlank(message = "지급 증빙 번호(resolutionReference)는 필수입니다.")

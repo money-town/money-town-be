@@ -12,8 +12,7 @@ DROP INDEX uk_settlement_batches_asset_in_progress;
 
 ALTER INDEX uk_settlement_batches_asset_in_progress_v2 RENAME TO uk_settlement_batches_asset_in_progress;
 
--- 포기 처리 증빙 컬럼. "ABANDONED = 미지급"으로 오해되지 않도록, 관리자가 이미 다른 방법(은행 송금·
--- 지갑 재입금 등)으로 실제 지급을 완료했다는 증빙을 구조화된 필드로 남김
+-- 포기 처리 증빙 컬럼. "ABANDONED = 미지급"으로 오해되지 않도록, 관리자가 이미 다른 방법(은행 송금 등)으로 실제 지급을 완료했다는 증빙을 구조화된 필드로 남김
 ALTER TABLE p_dividend_payouts
     ADD COLUMN resolution_type VARCHAR(20),
     ADD COLUMN resolution_reference VARCHAR(200),
