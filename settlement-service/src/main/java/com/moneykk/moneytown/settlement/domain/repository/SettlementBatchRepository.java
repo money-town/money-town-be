@@ -5,6 +5,7 @@ import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,6 +17,9 @@ public interface SettlementBatchRepository extends JpaRepository<SettlementBatch
 
     // 자산당 진행 중 배치는 uk_settlement_batches_asset_in_progress로 최대 1건 — 실패 상태로 멈춰 자산을 막고 있는 배치를 찾는다
     Optional<SettlementBatch> findFirstByAssetIdAndStatusInAndIsDeletedFalse(UUID assetId, Collection<SettlementStatus> statuses);
+
+    // 실패 상태로 남은 회차를 주기적으로 재통보하기 위한 스캔용. CLOSED_ABANDONED/COMPLETED는 포함되지 않아 마감되면 재통보가 멈춘다.
+    List<SettlementBatch> findByStatusInAndIsDeletedFalse(Collection<SettlementStatus> statuses);
 
     Optional<SettlementBatch> findByIdAndIsDeletedFalse(UUID id);
 
