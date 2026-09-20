@@ -175,7 +175,8 @@ class SettlementQueryServiceTest {
                             statusCount(PayoutStatus.DEAD_LETTER, 1L),
                             statusCount(PayoutStatus.QUEUED, 2L),
                             statusCount(PayoutStatus.PROCESSING, 1L),
-                            statusCount(PayoutStatus.RETRYING, 1L)
+                            statusCount(PayoutStatus.RETRYING, 1L),
+                            statusCount(PayoutStatus.ABANDONED, 2L)
                     ));
 
             SettlementBatchDetailResponse response = settlementQueryService.getSettlementBatch(ADMIN_ROLE, batch.getId());
@@ -185,10 +186,13 @@ class SettlementQueryServiceTest {
             assertThat(response.revenueId()).isEqualTo(REVENUE_ID);
             assertThat(response.status()).isEqualTo(batch.getStatus());
             SettlementBatchDetailResponse.PayoutSummary summary = response.payoutSummary();
-            assertThat(summary.totalCount()).isEqualTo(8L);
+            assertThat(summary.totalCount()).isEqualTo(10L);
             assertThat(summary.paidCount()).isEqualTo(3L);
             assertThat(summary.failedCount()).isEqualTo(1L);
             assertThat(summary.pendingCount()).isEqualTo(4L);
+            assertThat(summary.abandonedCount()).isEqualTo(2L);
+            assertThat(summary.paidCount() + summary.failedCount() + summary.pendingCount() + summary.abandonedCount())
+                    .isEqualTo(summary.totalCount());
         }
 
         @Test

@@ -170,7 +170,8 @@ class FinalSettlementQueryServiceTest {
                             statusCount(PayoutStatus.DEAD_LETTER, 2L),
                             statusCount(PayoutStatus.QUEUED, 20L),
                             statusCount(PayoutStatus.PROCESSING, 5L),
-                            statusCount(PayoutStatus.RETRYING, 3L)
+                            statusCount(PayoutStatus.RETRYING, 3L),
+                            statusCount(PayoutStatus.ABANDONED, 4L)
                     ));
 
             FinalSettlementBatchDetailResponse response =
@@ -183,10 +184,11 @@ class FinalSettlementQueryServiceTest {
             assertThat(response.totalAmount()).isEqualTo(900_000_000L);
             assertThat(response.status()).isEqualTo(batch.getStatus());
             FinalSettlementBatchDetailResponse.Progress progress = response.progress();
-            assertThat(progress.totalCount()).isEqualTo(900L);
+            assertThat(progress.totalCount()).isEqualTo(904L);
             assertThat(progress.paidCount()).isEqualTo(870L);
             assertThat(progress.failedCount()).isEqualTo(2L);
             assertThat(progress.pendingCount()).isEqualTo(28L);
+            assertThat(progress.abandonedCount()).isEqualTo(4L);
         }
 
         @Test

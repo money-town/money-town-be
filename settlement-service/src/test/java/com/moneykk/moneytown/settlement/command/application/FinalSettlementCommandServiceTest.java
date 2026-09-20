@@ -8,6 +8,7 @@ import com.moneykk.moneytown.settlement.command.dto.OpenFinalSettlementRequest;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
@@ -450,6 +451,94 @@ class FinalSettlementCommandServiceTest {
             FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), quantity, amount);
             ReflectionTestUtils.setField(payout, "status", PayoutStatus.DEAD_LETTER);
             ReflectionTestUtils.setField(payout, "retryCount", 3);
+            return payout;
+        }
+    }
+
+    @Nested
+    @DisplayName("지급 건 포기 처리 (T5)")
+    class AbandonPayout {
+
+        @Test
+        @DisplayName("포기 처리 후 배치가 CLOSED_ABANDONED로 마감되면 그 상태를 그대로 응답한다")
+        void abandonsPayoutAndReturnsClosedBatch() {
+            FinalSettlementBatch closed = batchWithStatus(SettlementStatus.CLOSED_ABANDONED);
+            FinalSettlementPayout payout = abandonedPayout(closed.getId());
+            when(finalSettlementPayoutWriter.abandonPayout(payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .thenReturn(payout);
+            when(finalSettlementPayoutWriter.updateBatchStatus(closed.getId())).thenReturn(Optional.of(closed));
+
+            FinalSettlementBatchResponse response = finalSettlementCommandService.abandonPayout(
+                    ADMIN_ROLE, closed.getId(), payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null);
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.CLOSED_ABANDONED);
+        }
+
+        @Test
+        @DisplayName("다른 건이 아직 진행 중이라 updateBatchStatus가 비어 있으면 배치를 다시 조회해 응답한다")
+        void fallsBackToRepositoryWhenBatchNotYetFinalized() {
+            FinalSettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+            FinalSettlementPayout payout = abandonedPayout(batch.getId());
+            when(finalSettlementPayoutWriter.abandonPayout(payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .thenReturn(payout);
+            when(finalSettlementPayoutWriter.updateBatchStatus(batch.getId())).thenReturn(Optional.empty());
+            when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+            FinalSettlementBatchResponse response = finalSettlementCommandService.abandonPayout(
+                    ADMIN_ROLE, batch.getId(), payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null);
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 예외")
+        void rejectsWhenNotAdmin() {
+            assertThatThrownBy(() -> finalSettlementCommandService.abandonPayout(
+                    SYSTEM_ROLE, UUID.randomUUID(), UUID.randomUUID(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(finalSettlementPayoutWriter);
+        }
+
+        @Test
+        @DisplayName("resolutionType이 OTHER인데 resolutionNote가 없으면 예외")
+        void rejectsOtherWithoutNote() {
+            assertThatThrownBy(() -> finalSettlementCommandService.abandonPayout(
+                    ADMIN_ROLE, UUID.randomUUID(), UUID.randomUUID(), ResolutionType.OTHER, "REF-1", " "))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.RESOLUTION_NOTE_REQUIRED);
+
+            verifyNoInteractions(finalSettlementPayoutWriter);
+        }
+
+        @Test
+        @DisplayName("지급 건이 요청한 회차 소속이 아니면 예외")
+        void rejectsWhenPayoutBelongsToDifferentBatch() {
+            FinalSettlementPayout payout = abandonedPayout(UUID.randomUUID());
+            when(finalSettlementPayoutWriter.abandonPayout(payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .thenReturn(payout);
+
+            assertThatThrownBy(() -> finalSettlementCommandService.abandonPayout(
+                    ADMIN_ROLE, UUID.randomUUID(), payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_PAYOUT_BATCH_MISMATCH);
+
+            verify(finalSettlementPayoutWriter, never()).updateBatchStatus(any());
+        }
+
+        private FinalSettlementBatch batchWithStatus(SettlementStatus status) {
+            FinalSettlementBatch batch = FinalSettlementBatch.open(ASSET_ID, TERMINATED_AT, UNIT_PRICE, 900_000_000L);
+            ReflectionTestUtils.setField(batch, "status", status);
+            return batch;
+        }
+
+        private FinalSettlementPayout abandonedPayout(UUID batchId) {
+            FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 900L, 1_000_000L);
+            ReflectionTestUtils.setField(payout, "status", PayoutStatus.ABANDONED);
             return payout;
         }
     }

@@ -5,10 +5,13 @@ import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.command.application.DividendDisbursementService;
 import com.moneykk.moneytown.settlement.command.application.SettlementCommandService;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
+import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
+import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchRepository;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.RevenueTransferStatusNotifier;
+import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.ReadyRevenueListResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
@@ -21,15 +24,20 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,6 +53,10 @@ class RevenuePollingSchedulerTest {
     private RevenueTransferStatusNotifier revenueTransferStatusNotifier;
     @Mock
     private DividendDisbursementService dividendDisbursementService;
+    @Mock
+    private SettlementBatchRepository settlementBatchRepository;
+    @Mock
+    private SettlementFailureNotifier settlementFailureNotifier;
     @Spy
     private MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
@@ -116,6 +128,55 @@ class RevenuePollingSchedulerTest {
     }
 
     @Test
+    @DisplayName("자산이 실패 회차에 막혀 있으면 skip하면서 미해결 재통보 경로(하루 1건 판정은 notifier)로 넘긴다 (T5)")
+    void alertsWhenAssetBlockedByStuckFailedBatch() {
+        RevenueResponse blocked = revenue(UUID.randomUUID(), UUID.randomUUID());
+        SettlementBatch stuck = failedBatch(blocked.assetId(), SettlementStatus.PARTIAL_FAILED, Duration.ofHours(2));
+        stubSkippedInProgress(blocked);
+        when(settlementBatchRepository.findFirstByAssetIdAndStatusInAndIsDeletedFalse(
+                eq(blocked.assetId()), eq(List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED))))
+                .thenReturn(Optional.of(stuck));
+
+        revenuePollingScheduler.pollReadyRevenues();
+
+        verify(settlementFailureNotifier).remindUnresolvedDividendBatch(stuck, blocked.revenueId());
+        verify(revenueTransferStatusNotifier, never()).notifyTransferred(blocked.revenueId());
+        assertThat(meterRegistry.counter("settlement.batch.auto_open", "result", "blocked_by_failed_batch").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("막고 있는 회차가 실패 상태가 아니라 정상 진행 중이면 알리지 않는다")
+    void doesNotAlertWhenBlockingBatchIsNormallyInProgress() {
+        RevenueResponse blocked = revenue(UUID.randomUUID(), UUID.randomUUID());
+        stubSkippedInProgress(blocked);
+        when(settlementBatchRepository.findFirstByAssetIdAndStatusInAndIsDeletedFalse(eq(blocked.assetId()), any()))
+                .thenReturn(Optional.empty());
+
+        revenuePollingScheduler.pollReadyRevenues();
+
+        verifyNoInteractions(settlementFailureNotifier);
+    }
+
+    @Test
+    @DisplayName("차단 알림 판정 중 예외가 나도 같은 페이지의 다른 수익 정산은 계속 진행한다")
+    void continuesWhenAlertLookupThrows() {
+        RevenueResponse blocked = revenue(UUID.randomUUID(), UUID.randomUUID());
+        RevenueResponse succeeding = revenue(UUID.randomUUID(), UUID.randomUUID());
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
+                .thenReturn(ApiResponse.success(page(List.of(blocked, succeeding), null, false), null));
+        when(settlementCommandService.openBatchAutomatically(blocked.assetId(), blocked.revenueId()))
+                .thenThrow(new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET));
+        when(settlementCommandService.openBatchAutomatically(succeeding.assetId(), succeeding.revenueId()))
+                .thenReturn(batchResponse(succeeding));
+        when(settlementBatchRepository.findFirstByAssetIdAndStatusInAndIsDeletedFalse(eq(blocked.assetId()), any()))
+                .thenThrow(new RuntimeException("db down"));
+
+        revenuePollingScheduler.pollReadyRevenues();
+
+        verify(revenueTransferStatusNotifier).notifyTransferred(succeeding.revenueId());
+    }
+
+    @Test
     @DisplayName("기존 배치를 멱등 재사용해도(newlyCreated=false) 후속 처리(통보·지급)는 그대로 호출한다 (kafka.md 4-2절)")
     void stillNotifiesAndDisbursesWhenBatchIsRecoveredExisting() {
         RevenueResponse revenue = revenue(UUID.randomUUID(), UUID.randomUUID());
@@ -162,5 +223,19 @@ class RevenuePollingSchedulerTest {
     private SettlementBatchResponse existingBatchResponse(RevenueResponse revenue) {
         return new SettlementBatchResponse(UUID.randomUUID(), revenue.assetId(), revenue.revenueId(),
                 LocalDate.of(2026, 9, 1), 1_000_000L, SettlementStatus.CALCULATED, 1, Instant.now(), false);
+    }
+
+    private void stubSkippedInProgress(RevenueResponse revenue) {
+        when(assetServiceClient.getReadyRevenues("SYSTEM", null))
+                .thenReturn(ApiResponse.success(page(List.of(revenue), null, false), null));
+        when(settlementCommandService.openBatchAutomatically(revenue.assetId(), revenue.revenueId()))
+                .thenThrow(new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET));
+    }
+
+    private SettlementBatch failedBatch(UUID assetId, SettlementStatus status, Duration age) {
+        SettlementBatch batch = SettlementBatch.open(assetId, UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000_000L);
+        ReflectionTestUtils.setField(batch, "status", status);
+        ReflectionTestUtils.setField(batch, "updatedAt", Instant.now().minus(age));
+        return batch;
     }
 }

@@ -3,6 +3,7 @@ package com.moneykk.moneytown.settlement.command.application;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
@@ -28,6 +29,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -239,6 +241,76 @@ class DividendPayoutWriterTest {
 
         assertThat(batch.getStatus()).isEqualTo(SettlementStatus.FAILED);
         assertThat(result).contains(batch);
+    }
+
+    @Test
+    @DisplayName("updateBatchStatus: 일부는 PAID, 나머지는 전부 ABANDONED면(남은 DEAD_LETTER 없음) CLOSED_ABANDONED로 마감한다 (T5)")
+    void updateBatchStatus_marksClosedAbandonedWhenRemainingDeadLetterAllAbandoned() {
+        SettlementBatch batch = openBatch();
+        DividendPayout paid = queuedPayout();
+        ReflectionTestUtils.setField(paid, "status", PayoutStatus.PAID);
+        DividendPayout abandoned = queuedPayout();
+        ReflectionTestUtils.setField(abandoned, "status", PayoutStatus.ABANDONED);
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(paid, abandoned));
+
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CLOSED_ABANDONED);
+        assertThat(result).contains(batch);
+    }
+
+    @Test
+    @DisplayName("updateBatchStatus: ABANDONED가 있어도 아직 포기 안 된 DEAD_LETTER가 남아있으면 기존처럼 PARTIAL_FAILED로 둔다")
+    void updateBatchStatus_keepsPartialFailedWhenDeadLetterRemainsBesideAbandoned() {
+        SettlementBatch batch = openBatch();
+        DividendPayout paid = queuedPayout();
+        ReflectionTestUtils.setField(paid, "status", PayoutStatus.PAID);
+        DividendPayout abandoned = queuedPayout();
+        ReflectionTestUtils.setField(abandoned, "status", PayoutStatus.ABANDONED);
+        DividendPayout deadLetter = queuedPayout();
+        ReflectionTestUtils.setField(deadLetter, "status", PayoutStatus.DEAD_LETTER);
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(dividendPayoutRepository.findBySettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(paid, abandoned, deadLetter));
+
+        Optional<SettlementBatch> result = dividendPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        assertThat(result).contains(batch);
+    }
+
+    @Test
+    @DisplayName("abandonPayout: DEAD_LETTER 건을 ABANDONED로 전환하고 지급 증빙을 저장한다")
+    void abandonPayout_marksAbandonedWithReason() {
+        DividendPayout deadLetter = queuedPayout();
+        ReflectionTestUtils.setField(deadLetter, "status", PayoutStatus.DEAD_LETTER);
+        when(dividendPayoutRepository.findByIdAndIsDeletedFalse(deadLetter.getId())).thenReturn(Optional.of(deadLetter));
+
+        DividendPayout result = dividendPayoutWriter.abandonPayout(
+                deadLetter.getId(), ResolutionType.BANK_TRANSFER, "BANK-REF-001", "투자자 지갑 영구 폐쇄 확인");
+
+        assertThat(result.getStatus()).isEqualTo(PayoutStatus.ABANDONED);
+        assertThat(result.getResolutionType()).isEqualTo(ResolutionType.BANK_TRANSFER);
+        assertThat(result.getResolutionReference()).isEqualTo("BANK-REF-001");
+        assertThat(result.getResolutionNote()).isEqualTo("투자자 지갑 영구 폐쇄 확인");
+        verify(dividendPayoutRepository).save(deadLetter);
+    }
+
+    @Test
+    @DisplayName("abandonPayout: DEAD_LETTER 상태가 아니면 예외를 던지고 저장하지 않는다")
+    void abandonPayout_rejectsWhenNotDeadLetter() {
+        DividendPayout queued = queuedPayout();
+        when(dividendPayoutRepository.findByIdAndIsDeletedFalse(queued.getId())).thenReturn(Optional.of(queued));
+
+        assertThatThrownBy(() -> dividendPayoutWriter.abandonPayout(queued.getId(), ResolutionType.BANK_TRANSFER, "REF", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(SettlementErrorCode.PAYOUT_NOT_ABANDONABLE);
+
+        assertThat(queued.getStatus()).isEqualTo(PayoutStatus.QUEUED);
+        verify(dividendPayoutRepository, never()).save(any());
     }
 
     private SettlementBatch openBatch() {
