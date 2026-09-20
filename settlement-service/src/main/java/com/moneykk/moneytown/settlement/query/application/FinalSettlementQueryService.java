@@ -98,7 +98,8 @@ public class FinalSettlementQueryService {
         long paidCount = counts.get(PayoutStatus.PAID);
         long failedCount = counts.get(PayoutStatus.DEAD_LETTER);
         long pendingCount = counts.get(PayoutStatus.QUEUED) + counts.get(PayoutStatus.PROCESSING) + counts.get(PayoutStatus.RETRYING);
+        long abandonedCount = counts.get(PayoutStatus.ABANDONED);
 
-        return new FinalSettlementBatchDetailResponse.Progress(totalCount, paidCount, failedCount, pendingCount);
+        return new FinalSettlementBatchDetailResponse.Progress(totalCount, paidCount, failedCount, pendingCount, abandonedCount);
     }
 }

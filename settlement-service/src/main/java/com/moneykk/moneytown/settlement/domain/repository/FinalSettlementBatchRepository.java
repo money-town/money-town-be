@@ -4,6 +4,7 @@ import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,5 +17,6 @@ public interface FinalSettlementBatchRepository extends JpaRepository<FinalSettl
 
     boolean existsByIdAndIsDeletedFalse(UUID id);
 
-    List<FinalSettlementBatch> findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus status);
+    List<FinalSettlementBatch> findByStatusInAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(
+            Collection<SettlementStatus> statuses);
 }

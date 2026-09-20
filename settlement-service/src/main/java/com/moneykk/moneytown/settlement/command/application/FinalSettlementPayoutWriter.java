@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
@@ -29,6 +30,10 @@ class FinalSettlementPayoutWriter {
             List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING, PayoutStatus.PROCESSING);
     private static final List<SettlementStatus> DISBURSABLE_STATUSES =
             List.of(SettlementStatus.CALCULATED, SettlementStatus.DISBURSING);
+    // COMPLETED 또는 CLOSED_ABANDONED 둘 다 "정산 시스템 관점에서는 종결됐다"는 뜻
+    // 자산 종료 완료 통보 대상에 포함
+    private static final List<SettlementStatus> TERMINATION_NOTIFY_ELIGIBLE_STATUSES =
+            List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED);
 
     private final FinalSettlementBatchRepository finalSettlementBatchRepository;
     private final FinalSettlementPayoutRepository finalSettlementPayoutRepository;
@@ -116,19 +121,41 @@ class FinalSettlementPayoutWriter {
         }
 
         boolean anyDeadLetter = allPayouts.stream().anyMatch(payout -> payout.getStatus() == PayoutStatus.DEAD_LETTER);
+        boolean anyAbandoned = allPayouts.stream().anyMatch(payout -> payout.getStatus() == PayoutStatus.ABANDONED);
         boolean anyPaid = allPayouts.stream().anyMatch(payout -> payout.getStatus() == PayoutStatus.PAID);
 
-        if (!anyDeadLetter) {
+        if (!anyDeadLetter && !anyAbandoned) {
             batch.markCompleted();
-        } else if (anyPaid) {
-            batch.markPartialFailed();
+        } else if (anyDeadLetter) {
+            // 아직 관리자가 포기 처리하지 않은 DEAD_LETTER가 남아있음 — 기존 동작 그대로 재시도 대상으로 열어둠
+            if (anyPaid) {
+                batch.markPartialFailed();
+            } else {
+                batch.markFailed();
+            }
         } else {
-            batch.markFailed();
+            // DEAD_LETTER는 더 이상 없고 ABANDONED만 남음 — 관리자가 전부 포기 처리해 마감 가능해짐
+            // 자산 종료 완료 통보는 COMPLETED, CLOSED_ABANDONED 대상에 포함 -> DisbursementRetryScheduler의 백스톱 다음 사이클에 자동으로 통보
+            batch.markClosedAbandoned();
         }
         meterRegistry.counter("settlement.batch.status", "type", "final", "status", batch.getStatus().name()).increment();
         finalSettlementBatchRepository.save(batch);
 
         return Optional.of(batch);
+    }
+
+    // 관리자가 명시적으로 DEAD_LETTER 건을 포기 처리
+    // 관리자가 이미 다른 방법으로 실제 지급(원금 반환)을 완료한 뒤에만 호출
+    @Transactional
+    public FinalSettlementPayout abandonPayout(UUID payoutId, ResolutionType resolutionType,
+                                                String resolutionReference, String resolutionNote) {
+        FinalSettlementPayout payout = loadPayout(payoutId);
+        if (payout.getStatus() != PayoutStatus.DEAD_LETTER) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_PAYOUT_NOT_ABANDONABLE);
+        }
+        payout.abandon(resolutionType, resolutionReference, resolutionNote);
+        finalSettlementPayoutRepository.save(payout);
+        return payout;
     }
 
     @Transactional
@@ -138,11 +165,10 @@ class FinalSettlementPayoutWriter {
         finalSettlementBatchRepository.save(batch);
     }
 
-    // COMPLETED인데 자산 서비스 종료 완료 통보에 아직 성공하지 못한(asset_termination_completed_at이 NULL인) 회차를 찾는다.
     @Transactional(readOnly = true)
     public List<FinalSettlementBatch> findCompletedBatchesPendingTerminationNotification() {
         return finalSettlementBatchRepository
-                .findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED);
+                .findByStatusInAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(TERMINATION_NOTIFY_ELIGIBLE_STATUSES);
     }
 
     private FinalSettlementBatch loadBatch(UUID finalSettlementBatchId) {
