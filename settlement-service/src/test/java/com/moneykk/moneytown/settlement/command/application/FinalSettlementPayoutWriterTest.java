@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
@@ -26,6 +27,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -304,6 +306,91 @@ class FinalSettlementPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("updateBatchStatus: PAID와 ABANDONED만 남으면(DEAD_LETTER 없음) CLOSED_ABANDONED로 마감한다 (T5)")
+    void updateBatchStatus_marksClosedAbandonedWhenRemainingAllAbandoned() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+        FinalSettlementPayout paid = queuedPayout();
+        ReflectionTestUtils.setField(paid, "status", PayoutStatus.PAID);
+        FinalSettlementPayout abandoned = queuedPayout();
+        ReflectionTestUtils.setField(abandoned, "status", PayoutStatus.ABANDONED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(paid, abandoned));
+
+        Optional<FinalSettlementBatch> result = finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CLOSED_ABANDONED);
+        assertThat(result).contains(batch);
+        verify(finalSettlementBatchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("updateBatchStatus: 전부 ABANDONED여도 CLOSED_ABANDONED로 마감한다")
+    void updateBatchStatus_marksClosedAbandonedWhenAllAbandoned() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.FAILED);
+        FinalSettlementPayout abandoned = queuedPayout();
+        ReflectionTestUtils.setField(abandoned, "status", PayoutStatus.ABANDONED);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(abandoned));
+
+        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CLOSED_ABANDONED);
+    }
+
+    @Test
+    @DisplayName("updateBatchStatus: ABANDONED 옆에 DEAD_LETTER가 남아있으면 PARTIAL_FAILED로 둔다")
+    void updateBatchStatus_keepsPartialFailedWhenDeadLetterRemainsBesideAbandoned() {
+        FinalSettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+        FinalSettlementPayout paid = queuedPayout();
+        ReflectionTestUtils.setField(paid, "status", PayoutStatus.PAID);
+        FinalSettlementPayout abandoned = queuedPayout();
+        ReflectionTestUtils.setField(abandoned, "status", PayoutStatus.ABANDONED);
+        FinalSettlementPayout deadLetter = queuedPayout();
+        ReflectionTestUtils.setField(deadLetter, "status", PayoutStatus.DEAD_LETTER);
+        when(finalSettlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+        when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
+                .thenReturn(List.of(paid, abandoned, deadLetter));
+
+        finalSettlementPayoutWriter.updateBatchStatus(batch.getId());
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+    }
+
+    @Test
+    @DisplayName("abandonPayout: DEAD_LETTER 건을 ABANDONED로 전환하고 지급 증빙을 저장한다")
+    void abandonPayout_marksAbandonedWithResolution() {
+        FinalSettlementPayout deadLetter = queuedPayout();
+        ReflectionTestUtils.setField(deadLetter, "status", PayoutStatus.DEAD_LETTER);
+        when(finalSettlementPayoutRepository.findByIdAndIsDeletedFalse(deadLetter.getId())).thenReturn(Optional.of(deadLetter));
+
+        FinalSettlementPayout result = finalSettlementPayoutWriter.abandonPayout(
+                deadLetter.getId(), ResolutionType.BANK_TRANSFER, "BANK-REF-123", "은행 송금으로 원금 반환 완료");
+
+        assertThat(result.getStatus()).isEqualTo(PayoutStatus.ABANDONED);
+        assertThat(result.getResolutionType()).isEqualTo(ResolutionType.BANK_TRANSFER);
+        assertThat(result.getResolutionReference()).isEqualTo("BANK-REF-123");
+        assertThat(result.getResolutionNote()).isEqualTo("은행 송금으로 원금 반환 완료");
+        verify(finalSettlementPayoutRepository).save(deadLetter);
+    }
+
+    @Test
+    @DisplayName("abandonPayout: DEAD_LETTER 상태가 아니면 예외를 던지고 저장하지 않는다")
+    void abandonPayout_rejectsWhenNotDeadLetter() {
+        FinalSettlementPayout queued = queuedPayout();
+        when(finalSettlementPayoutRepository.findByIdAndIsDeletedFalse(queued.getId())).thenReturn(Optional.of(queued));
+
+        assertThatThrownBy(() -> finalSettlementPayoutWriter.abandonPayout(queued.getId(), ResolutionType.BANK_TRANSFER, "REF", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(SettlementErrorCode.FINAL_SETTLEMENT_PAYOUT_NOT_ABANDONABLE);
+
+        assertThat(queued.getStatus()).isEqualTo(PayoutStatus.QUEUED);
+        verify(finalSettlementPayoutRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("markAssetTerminationCompleted: 완료 시각을 저장한다")
     void marksAssetTerminationCompleted() {
         FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
@@ -317,10 +404,11 @@ class FinalSettlementPayoutWriterTest {
     }
 
     @Test
-    @DisplayName("findCompletedBatchesPendingTerminationNotification: 리포지토리 조회 결과를 그대로 반환한다")
+    @DisplayName("findCompletedBatchesPendingTerminationNotification: COMPLETED와 CLOSED_ABANDONED를 함께 조회해 결과를 그대로 반환한다 (T5)")
     void findsCompletedBatchesPendingTerminationNotification() {
         FinalSettlementBatch batch = batchWithStatus(SettlementStatus.COMPLETED);
-        when(finalSettlementBatchRepository.findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED))
+        when(finalSettlementBatchRepository.findByStatusInAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(
+                List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED)))
                 .thenReturn(List.of(batch));
 
         List<FinalSettlementBatch> pending = finalSettlementPayoutWriter.findCompletedBatchesPendingTerminationNotification();

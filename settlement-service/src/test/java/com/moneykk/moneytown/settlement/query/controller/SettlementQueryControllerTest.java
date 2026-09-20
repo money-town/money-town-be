@@ -52,7 +52,7 @@ class SettlementQueryControllerTest {
         SettlementBatchDetailResponse response = new SettlementBatchDetailResponse(
                 settlementBatchId, UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 10_000L,
                 SettlementStatus.COMPLETED, Instant.parse("2026-09-01T00:00:00Z"), Instant.parse("2026-09-02T00:00:00Z"),
-                new SettlementBatchDetailResponse.PayoutSummary(10, 10, 0, 0));
+                new SettlementBatchDetailResponse.PayoutSummary(10, 10, 0, 0, 0));
         when(settlementQueryService.getSettlementBatch("ADMIN", settlementBatchId)).thenReturn(response);
 
         mockMvc.perform(get("/api/v1/settlements/{settlementBatchId}", settlementBatchId)

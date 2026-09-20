@@ -6,6 +6,7 @@ import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.HoldingSnapshot;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
@@ -57,6 +58,8 @@ class SettlementCommandServiceTest {
     private SettlementBatchRepository settlementBatchRepository;
     @Mock
     private DividendPayoutRepository dividendPayoutRepository;
+    @Mock
+    private DividendPayoutWriter dividendPayoutWriter;
     @Mock
     private AssetServiceClient assetServiceClient;
     @Mock
@@ -232,7 +235,8 @@ class SettlementCommandServiceTest {
         @DisplayName("자산에 이미 진행 중인 회차가 있으면 예외")
         void rejectsWhenAssetHasBatchInProgress() {
             when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.empty());
-            when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
+            when(settlementBatchRepository.existsByAssetIdAndStatusNotInAndIsDeletedFalse(
+                    ASSET_ID, List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED)))
                     .thenReturn(true);
 
             assertThatThrownBy(() -> settlementCommandService.openBatch(ADMIN_ROLE, ASSET_ID, REVENUE_ID, null))
@@ -453,6 +457,114 @@ class SettlementCommandServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("지급 건 포기 처리 (T5)")
+    class AbandonPayout {
+
+        @Test
+        @DisplayName("포기 처리 후 배치가 CLOSED_ABANDONED로 마감되면 그 상태를 그대로 응답한다")
+        void abandonsPayoutAndReturnsClosedBatch() {
+            SettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+            DividendPayout payout = abandonedPayout(batch.getId());
+            when(dividendPayoutWriter.abandonPayout(payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null)).thenReturn(payout);
+
+            SettlementBatch closedBatch = batchWithStatus(SettlementStatus.CLOSED_ABANDONED);
+            ReflectionTestUtils.setField(closedBatch, "id", batch.getId());
+            when(dividendPayoutWriter.updateBatchStatus(batch.getId())).thenReturn(Optional.of(closedBatch));
+            when(dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(batch.getId())).thenReturn(3L);
+
+            SettlementBatchResponse response =
+                    settlementCommandService.abandonPayout(ADMIN_ROLE, batch.getId(), payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null);
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.CLOSED_ABANDONED);
+            assertThat(response.payoutCount()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("아직 다른 건이 진행 중이라 updateBatchStatus가 비어 있으면 배치를 다시 조회해 현재 상태를 응답한다")
+        void fallsBackToRepositoryWhenBatchNotYetFinalized() {
+            SettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+            DividendPayout payout = abandonedPayout(batch.getId());
+            when(dividendPayoutWriter.abandonPayout(payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null)).thenReturn(payout);
+            when(dividendPayoutWriter.updateBatchStatus(batch.getId())).thenReturn(Optional.empty());
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+            when(dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(batch.getId())).thenReturn(5L);
+
+            SettlementBatchResponse response =
+                    settlementCommandService.abandonPayout(ADMIN_ROLE, batch.getId(), payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null);
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        }
+
+        @Test
+        @DisplayName("ADMIN이 아니면 예외")
+        void rejectsWhenNotAdmin() {
+            assertThatThrownBy(() -> settlementCommandService.abandonPayout("INVESTOR", UUID.randomUUID(), UUID.randomUUID(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.SETTLEMENT_ACCESS_DENIED);
+
+            verifyNoInteractions(dividendPayoutWriter);
+        }
+
+        @Test
+        @DisplayName("지급 건이 요청한 정산 회차 소속이 아니면 예외")
+        void rejectsWhenPayoutBelongsToDifferentBatch() {
+            UUID otherBatchId = UUID.randomUUID();
+            DividendPayout payout = abandonedPayout(otherBatchId);
+            UUID requestedBatchId = UUID.randomUUID();
+            when(dividendPayoutWriter.abandonPayout(payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null)).thenReturn(payout);
+
+            assertThatThrownBy(() -> settlementCommandService.abandonPayout(ADMIN_ROLE, requestedBatchId, payout.getId(), ResolutionType.BANK_TRANSFER, "REF-1", null))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(SettlementErrorCode.PAYOUT_BATCH_MISMATCH);
+        }
+
+        @Test
+        @DisplayName("resolutionType이 OTHER인데 resolutionNote가 없거나 공백이면 예외 — writer는 호출하지 않는다")
+        void rejectsOtherWithoutNote() {
+            for (String note : new String[]{null, "", "   "}) {
+                assertThatThrownBy(() -> settlementCommandService.abandonPayout(
+                        ADMIN_ROLE, UUID.randomUUID(), UUID.randomUUID(), ResolutionType.OTHER, "REF-1", note))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(e -> ((BusinessException) e).getErrorCode())
+                        .isEqualTo(SettlementErrorCode.RESOLUTION_NOTE_REQUIRED);
+            }
+
+            verifyNoInteractions(dividendPayoutWriter);
+        }
+
+        @Test
+        @DisplayName("resolutionType이 OTHER여도 resolutionNote가 있으면 포기 처리한다")
+        void allowsOtherWithNote() {
+            SettlementBatch batch = batchWithStatus(SettlementStatus.PARTIAL_FAILED);
+            DividendPayout payout = abandonedPayout(batch.getId());
+            when(dividendPayoutWriter.abandonPayout(payout.getId(), ResolutionType.OTHER, "REF-1", "현금 지급"))
+                    .thenReturn(payout);
+            when(dividendPayoutWriter.updateBatchStatus(batch.getId())).thenReturn(Optional.empty());
+            when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+            when(dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(batch.getId())).thenReturn(1L);
+
+            SettlementBatchResponse response = settlementCommandService.abandonPayout(
+                    ADMIN_ROLE, batch.getId(), payout.getId(), ResolutionType.OTHER, "REF-1", "현금 지급");
+
+            assertThat(response.status()).isEqualTo(SettlementStatus.PARTIAL_FAILED);
+        }
+
+        private SettlementBatch batchWithStatus(SettlementStatus status) {
+            SettlementBatch batch = SettlementBatch.open(ASSET_ID, UUID.randomUUID(), RECORD_DATE, 1_000_000L);
+            ReflectionTestUtils.setField(batch, "status", status);
+            return batch;
+        }
+
+        private DividendPayout abandonedPayout(UUID batchId) {
+            DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+            ReflectionTestUtils.setField(payout, "status", PayoutStatus.ABANDONED);
+            return payout;
+        }
+    }
+
     static Stream<Arguments> invalidAmounts() {
         return Stream.of(
                 Arguments.of(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO),
@@ -464,7 +576,8 @@ class SettlementCommandServiceTest {
 
     private void stubNoExistingBatch() {
         when(settlementBatchRepository.findByRevenueIdAndIsDeletedFalse(REVENUE_ID)).thenReturn(Optional.empty());
-        when(settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(ASSET_ID, SettlementStatus.COMPLETED))
+        when(settlementBatchRepository.existsByAssetIdAndStatusNotInAndIsDeletedFalse(
+                ASSET_ID, List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED)))
                 .thenReturn(false);
     }
 
