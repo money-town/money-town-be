@@ -157,8 +157,9 @@ CROSS JOIN LATERAL (SELECT (a - :asset_from::integer) * :investors_per_asset::in
 CROSS JOIN generate_series(1, :investors_per_asset::integer) AS k
 ON CONFLICT DO NOTHING;
 
--- 5) 검증: 범위 안 모든 자산의 보유지분·ALLOCATE 이력·수익 상태가 기대와 다르면 커밋하지 않고 중단한다.
---    (같은 자산 번호를 다른 investors_per_asset로 재실행한 경우 등을 조용히 넘기지 않기 위함)
+-- 5) 검증: 범위 안 모든 자산의 보유지분·ALLOCATE 이력·수익 상태, 그리고 자산 지분 총량·배당가능액이 기대와 다르면
+--    커밋하지 않고 중단한다. (같은 자산 번호를 다른 investors_per_asset로 재실행한 경우를 조용히 넘기지 않기 위함 —
+--    투자자 수를 늘려 재실행하면 보유지분·이력은 새 행이 붙어 개수가 맞아 보이지만 자산·수익은 옛 값이 남으므로 값도 대조한다)
 SELECT count(*) > 0 AS bad
 FROM generate_series(:asset_from::integer, :asset_to::integer) AS a
 WHERE (SELECT count(*) FROM p_holdings h
@@ -167,6 +168,12 @@ WHERE (SELECT count(*) FROM p_holdings h
         WHERE h.asset_id = md5(:'prefix' || '-asset-' || a)::uuid AND hh.history_type = 'ALLOCATE') <> :investors_per_asset::integer
    OR (SELECT count(*) FROM p_revenues r
         WHERE r.revenue_id = md5(:'prefix' || '-revenue-' || a)::uuid AND r.transfer_status = 'READY') <> 1
+   -- ON CONFLICT DO NOTHING이라 자산·수익은 옛 값이 남는다. 보유지분/이력만 늘어난 채 통과하지 않도록 값 자체도 대조한다.
+   -- 서브쿼리가 NULL(행 없음)일 수 있어 <>가 아니라 IS DISTINCT FROM.
+   OR (SELECT total_share_quantity FROM p_assets
+        WHERE asset_id = md5(:'prefix' || '-asset-' || a)::uuid) IS DISTINCT FROM :investors_per_asset::bigint
+   OR (SELECT gross_amount FROM p_revenues
+        WHERE revenue_id = md5(:'prefix' || '-revenue-' || a)::uuid) IS DISTINCT FROM 10000::numeric * :investors_per_asset::numeric
 \gset
 
 \if :bad
