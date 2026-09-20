@@ -5,6 +5,7 @@ import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.settlement.command.application.FinalSettlementCommandService;
 import com.moneykk.moneytown.settlement.command.application.FinalSettlementDisbursementService;
 import com.moneykk.moneytown.settlement.command.controller.api.FinalSettlementCommandApi;
+import com.moneykk.moneytown.settlement.command.dto.AbandonPayoutRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
@@ -13,6 +14,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -55,5 +57,17 @@ public class FinalSettlementCommandController implements FinalSettlementCommandA
                 role, finalSettlementBatchId, request != null ? request : new FinalSettlementRetryRequest(null));
         finalSettlementDisbursementService.disburseAsync(response.finalSettlementBatchId());
         return ResponseEntity.ok(ApiResponse.success(response, "실패 건 재처리가 시작되었습니다."));
+    }
+
+    @Override
+    @PatchMapping("/final-settlements/{finalSettlementBatchId}/payouts/{payoutId}/abandon")
+    public ResponseEntity<ApiResponse<FinalSettlementBatchResponse>> abandonPayout(
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @PathVariable UUID finalSettlementBatchId,
+            @PathVariable UUID payoutId,
+            @Valid @RequestBody AbandonPayoutRequest request) {
+        FinalSettlementBatchResponse response = finalSettlementCommandService.abandonPayout(role, finalSettlementBatchId, payoutId,
+                request.resolutionType(), request.resolutionReference(), request.resolutionNote());
+        return ResponseEntity.ok(ApiResponse.success(response, "지급 건이 포기 처리되었습니다."));
     }
 }

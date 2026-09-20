@@ -8,6 +8,7 @@ import com.moneykk.moneytown.settlement.command.dto.OpenFinalSettlementRequest;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementBatchRepository;
 import com.moneykk.moneytown.settlement.domain.repository.FinalSettlementPayoutRepository;
@@ -163,6 +164,36 @@ public class FinalSettlementCommandService {
         }
         return finalSettlementPayoutRepository
                 .findByFinalSettlementBatchIdAndIdInAndStatusAndIsDeletedFalse(finalSettlementBatchId, payoutIds, PayoutStatus.DEAD_LETTER);
+    }
+
+    // 관리자가 다른 방법으로 실제 원금 반환을 완료한 뒤에만 호출해야 한다
+    // CLOSED_ABANDONED로 마감 -> findCompletedBatchesPendingTerminationNotification이 포함
+    // 자산 종료 완료 통보는 DisbursementRetryScheduler의 백스톱 다음 사이클에 처리
+    @Transactional
+    public FinalSettlementBatchResponse abandonPayout(String role, UUID finalSettlementBatchId, UUID payoutId,
+                                                        ResolutionType resolutionType, String resolutionReference, String resolutionNote) {
+        validateAdmin(role);
+        validateResolution(resolutionType, resolutionNote);
+
+        FinalSettlementPayout payout =
+                finalSettlementPayoutWriter.abandonPayout(payoutId, resolutionType, resolutionReference, resolutionNote);
+        if (!payout.getFinalSettlementBatchId().equals(finalSettlementBatchId)) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_PAYOUT_BATCH_MISMATCH);
+        }
+
+        FinalSettlementBatch batch = finalSettlementPayoutWriter.updateBatchStatus(finalSettlementBatchId)
+                .orElseGet(() -> finalSettlementBatchRepository.findByIdAndIsDeletedFalse(finalSettlementBatchId)
+                        .orElseThrow(() -> new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_BATCH_NOT_FOUND)));
+
+        log.info("최종 정산 지급 건 포기 처리 완료 (finalSettlementBatchId={}, payoutId={}, resolutionType={}, 배치 상태={})",
+                finalSettlementBatchId, payoutId, resolutionType, batch.getStatus());
+        return FinalSettlementBatchResponse.of(batch, false);
+    }
+
+    private void validateResolution(ResolutionType resolutionType, String resolutionNote) {
+        if (resolutionType == ResolutionType.OTHER && (resolutionNote == null || resolutionNote.isBlank())) {
+            throw new BusinessException(SettlementErrorCode.RESOLUTION_NOTE_REQUIRED);
+        }
     }
 
     private List<HoldingItem> fetchHolders(UUID assetId, LocalDate asOf) {

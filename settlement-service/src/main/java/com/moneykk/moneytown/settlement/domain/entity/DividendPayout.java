@@ -54,6 +54,16 @@ public class DividendPayout extends BaseUpdatableEntity {
     @Column(name = "retry_count", nullable = false)
     private Integer retryCount;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "resolution_type", length = 20)
+    private ResolutionType resolutionType;
+
+    @Column(name = "resolution_reference", length = 200)
+    private String resolutionReference;
+
+    @Column(name = "resolution_note", length = 500)
+    private String resolutionNote;
+
     private DividendPayout(UUID settlementBatchId, UUID investorId, BigDecimal shareRatio, Long amount) {
         this.id = UUID.randomUUID();
         this.settlementBatchId = settlementBatchId;
@@ -96,5 +106,14 @@ public class DividendPayout extends BaseUpdatableEntity {
 
     public void markDeadLetter() {
         this.status = PayoutStatus.DEAD_LETTER;
+    }
+
+    // DEAD_LETTER 건을 관리자가 명시적으로 포기 처리
+    // 관리자가 이미 다른 방법(은행 송금·지갑 재입금 등)으로 실제 지급을 완료한 뒤, 그 증빙(resolutionType/resolutionReference)을 남기는 호출
+    public void abandon(ResolutionType resolutionType, String resolutionReference, String resolutionNote) {
+        this.status = PayoutStatus.ABANDONED;
+        this.resolutionType = resolutionType;
+        this.resolutionReference = resolutionReference;
+        this.resolutionNote = resolutionNote;
     }
 }
