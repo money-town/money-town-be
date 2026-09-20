@@ -14,6 +14,9 @@ public interface SettlementBatchRepository extends JpaRepository<SettlementBatch
 
     boolean existsByAssetIdAndStatusNotInAndIsDeletedFalse(UUID assetId, Collection<SettlementStatus> terminalStatuses);
 
+    // 자산당 진행 중 배치는 uk_settlement_batches_asset_in_progress로 최대 1건 — 실패 상태로 멈춰 자산을 막고 있는 배치를 찾는다
+    Optional<SettlementBatch> findFirstByAssetIdAndStatusInAndIsDeletedFalse(UUID assetId, Collection<SettlementStatus> statuses);
+
     Optional<SettlementBatch> findByIdAndIsDeletedFalse(UUID id);
 
     boolean existsByIdAndIsDeletedFalse(UUID id);
