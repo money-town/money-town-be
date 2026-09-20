@@ -81,6 +81,29 @@ spring:
             connect-timeout: ${WALLET_SERVICE_CONNECT_TIMEOUT:1000}
             read-timeout: ${WALLET_SERVICE_READ_TIMEOUT:2000}
 
+# user-service 조회(투자 자격 검증)에만 서킷브레이커/벌크헤드를 적용한다.
+# offering-service는 Feign 클라이언트가 5개(user/asset/analysis/holding/wallet)라
+# feign.circuitbreaker.enabled 전역 스위치를 켜면 나머지 4개까지 전부 서킷브레이커로
+# 감싸져 CallNotPermittedException이 기존 FeignException 처리 로직을 우회하게 된다.
+# 그래서 전역 스위치 대신 CircuitBreakerRegistry/BulkheadRegistry를 user-service 호출부에서만 직접 사용한다.
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 20
+        minimum-number-of-calls: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+
+  # user-service의 HikariCP 풀(10개, wallet-service와 공유)이 offering-service 하나만으로
+  # 소진되지 않도록 동시 호출 수를 제한한다. 대기 없이 즉시 거절(fail-fast)한다.
+  bulkhead:
+    configs:
+      default:
+        max-concurrent-calls: ${USER_SERVICE_BULKHEAD_MAX_CONCURRENT_CALLS:8}
+        max-wait-duration: 0
+        permitted-number-of-calls-in-half-open-state: 5
+
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
 

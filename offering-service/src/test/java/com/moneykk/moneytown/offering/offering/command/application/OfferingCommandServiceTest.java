@@ -20,6 +20,13 @@ import com.moneykk.moneytown.offering.offering.infrastructure.client.dto.AssetOf
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.UserServiceClient;
 import com.moneykk.moneytown.offering.subscription.infrastructure.client.dto.UserInvestmentEligibilityResponse;
 import feign.FeignException;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +43,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -54,10 +63,24 @@ class OfferingCommandServiceTest {
     private UserServiceClient userServiceClient;
 
     @Mock
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+
+    @Mock
+    private BulkheadRegistry bulkheadRegistry;
+
+    @Mock
     private OfferingTransactionService offeringTransactionService;
 
     @InjectMocks
     private OfferingCommandService offeringCommandService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(circuitBreakerRegistry.circuitBreaker(anyString()))
+                .thenReturn(CircuitBreaker.ofDefaults("user-service"));
+        lenient().when(bulkheadRegistry.bulkhead(anyString()))
+                .thenReturn(Bulkhead.ofDefaults("user-service"));
+    }
 
     @Test
     @DisplayName("유효한 ISSUER는 사용자와 자산 검증 후 자동 생성한 제목으로 공모를 생성한다")
@@ -1378,6 +1401,50 @@ class OfferingCommandServiceTest {
 
         when(userServiceClient.getInvestmentEligibility(issuerId))
                 .thenThrow(mock(FeignException.class));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.USER_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("User Service 서킷이 열려 호출이 차단되면 공모 생성을 거부한다")
+    void rejectsCreateWhenUserServiceCircuitIsOpen() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(UUID.randomUUID());
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenThrow(CallNotPermittedException.createCallNotPermittedException(
+                        CircuitBreaker.ofDefaults("user-service")
+                ));
+
+        // when & then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> offeringCommandService.create(issuerId, request)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(OfferingErrorCode.USER_SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("User Service 동시 호출 제한(Bulkhead)에 걸리면 공모 생성을 거부한다")
+    void rejectsCreateWhenUserServiceBulkheadIsFull() {
+        // given
+        UUID issuerId = UUID.randomUUID();
+        OfferingCreateRequest request = createRequest(UUID.randomUUID());
+
+        when(userServiceClient.getInvestmentEligibility(issuerId))
+                .thenThrow(BulkheadFullException.createBulkheadFullException(
+                        Bulkhead.ofDefaults("user-service")
+                ));
 
         // when & then
         BusinessException exception = assertThrows(
