@@ -57,6 +57,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "평균, p95, p99 Feign 호출시간",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -137,16 +138,42 @@
         {
           "editorMode": "code",
           "expr": "1000 *\r\nsum by (client_name) (\r\n  rate(http_client_requests_seconds_sum{\r\n    application=\"offering-service\",\r\n    client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n  }[$__rate_interval])\r\n)\r\n/\r\nclamp_min(\r\n  sum by (client_name) (\r\n    rate(http_client_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n    }[$__rate_interval])\r\n  ),\r\n  0.000001\r\n)",
-          "legendFormat": "{{client_name}}",
+          "legendFormat": "{{client_name}} 평균",
           "range": true,
           "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           }
+        },
+        {
+          "editorMode": "code",
+          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.95,\r\n  sum by (le, client_name) (\r\n    rate(\r\n      http_client_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{client_name}} p95",
+          "range": true,
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
+        },
+        {
+          "editorMode": "code",
+          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.99,\r\n  sum by (le, client_name) (\r\n    rate(\r\n      http_client_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{client_name}} p99",
+          "range": true,
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          }
         }
       ],
-      "title": "Feign 평균 호출시간",
+      "title": "Feign 평균/p95/p99 호출시간",
       "type": "timeseries"
     },
     {
@@ -1071,7 +1098,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "평균 응답 시간, p95 응답 시간",
+      "description": "평균 응답 시간, p95, p99 응답 시간",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1173,6 +1200,19 @@
           "legendFormat": "p95",
           "range": true,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.99,\r\n  sum by (le) (\r\n    rate(\r\n      http_server_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "Offering API Response Time",
@@ -1311,6 +1351,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "활성/유휴/대기 커넥션 수와, hikaricp.connections.acquire 히스토그램 기반 p95/p99 커넥션 획득 시간을 함께 표시합니다.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1362,7 +1403,40 @@
           },
           "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "F"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -1437,6 +1511,32 @@
           "legendFormat": "풀 최대",
           "range": true,
           "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(\r\n  0.95,\r\n  sum by (le) (\r\n    rate(\r\n      hikaricp_connections_acquire_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p95 획득시간",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(\r\n  0.99,\r\n  sum by (le) (\r\n    rate(\r\n      hikaricp_connections_acquire_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p99 획득시간",
+          "range": true,
+          "refId": "F"
         }
       ],
       "title": "Offering HikariCP Connections",
@@ -1542,12 +1642,25 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(\r\n  0.95,\r\n  sum by (le, result) (\r\n    subscription_lifecycle_duration_seconds_bucket{\r\n      application=\"offering-service\"\r\n    }\r\n  )\r\n)",
+          "expr": "histogram_quantile(\r\n  0.95,\r\n  sum by (le, result) (\r\n    rate(\r\n      subscription_lifecycle_duration_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
           "hide": false,
           "instant": false,
           "legendFormat": "p95 {{result}}",
           "range": true,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(\r\n  0.99,\r\n  sum by (le, result) (\r\n    rate(\r\n      subscription_lifecycle_duration_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p99 {{result}}",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "Subscription End-to-End Outcome Duration",
@@ -1948,6 +2061,22 @@
           {
             "matcher": {
               "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
               "options": "C"
             },
             "properties": [
@@ -2020,6 +2149,19 @@
           "legendFormat": "평균 확정 건수",
           "range": true,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(\r\n  0.99,\r\n  sum by (le) (\r\n    rate(\r\n      subscription_batch_confirmation_duration_seconds_bucket{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "p99 확정시간",
+          "range": true,
+          "refId": "D"
         }
       ],
       "title": "Subscription Batch Confirmation",
@@ -2153,6 +2295,6 @@
   "timezone": "browser",
   "title": "Offering Monitoring Custom",
   "uid": "afy4rdr7rj0g0b",
-  "version": 129,
+  "version": 130,
   "weekStart": ""
 }
