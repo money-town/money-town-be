@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
@@ -31,7 +32,7 @@ public class PortfolioQueryService {
     }
 
     public PageResponse<PortfolioItemResponse> getMyPortfolios(UUID userId, PortfolioSearchCondition searchCondition, Pageable pageable){
-        return PageResponse.from(portfolioQueryRepository.searchMyPortfolio(userId, searchCondition, pageable), PortfolioItemResponse::from);
+        return PageResponse.from(portfolioQueryRepository.searchMyPortfolio(userId, searchCondition, pageable), Function.identity());
     }
 
     public PortfolioDetailResponse getPortfolio(String role, UUID userId, UUID portfolioId){

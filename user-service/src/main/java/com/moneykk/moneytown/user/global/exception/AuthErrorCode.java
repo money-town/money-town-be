@@ -5,7 +5,8 @@ import org.springframework.http.HttpStatus;
 
 public enum AuthErrorCode implements ErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_401_01", "이메일 또는 비밀번호가 올바르지 않습니다."),
-    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED,"AUTH_401_02","유효하지 않은 Refresh Token입니다.");
+    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED,"AUTH_401_02","유효하지 않은 Refresh Token입니다."),
+    LOGIN_BUSY(HttpStatus.TOO_MANY_REQUESTS, "AUTH_429_01", "로그인 요청이 많습니다. 잠시 후 다시 시도해 주세요.");
 
 
 
