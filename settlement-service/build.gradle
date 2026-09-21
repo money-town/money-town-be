@@ -3,6 +3,7 @@ dependencies {
     // 기본 Feign 클라이언트(JDK HttpURLConnection)는 PATCH 메서드를 지원하지 않는다
     // (AssetServiceClient.updateRevenueTransferStatus 등 @PatchMapping 호출 시 "Invalid HTTP method: PATCH")
     implementation 'io.github.openfeign:feign-okhttp'
+    implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
     implementation 'org.springframework.kafka:spring-kafka'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
 
