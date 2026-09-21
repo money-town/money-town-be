@@ -1,3 +1,7 @@
+eureka:
+  instance:
+    lease-expiration-duration-in-seconds: 1800
+
 server:
   port: 19094
   tomcat:
