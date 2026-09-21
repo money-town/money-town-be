@@ -2,7 +2,9 @@ package com.moneykk.moneytown.settlement.domain.repository;
 
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 
 import java.util.Collection;
 import java.util.List;
@@ -22,6 +24,10 @@ public interface SettlementBatchRepository extends JpaRepository<SettlementBatch
     List<SettlementBatch> findByStatusInAndIsDeletedFalse(Collection<SettlementStatus> statuses);
 
     Optional<SettlementBatch> findByIdAndIsDeletedFalse(UUID id);
+
+    // 여러 컨슈머가 같은 회차의 마지막 건을 동시에 끝냈을 때 마감 판정(상태 전이·실패 알림)을 한 번만 하도록 행 락을 잡는다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<SettlementBatch> findWithLockByIdAndIsDeletedFalse(UUID id);
 
     boolean existsByIdAndIsDeletedFalse(UUID id);
 }
