@@ -24,6 +24,14 @@ spring:
       properties:
         "[enable.idempotence]": true
 
+auth:
+  login:
+    password-verification:
+      # 2 vCPU User Service 기준 BCrypt를 동시에 2개까지만 실행한다.
+      max-concurrency: ${LOGIN_BCRYPT_MAX_CONCURRENCY:2}
+      # 제한 안에 진입하지 못한 요청은 오래 쌓아두지 않고 429로 응답한다.
+      acquire-timeout: ${LOGIN_BCRYPT_ACQUIRE_TIMEOUT:2s}
+
 outbox:
   publish:
     batch-size: ${OUTBOX_PUBLISH_BATCH_SIZE:10}
