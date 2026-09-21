@@ -7,11 +7,13 @@ import com.moneykk.moneytown.wallet.dto.response.TransactionResponse;
 import com.moneykk.moneytown.wallet.entity.Wallet;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
+import com.moneykk.moneytown.wallet.global.config.WalletRedisCacheConfig;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
 import com.moneykk.moneytown.wallet.repository.WalletRepository;
 import com.moneykk.moneytown.wallet.repository.WalletTransactionRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +36,7 @@ public class WalletTransactionService {
 
     // 게이트웨이 응답 타임아웃(10초)보다 확실히 짧게 잡아서, 커넥션 획득 이후 실제 처리가
     // 예상 못 하게 늘어지는 경우에도 클라이언트가 이미 포기한 뒤까지 커넥션을 붙잡지 않게 한다.
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#userId")
     @Transactional(timeout = 5)
     public TransactionResponse deposit(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
@@ -51,6 +54,7 @@ public class WalletTransactionService {
         return TransactionResponse.from(transaction);
     }
 
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#userId")
     @Transactional(timeout = 5)
     public TransactionResponse withdraw(UUID userId, String idempotencyKey, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
@@ -68,6 +72,7 @@ public class WalletTransactionService {
         return TransactionResponse.from(transaction);
     }
 
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#userId")
     @Transactional(timeout = 5)
     public DividendDepositResponse depositDividend(UUID userId, String idempotencyKey, UUID settlementBatchId, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
@@ -85,6 +90,7 @@ public class WalletTransactionService {
         return DividendDepositResponse.from(transaction);
     }
 
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#userId")
     @Transactional(timeout = 5)
     public SettlementDepositResponse depositSettlement(UUID userId, String idempotencyKey, UUID finalSettlementBatchId, long amount) {
         Wallet wallet = walletRepository.findByUserIdForUpdate(userId)
