@@ -7,7 +7,6 @@ import com.moneykk.moneytown.user.dto.request.SignupRequest;
 import com.moneykk.moneytown.user.dto.response.LoginResponse;
 import com.moneykk.moneytown.user.dto.response.SignupResponse;
 import com.moneykk.moneytown.user.dto.response.TokenResponse;
-import com.moneykk.moneytown.user.entity.RefreshToken;
 import com.moneykk.moneytown.user.entity.User;
 import com.moneykk.moneytown.user.entity.type.AccountStatus;
 import com.moneykk.moneytown.user.event.UserAccountEventWriter;
@@ -16,7 +15,6 @@ import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.global.security.jwt.IssuedToken;
 import com.moneykk.moneytown.user.global.security.jwt.JwtTokenProvider;
 import com.moneykk.moneytown.user.monitoring.LoginMetrics;
-import com.moneykk.moneytown.user.repository.RefreshTokenRepository;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,7 +24,6 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import static com.moneykk.moneytown.user.monitoring.LoginMetrics.Stage.*;
@@ -42,8 +39,8 @@ public class AuthService {
     private final UserRepository userRepository;
     private final RefreshTokenService refreshTokenService;
     private final PasswordEncoder passwordEncoder;
+    private final LoginPasswordVerifier loginPasswordVerifier;
     private final JwtTokenProvider jwtTokenProvider;
-    private final RefreshTokenRepository refreshTokenRepository;
     private final UserAccountEventWriter userAccountEventWriter;
     private final LoginMetrics loginMetrics;
 
@@ -54,9 +51,9 @@ public class AuthService {
                 .findByEmailAndIsDeletedFalse(request.email())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_CREDENTIALS)));
 
-        // DB 조회 트랜잭션이 끝난 다음 BCrypt 실행
+        // DB 조회가 끝난 다음, 제한된 수의 BCrypt 검증만 동시에 실행한다.
         loginMetrics.record(PASSWORD_VERIFY, () -> {
-            if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+            if (!loginPasswordVerifier.matches(request.password(), user.getPassword())) {
                 throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
             }
         });
@@ -70,7 +67,7 @@ public class AuthService {
                 jwtTokenProvider.issueRefreshToken(user)
         ));
 
-        // 다른 Bean의 트랜잭션 프록시 호출 전체를 측정하므로 커밋 시간도 포함된다.
+        // Redis에 활성 Refresh Token jti를 저장하는 시간까지 측정한다.
         loginMetrics.record(REFRESH_TOKEN_REPLACE, () ->
                 refreshTokenService.replaceActiveToken(user.getUserId(), tokens.refreshToken()));
 
@@ -81,14 +78,13 @@ public class AuthService {
     }
 
     // 해당 사용자의 모든 Refresh Token 폐기
-    @Transactional
     public void logout(UUID userId) {
         userRepository.findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() ->
                         new BusinessException(UserErrorCode.USER_NOT_FOUND)
                 );
 
-        revokeActiveRefreshTokens(userId);
+        refreshTokenService.revokeActiveToken(userId);
     }
 
     // 회원가입
@@ -137,13 +133,6 @@ public class AuthService {
         }
     }
 
-    private void revokeActiveRefreshTokens(UUID userId) {
-        refreshTokenRepository.findAllByUserIdAndRevokedAtIsNull(userId)
-                .forEach(RefreshToken::revoke);
-    }
-
-
-    @Transactional
     // 재발급
     public TokenResponse reissue(ReissueRequest request) {
         // 1. Refresh Token 서명·Issuer·만료 검증
@@ -162,19 +151,12 @@ public class AuthService {
             );
         }
 
-        // 4. DB에 저장된 Refresh Token 조회
-        RefreshToken savedToken = refreshTokenRepository
-                .findByTokenIdForUpdate(tokenId)
-                .orElseThrow(() ->
-                        new BusinessException(
-                                AuthErrorCode.INVALID_REFRESH_TOKEN
-                        )
-                );
+        // 4. Redis에 저장된 현재 활성 jti인지 확인
+        if (!refreshTokenService.isActiveToken(userId, tokenId)) {
+            throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
 
-        // 5. 토큰 소유자·폐기·만료 상태 확인
-        validateSavedRefreshToken(savedToken, userId);
-
-        // 6. 최신 사용자 상태 확인
+        // 5. 최신 사용자 상태 확인
         User user = userRepository
                 .findByUserIdAndIsDeletedFalse(userId)
                 .orElseThrow(() ->
@@ -189,25 +171,19 @@ public class AuthService {
             );
         }
 
-        // 7. 기존 Refresh Token 폐기
-        savedToken.revoke();
-
-        // 8. 새로운 Token 발급
+        // 6. 새로운 Token 발급
         IssuedToken newAccessToken =
                 jwtTokenProvider.issueAccessToken(user);
 
         IssuedToken newRefreshToken =
                 jwtTokenProvider.issueRefreshToken(user);
 
-        // 9. 새로운 Refresh Token JTI 저장
-        refreshTokenRepository.save(
-                RefreshToken.create(
-                        user.getUserId(),
-                        newRefreshToken
-                )
-        );
+        // 7. 기존 jti가 그대로일 때만 새 jti로 원자적으로 교체
+        if (!refreshTokenService.rotateActiveToken(userId, tokenId, newRefreshToken)) {
+            throw new BusinessException(AuthErrorCode.INVALID_REFRESH_TOKEN);
+        }
 
-        // 10. 새로운 Token 응답
+        // 8. 새로운 Token 응답
         return TokenResponse.from(
                 newAccessToken,
                 newRefreshToken
@@ -246,24 +222,4 @@ public class AuthService {
         }
     }
 
-    private void validateSavedRefreshToken(
-            RefreshToken refreshToken,
-            UUID userId
-    ) {
-        boolean differentUser =
-                !refreshToken.getUserId().equals(userId);
-
-        boolean revoked =
-                refreshToken.getRevokedAt() != null;
-
-        boolean expired =
-                refreshToken.getExpiresAt()
-                        .isBefore(Instant.now());
-
-        if (differentUser || revoked || expired) {
-            throw new BusinessException(
-                    AuthErrorCode.INVALID_REFRESH_TOKEN
-            );
-        }
-    }
 }

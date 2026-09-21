@@ -257,10 +257,13 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/user_db
       JWT_SECRET: ${JWT_SECRET}
       JWT_ISSUER: ${JWT_ISSUER:-money-town-user-service}
+      LOGIN_BCRYPT_MAX_CONCURRENCY: ${LOGIN_BCRYPT_MAX_CONCURRENCY:-2}
+      LOGIN_BCRYPT_ACQUIRE_TIMEOUT: ${LOGIN_BCRYPT_ACQUIRE_TIMEOUT:-2s}
     ports: ["19092:19092"]
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19092/actuator/health"]
       interval: 15s

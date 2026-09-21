@@ -11,7 +11,6 @@ import com.moneykk.moneytown.user.global.exception.UserErrorCode;
 import com.moneykk.moneytown.user.global.security.jwt.IssuedToken;
 import com.moneykk.moneytown.user.global.security.jwt.JwtTokenProvider;
 import com.moneykk.moneytown.user.monitoring.LoginMetrics;
-import com.moneykk.moneytown.user.repository.RefreshTokenRepository;
 import com.moneykk.moneytown.user.repository.UserRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -42,8 +41,8 @@ class AuthServiceLoginTest {
     @Mock private UserRepository userRepository;
     @Mock private RefreshTokenService refreshTokenService;
     @Mock private PasswordEncoder passwordEncoder;
+    @Mock private LoginPasswordVerifier loginPasswordVerifier;
     @Mock private JwtTokenProvider jwtTokenProvider;
-    @Mock private RefreshTokenRepository refreshTokenRepository;
     @Mock private UserAccountEventWriter eventWriter;
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -57,7 +56,7 @@ class AuthServiceLoginTest {
     void setUp() {
         ReflectionTestUtils.setField(user, "userId", UUID.randomUUID());
         service = new AuthService(jwtDecoder, userRepository, refreshTokenService, passwordEncoder,
-                jwtTokenProvider, refreshTokenRepository, eventWriter, new LoginMetrics(registry));
+                loginPasswordVerifier, jwtTokenProvider, eventWriter, new LoginMetrics(registry));
     }
 
     @AfterEach
@@ -91,13 +90,13 @@ class AuthServiceLoginTest {
 
         assertThat(count("user_lookup", "failure")).isEqualTo(1);
         assertThat(count("password_verify", "success")).isZero();
-        verifyNoInteractions(passwordEncoder, jwtTokenProvider, refreshTokenService);
+        verifyNoInteractions(loginPasswordVerifier, jwtTokenProvider, refreshTokenService);
     }
 
     @Test
     void wrongPasswordIsRecordedAsFailureWithoutIssuingTokens() {
         given(userRepository.findByEmailAndIsDeletedFalse(request.email())).willReturn(Optional.of(user));
-        given(passwordEncoder.matches(request.password(), user.getPassword())).willReturn(false);
+        given(loginPasswordVerifier.matches(request.password(), user.getPassword())).willReturn(false);
 
         assertThatThrownBy(() -> service.login(request)).isInstanceOfSatisfying(BusinessException.class,
                 error -> assertThat(error.getErrorCode()).isEqualTo(AuthErrorCode.INVALID_CREDENTIALS));
@@ -145,7 +144,7 @@ class AuthServiceLoginTest {
 
     private void validPassword() {
         given(userRepository.findByEmailAndIsDeletedFalse(request.email())).willReturn(Optional.of(user));
-        given(passwordEncoder.matches(request.password(), user.getPassword())).willReturn(true);
+        given(loginPasswordVerifier.matches(request.password(), user.getPassword())).willReturn(true);
     }
 
     private void issueTokens() {
