@@ -7,6 +7,7 @@ management:
     distribution:
       percentiles-histogram:
         "[http.server.requests]": true
+        "[http.client.requests]": true
         "[hikaricp.connections.acquire]": true
       slo:
         "[http.server.requests]": 100ms, 300ms, 1s, 3s
