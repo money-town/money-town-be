@@ -277,11 +277,14 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/wallet_db
+      SERVER_TOMCAT_THREADS_MAX: 50
+    mem_limit: 768m
     # 외부에서 내부 API를 직접 호출하지 못하도록 호스트 포트를 열지 않는다.
     expose: ["19094"]
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19094/actuator/health"]
       interval: 15s
