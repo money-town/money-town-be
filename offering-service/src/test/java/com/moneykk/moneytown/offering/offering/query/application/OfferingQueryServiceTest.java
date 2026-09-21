@@ -315,9 +315,13 @@ class OfferingQueryServiceTest {
                 new OfferingSearchCondition(OfferingStatus.OPEN, null);
         Pageable pageable = PageRequest.of(0, 10);
 
-        when(offeringQueryRepository.searchPublicOfferings(
+        when(offeringQueryRepository.searchPublicOfferingsContent(
                 condition, pageable
-        )).thenReturn(new PageImpl<>(List.of()));
+        )).thenReturn(List.of());
+
+        when(offeringQueryRepository.countPublicOfferings(
+                condition
+        )).thenReturn(0L);
 
         // when
         PageResponse<OfferingListItemResponse> response =
@@ -329,7 +333,9 @@ class OfferingQueryServiceTest {
         assertThat(response.content()).isEmpty();
 
         verify(offeringQueryRepository)
-                .searchPublicOfferings(condition, pageable);
+                .searchPublicOfferingsContent(condition, pageable);
+        verify(offeringQueryRepository)
+                .countPublicOfferings(condition);
     }
 
     @Test

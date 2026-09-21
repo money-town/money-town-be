@@ -128,14 +128,18 @@ class OfferingQueryRepositoryImplIntegrationTest {
         insertOffering("DRAFT", "공모3", 100, 10000, -100, 3_600, false, UUID.randomUUID());
         insertOffering("REVIEW_REQUESTED", "공모4", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10)
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactlyInAnyOrder(scheduled, open);
+
+        assertThat(offeringQueryRepository.countPublicOfferings(
+                new OfferingSearchCondition(null, null)
+        )).isEqualTo(2L);
     }
 
     @Test
@@ -144,14 +148,18 @@ class OfferingQueryRepositoryImplIntegrationTest {
         insertOffering("OPEN", "삭제됨", 100, 10000, -100, 3_600, true, UUID.randomUUID());
         UUID visible = insertOffering("OPEN", "노출됨", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10)
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(visible);
+
+        assertThat(offeringQueryRepository.countPublicOfferings(
+                new OfferingSearchCondition(null, null)
+        )).isEqualTo(1L);
     }
 
     @Test
@@ -160,14 +168,20 @@ class OfferingQueryRepositoryImplIntegrationTest {
         UUID matched = insertOffering("OPEN", "Gangnam Officetel", 100, 10000, -100, 3_600, false, UUID.randomUUID());
         insertOffering("OPEN", "Busan Apartment", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
-                new OfferingSearchCondition(null, "gangnam"),
+        OfferingSearchCondition condition =
+                new OfferingSearchCondition(null, "gangnam");
+
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
+                condition,
                 PageRequest.of(0, 10)
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(matched);
+
+        assertThat(offeringQueryRepository.countPublicOfferings(condition))
+                .isEqualTo(1L);
     }
 
     @Test
@@ -176,17 +190,22 @@ class OfferingQueryRepositoryImplIntegrationTest {
         UUID open = insertOffering("OPEN", "공모1", 100, 10000, -100, 3_600, false, UUID.randomUUID());
         insertOffering("CLOSED", "공모2", 0, 10000, -7_200, -3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
-                new OfferingSearchCondition(
-                        com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
-                        null
-                ),
+        OfferingSearchCondition condition = new OfferingSearchCondition(
+                com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus.OPEN,
+                null
+        );
+
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
+                condition,
                 PageRequest.of(0, 10)
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(open);
+
+        assertThat(offeringQueryRepository.countPublicOfferings(condition))
+                .isEqualTo(1L);
     }
 
     @Test
@@ -231,12 +250,12 @@ class OfferingQueryRepositoryImplIntegrationTest {
         Thread.sleep(10);
         UUID second = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10)
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(second, first);
     }
@@ -247,12 +266,12 @@ class OfferingQueryRepositoryImplIntegrationTest {
         UUID cheap = insertOffering("OPEN", "공모1", 100, 5_000, -100, 3_600, false, UUID.randomUUID());
         UUID expensive = insertOffering("OPEN", "공모2", 100, 50_000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10, Sort.by(Sort.Order.asc("pricePerUnit")))
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(cheap, expensive);
     }
@@ -263,12 +282,12 @@ class OfferingQueryRepositoryImplIntegrationTest {
         UUID earlier = insertOffering("OPEN", "공모1", 100, 10000, -1_000, 3_600, false, UUID.randomUUID());
         UUID later = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10, Sort.by(Sort.Order.desc("startAt")))
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(later, earlier);
     }
@@ -279,12 +298,12 @@ class OfferingQueryRepositoryImplIntegrationTest {
         UUID soonToEnd = insertOffering("OPEN", "공모1", 100, 10000, -100, 1_000, false, UUID.randomUUID());
         UUID laterEnd = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10, Sort.by(Sort.Order.asc("endAt")))
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(soonToEnd, laterEnd);
     }
@@ -295,12 +314,12 @@ class OfferingQueryRepositoryImplIntegrationTest {
         UUID fewer = insertOffering("OPEN", "공모1", 10, 10000, -100, 3_600, false, UUID.randomUUID());
         UUID more = insertOffering("OPEN", "공모2", 90, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10, Sort.by(Sort.Order.desc("remainingQuantity")))
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(more, fewer);
     }
@@ -312,12 +331,12 @@ class OfferingQueryRepositoryImplIntegrationTest {
         Thread.sleep(10);
         UUID second = insertOffering("OPEN", "공모2", 100, 10000, -100, 3_600, false, UUID.randomUUID());
 
-        Page<Offering> result = offeringQueryRepository.searchPublicOfferings(
+        List<Offering> result = offeringQueryRepository.searchPublicOfferingsContent(
                 new OfferingSearchCondition(null, null),
                 PageRequest.of(0, 10, Sort.by(Sort.Order.asc("createdAt")))
         );
 
-        assertThat(result.getContent())
+        assertThat(result)
                 .extracting(Offering::getOfferingId)
                 .containsExactly(first, second);
     }
@@ -328,7 +347,7 @@ class OfferingQueryRepositoryImplIntegrationTest {
         Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Order.asc("title")));
 
         assertThatThrownBy(() ->
-                offeringQueryRepository.searchPublicOfferings(
+                offeringQueryRepository.searchPublicOfferingsContent(
                         new OfferingSearchCondition(null, null),
                         pageable
                 )

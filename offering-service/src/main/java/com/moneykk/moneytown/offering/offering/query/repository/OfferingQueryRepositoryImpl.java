@@ -2,6 +2,7 @@ package com.moneykk.moneytown.offering.offering.query.repository;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.exception.CommonErrorCode;
+import com.moneykk.moneytown.offering.global.config.OfferingCacheConfig;
 import com.moneykk.moneytown.offering.offering.domain.entity.Offering;
 import com.moneykk.moneytown.offering.offering.domain.entity.OfferingStatus;
 import com.moneykk.moneytown.offering.offering.domain.entity.QOffering;
@@ -12,6 +13,7 @@ import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -48,9 +50,44 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
     private final JPAQueryFactory queryFactory;
 
     @Override
-    public Page<Offering> searchPublicOfferings(
+    public List<Offering> searchPublicOfferingsContent(
             OfferingSearchCondition condition,
             Pageable pageable
+    ) {
+        return fetchContent(
+                createPublicSearchConditions(condition),
+                pageable
+        );
+    }
+
+    /**
+     * 공개 목록 조건에 매치되는 전체 건수를 짧은 TTL로 캐싱한다.
+     *
+     * 조건에 맞는 행 수가 테이블 대부분을 차지할 수 있어
+     * 인덱스만으로는 목록 SELECT 수준까지 비용을 낮추기 어렵다.
+     * sync=true로 캐시 미스/만료 시 동시 요청이 각자 COUNT를
+     * 실행하지 않고 하나의 결과를 공유하도록 한다.
+     */
+    @Override
+    @Cacheable(
+            cacheNames = OfferingCacheConfig.PUBLIC_OFFERING_COUNT,
+            key = "#condition",
+            sync = true
+    )
+    public long countPublicOfferings(
+            OfferingSearchCondition condition
+    ) {
+        Long total = queryFactory
+                .select(offering.count())
+                .from(offering)
+                .where(createPublicSearchConditions(condition))
+                .fetchOne();
+
+        return total != null ? total : 0L;
+    }
+
+    private BooleanBuilder createPublicSearchConditions(
+            OfferingSearchCondition condition
     ) {
         BooleanBuilder conditions = createCommonSearchConditions(condition);
 
@@ -58,7 +95,7 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
                 offering.offeringStatus.in(PUBLIC_STATUSES)
         );
 
-        return search(conditions, pageable);
+        return conditions;
     }
 
     @Override
@@ -131,13 +168,7 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
             BooleanBuilder conditions,
             Pageable pageable
     ) {
-        List<Offering> content = queryFactory
-                .selectFrom(offering)
-                .where(conditions)
-                .orderBy(createOrderSpecifiers(pageable))
-                .offset(pageable.getOffset())
-                .limit(pageable.getPageSize())
-                .fetch();
+        List<Offering> content = fetchContent(conditions, pageable);
 
         Long total = queryFactory
                 .select(offering.count())
@@ -150,6 +181,19 @@ public class OfferingQueryRepositoryImpl implements OfferingQueryRepository {
                 pageable,
                 total != null ? total : 0L
         );
+    }
+
+    private List<Offering> fetchContent(
+            BooleanBuilder conditions,
+            Pageable pageable
+    ) {
+        return queryFactory
+                .selectFrom(offering)
+                .where(conditions)
+                .orderBy(createOrderSpecifiers(pageable))
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
     }
 
     private BooleanBuilder createCommonSearchConditions(

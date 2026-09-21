@@ -26,28 +26,34 @@ class OfferingCacheConfigTest {
             new OfferingCacheConfig();
 
     @Test
-    @DisplayName("AI 포트폴리오 후보 캐시를 설정된 TTL/최대 크기로 생성한다")
+    @DisplayName("AI 포트폴리오 후보 캐시와 공개 목록 COUNT 캐시를 설정된 TTL/최대 크기로 생성한다")
     void createsCacheManagerWithConfiguredTtlAndSize() {
         // when
         CacheManager cacheManager =
-                offeringCacheConfig.offeringCacheManager(5L, 20L);
+                offeringCacheConfig.offeringCacheManager(5L, 20L, 5L, 100L);
 
         // then
         assertThat(cacheManager)
                 .isInstanceOf(CaffeineCacheManager.class);
         assertThat(cacheManager.getCacheNames())
-                .containsExactly(OfferingCacheConfig.AI_PORTFOLIO_CANDIDATES);
+                .containsExactlyInAnyOrder(
+                        OfferingCacheConfig.AI_PORTFOLIO_CANDIDATES,
+                        OfferingCacheConfig.PUBLIC_OFFERING_COUNT
+                );
         assertThat(cacheManager.getCache(
                 OfferingCacheConfig.AI_PORTFOLIO_CANDIDATES
+        )).isNotNull();
+        assertThat(cacheManager.getCache(
+                OfferingCacheConfig.PUBLIC_OFFERING_COUNT
         )).isNotNull();
     }
 
     @Test
-    @DisplayName("캐시가 존재하면 캐시 메트릭 레지스트라에 바인딩한다")
+    @DisplayName("캐시가 존재하면 두 캐시 모두 메트릭 레지스트라에 바인딩한다")
     void bindsCacheMetricsWhenCacheExists() throws Exception {
         // given
         CacheManager cacheManager =
-                offeringCacheConfig.offeringCacheManager(5L, 20L);
+                offeringCacheConfig.offeringCacheManager(5L, 20L, 5L, 100L);
 
         CacheMetricsRegistrar registrar = mock(CacheMetricsRegistrar.class);
 
@@ -67,10 +73,14 @@ class OfferingCacheConfigTest {
         runner.run(null);
 
         // then
-        Cache cache = cacheManager.getCache(
+        Cache aiCandidatesCache = cacheManager.getCache(
                 OfferingCacheConfig.AI_PORTFOLIO_CANDIDATES
         );
-        verify(registrar).bindCacheToRegistry(cache);
+        Cache publicCountCache = cacheManager.getCache(
+                OfferingCacheConfig.PUBLIC_OFFERING_COUNT
+        );
+        verify(registrar).bindCacheToRegistry(aiCandidatesCache);
+        verify(registrar).bindCacheToRegistry(publicCountCache);
     }
 
     @Test
