@@ -2,7 +2,6 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
-import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.IdempotencyRequestRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
@@ -39,13 +38,13 @@ import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionSta
 class SubscriptionTransactionServiceTest {
 
     @Mock
-    private OfferingRepository offeringRepository;
-
-    @Mock
     private SubscriptionRepository subscriptionRepository;
 
     @Mock
     private IdempotencyRequestRepository idempotencyRequestRepository;
+
+    @Mock
+    private OfferingQuantityReservationService offeringQuantityReservationService;
 
     @InjectMocks
     private SubscriptionTransactionService subscriptionTransactionService;
@@ -79,7 +78,7 @@ class SubscriptionTransactionServiceTest {
                 ))
                 .thenReturn(false);
 
-        when(offeringRepository.reserveQuantity(
+        when(offeringQuantityReservationService.reserve(
                 offeringId,
                 quantity,
                 userId
@@ -118,8 +117,8 @@ class SubscriptionTransactionServiceTest {
                 );
 
         // 선착순 수량 확보를 실제로 시도했는지 확인
-        verify(offeringRepository)
-                .reserveQuantity(
+        verify(offeringQuantityReservationService)
+                .reserve(
                         offeringId,
                         quantity,
                         userId
@@ -138,6 +137,10 @@ class SubscriptionTransactionServiceTest {
                         any(),
                         anyInt()
                 );
+
+        // 확보 자체가 실패했으므로(0건) 되돌릴 수량이 없어 release()를 호출하지 않는다.
+        verify(offeringQuantityReservationService, never())
+                .release(any(), any());
     }
 
     @Test
@@ -157,7 +160,7 @@ class SubscriptionTransactionServiceTest {
                 ))
                 .thenReturn(false);
 
-        when(offeringRepository.reserveQuantity(
+        when(offeringQuantityReservationService.reserve(
                 offeringId,
                 quantity,
                 userId
@@ -201,6 +204,10 @@ class SubscriptionTransactionServiceTest {
                         any(),
                         anyInt()
                 );
+
+        // 확보는 성공했지만 이후 저장이 실패했으므로 확보한 수량을 되돌린다.
+        verify(offeringQuantityReservationService)
+                .release(offeringId, quantity);
     }
 
     @Test
@@ -220,7 +227,7 @@ class SubscriptionTransactionServiceTest {
                 ))
                 .thenReturn(false);
 
-        when(offeringRepository.reserveQuantity(
+        when(offeringQuantityReservationService.reserve(
                 offeringId,
                 quantity,
                 userId
@@ -258,6 +265,10 @@ class SubscriptionTransactionServiceTest {
                         any(),
                         anyInt()
                 );
+
+        // 확보는 성공했지만 이후 저장이 실패했으므로 확보한 수량을 되돌린다.
+        verify(offeringQuantityReservationService)
+                .release(offeringId, quantity);
     }
 
     @Test
@@ -286,8 +297,8 @@ class SubscriptionTransactionServiceTest {
         assertThat(exception.getErrorCode())
                 .isEqualTo(SubscriptionErrorCode.DUPLICATE_SUBSCRIPTION);
 
-        verify(offeringRepository, never())
-                .reserveQuantity(any(), any(), any());
+        verify(offeringQuantityReservationService, never())
+                .reserve(any(), any(), any());
         verify(subscriptionRepository, never()).saveAndFlush(any());
     }
 
@@ -307,7 +318,7 @@ class SubscriptionTransactionServiceTest {
                 ))
                 .thenReturn(false);
 
-        when(offeringRepository.reserveQuantity(
+        when(offeringQuantityReservationService.reserve(
                 offeringId, 10L, userId
         )).thenReturn(1);
 
@@ -344,6 +355,10 @@ class SubscriptionTransactionServiceTest {
         assertThat(response.subscriptionId()).isEqualTo(subscriptionId);
         verify(subscriptionEventPublisher)
                 .publishReserved(savedSubscription, correlationId);
+
+        // 성공 경로에서는 확보한 수량을 되돌리지 않는다.
+        verify(offeringQuantityReservationService, never())
+                .release(any(), any());
     }
 
     @Test
@@ -361,7 +376,7 @@ class SubscriptionTransactionServiceTest {
                 ))
                 .thenReturn(false);
 
-        when(offeringRepository.reserveQuantity(
+        when(offeringQuantityReservationService.reserve(
                 offeringId, 10L, userId
         )).thenReturn(1);
 
@@ -389,6 +404,10 @@ class SubscriptionTransactionServiceTest {
         // then
         assertThat(exception.getErrorCode())
                 .isEqualTo(SubscriptionErrorCode.IDEMPOTENCY_COMPLETION_FAILED);
+
+        // 멱등 완료 처리가 실패했으므로 확보한 수량을 되돌린다.
+        verify(offeringQuantityReservationService)
+                .release(offeringId, 10L);
     }
 
     private DataIntegrityViolationException constraintViolation(
