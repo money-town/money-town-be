@@ -2,6 +2,7 @@ package com.moneykk.moneytown.settlement.command.controller.api;
 
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import com.moneykk.moneytown.settlement.command.dto.AbandonPayoutRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementBatchResponse;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryRequest;
 import com.moneykk.moneytown.settlement.command.dto.FinalSettlementRetryResponse;
@@ -14,6 +15,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -83,4 +85,39 @@ public interface FinalSettlementCommandApi {
             @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Parameter(description = "재시도할 최종 정산 회차 ID") @PathVariable UUID finalSettlementBatchId,
             @RequestBody(required = false) FinalSettlementRetryRequest request);
+
+    @Operation(
+            summary = "최종 정산 지급 건 포기 처리 (T5)",
+            description = "⚠️ 이 API는 관리자가 이미 다른 방법(은행 송금 등)으로 실제 원금 반환을 완료한 뒤에만 호출해야 한다. "
+                    + "'포기'는 자동 재시도 대상에서만 뺀다는 뜻이지 투자자가 돈을 못 받는다는 뜻이 아니다. ADMIN 권한으로 DEAD_LETTER "
+                    + "상태인 지급 건 하나를 ABANDONED 처리하며, 배치의 남은 DEAD_LETTER가 전부 사라지면 배치는 CLOSED_ABANDONED로 마감된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "포기 처리 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "resolutionType/resolutionReference 누락 또는 길이 초과",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "ADMIN 권한이 아님 (SETTLEMENT_403_02)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "최종 정산 회차를 찾을 수 없음 (SETTLEMENT_404_04)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "409",
+                    description = "DEAD_LETTER 상태가 아니어서 포기 불가(409_13) / 지급 건이 요청한 회차 소속이 아님(409_14) "
+                            + "/ resolutionType=OTHER인데 resolutionNote 누락(409_12)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @PatchMapping("/final-settlements/{finalSettlementBatchId}/payouts/{payoutId}/abandon")
+    ResponseEntity<ApiResponse<FinalSettlementBatchResponse>> abandonPayout(
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Parameter(description = "지급 건이 속한 최종 정산 회차 ID") @PathVariable UUID finalSettlementBatchId,
+            @Parameter(description = "포기 처리할 지급 건 ID") @PathVariable UUID payoutId,
+            @Valid @RequestBody AbandonPayoutRequest request);
 }

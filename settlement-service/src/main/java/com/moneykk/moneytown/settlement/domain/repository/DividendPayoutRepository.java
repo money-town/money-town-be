@@ -30,6 +30,9 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
 
     List<DividendPayout> findBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId);
 
+    // 컨슈머가 payout 1건 처리 뒤 "이 회차가 끝났는가"를 싸게 확인하기 위한 존재 확인 (전체 payout 로드 없음)
+    boolean existsBySettlementBatchIdAndStatusInAndIsDeletedFalse(UUID settlementBatchId, List<PayoutStatus> statuses);
+
     long countBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId);
 
     Page<DividendPayout> findBySettlementBatchIdAndIsDeletedFalse(UUID settlementBatchId, Pageable pageable);

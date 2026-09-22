@@ -7,5 +7,7 @@ public enum SettlementStatus {
     DISBURSING,
     COMPLETED,
     PARTIAL_FAILED,
-    FAILED
+    FAILED,
+    // 남은 DEAD_LETTER 건을 관리자가 전부 ABANDONED 처리해 마감한 종결 상태
+    CLOSED_ABANDONED
 }

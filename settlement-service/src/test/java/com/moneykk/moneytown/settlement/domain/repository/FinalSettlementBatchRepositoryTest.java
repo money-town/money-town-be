@@ -33,6 +33,7 @@ class FinalSettlementBatchRepositoryTest extends RepositoryTestSupport {
             case COMPLETED -> batch.markCompleted();
             case PARTIAL_FAILED -> batch.markPartialFailed();
             case FAILED -> batch.markFailed();
+            case CLOSED_ABANDONED -> batch.markClosedAbandoned();
             default -> { /* PENDING/SNAPSHOT_TAKEN은 open() 직후 기본값으로 충분 */ }
         }
     }
@@ -83,19 +84,41 @@ class FinalSettlementBatchRepositoryTest extends RepositoryTestSupport {
     }
 
     @Test
-    @DisplayName("findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse는 자산 종료 통보가 안 된 COMPLETED 회차만 반환한다")
-    void findByStatusAndAssetTerminationCompletedAtIsNull_returnsOnlyUnnotifiedCompletedBatches() {
+    @DisplayName("findByStatusInAndIsDeletedFalse는 FAILED/PARTIAL_FAILED만 반환하고 CLOSED_ABANDONED·COMPLETED·삭제된 회차는 제외한다 (T6)")
+    void findByStatusIn_returnsOnlyUnresolvedFailures() {
+        FinalSettlementBatch failed = persistBatch(UUID.randomUUID(), SettlementStatus.FAILED);
+        FinalSettlementBatch partial = persistBatch(UUID.randomUUID(), SettlementStatus.PARTIAL_FAILED);
+        persistBatch(UUID.randomUUID(), SettlementStatus.CLOSED_ABANDONED);
+        persistBatch(UUID.randomUUID(), SettlementStatus.COMPLETED);
+        FinalSettlementBatch deleted = persistBatch(UUID.randomUUID(), SettlementStatus.FAILED);
+        deleted.softDelete(UUID.randomUUID());
+        finalSettlementBatchRepository.saveAndFlush(deleted);
+
+        List<FinalSettlementBatch> result = finalSettlementBatchRepository.findByStatusInAndIsDeletedFalse(
+                List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED));
+
+        assertThat(result).extracting(FinalSettlementBatch::getId).containsExactlyInAnyOrder(failed.getId(), partial.getId());
+    }
+
+    @Test
+    @DisplayName("findByStatusInAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse는 자산 종료 통보가 안 된 COMPLETED/CLOSED_ABANDONED 회차만 반환한다")
+    void findByStatusInAndAssetTerminationCompletedAtIsNull_returnsOnlyUnnotifiedTerminalBatches() {
         FinalSettlementBatch notified = persistBatch(UUID.randomUUID(), SettlementStatus.COMPLETED);
         notified.markAssetTerminationCompleted(Instant.now());
         finalSettlementBatchRepository.saveAndFlush(notified);
 
         FinalSettlementBatch unnotified = persistBatch(UUID.randomUUID(), SettlementStatus.COMPLETED);
 
+        FinalSettlementBatch unnotifiedClosedAbandoned = persistBatch(UUID.randomUUID(), SettlementStatus.CLOSED_ABANDONED);
+
         persistBatch(UUID.randomUUID(), SettlementStatus.DISBURSING);
+        persistBatch(UUID.randomUUID(), SettlementStatus.PARTIAL_FAILED);
 
         List<FinalSettlementBatch> result = finalSettlementBatchRepository
-                .findByStatusAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(SettlementStatus.COMPLETED);
+                .findByStatusInAndAssetTerminationCompletedAtIsNullAndIsDeletedFalse(
+                        List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED));
 
-        assertThat(result).extracting(FinalSettlementBatch::getId).containsExactly(unnotified.getId());
+        assertThat(result).extracting(FinalSettlementBatch::getId)
+                .containsExactlyInAnyOrder(unnotified.getId(), unnotifiedClosedAbandoned.getId());
     }
 }

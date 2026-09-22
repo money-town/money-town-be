@@ -6,6 +6,7 @@ import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.HoldingSnapshot;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
+import com.moneykk.moneytown.settlement.domain.entity.ResolutionType;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.domain.repository.DividendPayoutRepository;
@@ -35,9 +36,13 @@ import java.util.UUID;
 public class SettlementCommandService {
 
     private static final String ADMIN_ROLE = "ADMIN";
+    // COMPLETED(전액 지급)·CLOSED_ABANDONED(남은 실패 건을 전부 포기 처리해 마감) 둘 다 "진행 중 아님"
+    private static final List<SettlementStatus> TERMINAL_STATUSES =
+            List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED);
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
+    private final DividendPayoutWriter dividendPayoutWriter;
     private final AssetServiceClient assetServiceClient;
     private final AssetHoldingsSnapshotFetcher assetHoldingsSnapshotFetcher;
     private final SettlementBatchWriter settlementBatchWriter;
@@ -166,8 +171,39 @@ public class SettlementCommandService {
     }
 
     private void guardAgainstConcurrentBatchForAsset(UUID assetId) {
-        if (settlementBatchRepository.existsByAssetIdAndStatusNotAndIsDeletedFalse(assetId, SettlementStatus.COMPLETED)) {
+        if (settlementBatchRepository.existsByAssetIdAndStatusNotInAndIsDeletedFalse(assetId, TERMINAL_STATUSES)) {
             throw new BusinessException(SettlementErrorCode.SETTLEMENT_IN_PROGRESS_FOR_ASSET);
+        }
+    }
+
+    // 관리자가 DEAD_LETTER 지급 건을 명시적으로 포기 처리. 재시도로 해결되지 않는 건(예: 지갑 영구 폐쇄)이
+    // 자산의 다음 회차 개시를 영원히 막는 것을 방지 — 배치의 남은 DEAD_LETTER가 전부 ABANDONED로 바뀌면
+    // updateBatchStatus가 배치를 CLOSED_ABANDONED로 마감해 자산의 슬롯을 비운다
+    @Transactional
+    public SettlementBatchResponse abandonPayout(String role, UUID settlementBatchId, UUID payoutId,
+                                                  ResolutionType resolutionType, String resolutionReference, String resolutionNote) {
+        validateAdmin(role);
+        validateResolution(resolutionType, resolutionNote);
+
+        DividendPayout payout = dividendPayoutWriter.abandonPayout(payoutId, resolutionType, resolutionReference, resolutionNote);
+        if (!payout.getSettlementBatchId().equals(settlementBatchId)) {
+            throw new BusinessException(SettlementErrorCode.PAYOUT_BATCH_MISMATCH);
+        }
+
+        SettlementBatch batch = dividendPayoutWriter.updateBatchStatus(settlementBatchId)
+                .orElseGet(() -> settlementBatchRepository.findByIdAndIsDeletedFalse(settlementBatchId)
+                        .orElseThrow(() -> new BusinessException(SettlementErrorCode.SETTLEMENT_BATCH_NOT_FOUND)));
+        long payoutCount = dividendPayoutRepository.countBySettlementBatchIdAndIsDeletedFalse(settlementBatchId);
+
+        log.info("배당 지급 건 포기 처리 완료 (settlementBatchId={}, payoutId={}, resolutionType={}, 배치 상태={})",
+                settlementBatchId, payoutId, resolutionType, batch.getStatus());
+        return SettlementBatchResponse.of(batch, (int) payoutCount, false);
+    }
+
+    // OTHER는 증빙 번호만으로는 감사 근거가 부족해 상세 설명까지 필수
+    private void validateResolution(ResolutionType resolutionType, String resolutionNote) {
+        if (resolutionType == ResolutionType.OTHER && (resolutionNote == null || resolutionNote.isBlank())) {
+            throw new BusinessException(SettlementErrorCode.RESOLUTION_NOTE_REQUIRED);
         }
     }
 
