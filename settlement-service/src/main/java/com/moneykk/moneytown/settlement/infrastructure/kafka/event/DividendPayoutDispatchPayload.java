@@ -12,7 +12,6 @@ public record DividendPayoutDispatchPayload(
 ) {
 
     public static final String TOPIC = "dividend-payout-dispatch-requested";
-    public static final String DLT_TOPIC = TOPIC + ".DLT";
     public static final String EVENT_TYPE = "DividendPayoutDispatchRequested";
     public static final String AGGREGATE_TYPE = "SETTLEMENT";
     public static final int PARTITIONS = 8;
