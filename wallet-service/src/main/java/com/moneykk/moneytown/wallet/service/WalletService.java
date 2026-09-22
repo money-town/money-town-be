@@ -45,12 +45,10 @@ public class WalletService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final UserServiceClient userServiceClient;
     private final WalletTransactionService walletTransactionService;
+    private final WalletCacheService walletCacheService;
 
     public WalletResponse getMyWallet(UUID userId) {
-        Wallet wallet = walletRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
-
-        return WalletResponse.from(wallet);
+        return walletCacheService.getWallet(userId);
     }
 
     public AdminWalletDetailResponse getWalletDetail(Long walletId, String role) {

@@ -61,6 +61,8 @@ class WalletServiceTest {
     private UserServiceClient userServiceClient;
     @Mock
     private WalletTransactionService walletTransactionService;
+    @Mock
+    private WalletCacheService walletCacheService;
 
     @InjectMocks
     private WalletService walletService;
@@ -329,17 +331,19 @@ class WalletServiceTest {
     @DisplayName("내 지갑 정보를 조회한다")
     void getMyWallet_returnsWallet() {
         Wallet wallet = walletWithId(1L);
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.of(wallet));
+        WalletResponse cachedResponse = WalletResponse.from(wallet);
+        when(walletCacheService.getWallet(investorId)).thenReturn(cachedResponse);
 
         WalletResponse response = walletService.getMyWallet(investorId);
 
-        assertEquals(WalletResponse.from(wallet), response);
+        assertEquals(cachedResponse, response);
     }
 
     @Test
     @DisplayName("내 지갑이 없으면 404를 반환한다")
     void getMyWallet_walletNotFound_throwsBusinessException() {
-        when(walletRepository.findByUserId(investorId)).thenReturn(Optional.empty());
+        when(walletCacheService.getWallet(investorId))
+                .thenThrow(new BusinessException(WalletErrorCode.WALLET_NOT_FOUND));
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> walletService.getMyWallet(investorId));
