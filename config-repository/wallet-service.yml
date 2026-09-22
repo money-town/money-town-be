@@ -18,6 +18,9 @@ spring:
             read-timeout: ${USER_SERVICE_READ_TIMEOUT:2000}
       circuitbreaker:
         enabled: true
+      # FeignMicrometerConfig에서 수동 등록하므로 자동구성과의 중복 등록을 막는다
+      micrometer:
+        enabled: false
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
