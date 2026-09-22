@@ -62,12 +62,17 @@ public class KafkaConsumerConfig {
         return envelopeConsumerFactory(kafkaProperties, Object.class);
     }
 
+    // 파티션이 1개일 땐 의미 없지만(#259로 6개 확장 예정), env var로 미리 받아두면 나중에 값만 바꿔도 됨.
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> subscriptionConfirmedKafkaListenerContainerFactory(
             ConsumerFactory<String, EventEnvelope<Object>> subscriptionConfirmedConsumerFactory,
-            CommonErrorHandler kafkaConsumerErrorHandler
+            CommonErrorHandler kafkaConsumerErrorHandler,
+            @Value("${WALLET_SUBSCRIPTION_CONFIRMED_CONSUMER_CONCURRENCY:1}") int concurrency
     ) {
-        return containerFactory(subscriptionConfirmedConsumerFactory, kafkaConsumerErrorHandler);
+        ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> factory =
+                containerFactory(subscriptionConfirmedConsumerFactory, kafkaConsumerErrorHandler);
+        factory.setConcurrency(concurrency);
+        return factory;
     }
 
     @Bean
