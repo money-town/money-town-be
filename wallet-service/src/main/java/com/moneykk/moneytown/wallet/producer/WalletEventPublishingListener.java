@@ -21,4 +21,9 @@ public class WalletEventPublishingListener {
     public void onCompensationResultReady(WalletCompensationResultReadyEvent event) {
         walletEventPublisher.publishCompensationResult(event.event());
     }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onDividendResultReady(WalletDividendResultReadyEvent event) {
+        walletEventPublisher.publishDividendResult(event.event());
+    }
 }

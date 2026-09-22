@@ -2,6 +2,7 @@ package com.moneykk.moneytown.wallet.producer;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
+import com.moneykk.moneytown.wallet.producer.dto.WalletDividendResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ public class WalletEventPublisher {
 
     private static final String WALLET_HOLD_RESULT_TOPIC = "wallet-hold-result";
     private static final String WALLET_COMPENSATION_RESULT_TOPIC = "wallet-compensation-result";
+    private static final String WALLET_DIVIDEND_RESULT_TOPIC = "wallet-dividend-result";
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
@@ -28,6 +30,10 @@ public class WalletEventPublisher {
 
     public void publishCompensationResult(EventEnvelope<WalletCompensationResultPayload> event) {
         send(WALLET_COMPENSATION_RESULT_TOPIC, event.userId().toString(), event, event.aggregateId());
+    }
+
+    public void publishDividendResult(EventEnvelope<WalletDividendResultPayload> event) {
+        send(WALLET_DIVIDEND_RESULT_TOPIC, event.userId().toString(), event, event.aggregateId());
     }
 
     // KafkaTemplate.send()는 비동기 API지만, producer 버퍼가 꽉 차는 등의 이유로 즉시 KafkaException을 던질 수도 있다.
