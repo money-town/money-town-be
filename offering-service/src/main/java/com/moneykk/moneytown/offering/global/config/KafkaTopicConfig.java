@@ -15,4 +15,12 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+
+    @Bean
+    public NewTopic subscriptionConfirmedDltTopic() {
+        return TopicBuilder.name("subscription-confirmed-dlt")
+                .partitions(6)
+                .replicas(1)
+                .build();
+    }
 }
