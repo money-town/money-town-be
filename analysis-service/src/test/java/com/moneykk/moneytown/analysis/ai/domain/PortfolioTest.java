@@ -22,15 +22,38 @@ class PortfolioTest {
     }
 
     @Test
-    @DisplayName("생성 직후에는 PROCESSING 상태다")
-    void builder_startsAsProcessing() {
-        assertThat(portfolio().getStatus()).isEqualTo(AiStatus.PROCESSING);
+    @DisplayName("생성 직후에는 PENDING 상태다")
+    void builder_startsAsPending() {
+        assertThat(portfolio().getStatus()).isEqualTo(AiStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("PENDING 상태에서 process하면 PROCESSING으로 전이된다")
+    void process_fromPending_transitionsToProcessing() {
+        Portfolio p = portfolio();
+
+        p.process();
+
+        assertThat(p.getStatus()).isEqualTo(AiStatus.PROCESSING);
+    }
+
+    @Test
+    @DisplayName("PENDING이 아니면 process를 호출해도 아무 변화가 없다")
+    void process_notPending_isNoOp() {
+        Portfolio p = portfolio();
+        p.process();
+        p.complete("{}", 100L);
+
+        p.process();
+
+        assertThat(p.getStatus()).isEqualTo(AiStatus.COMPLETED);
     }
 
     @Test
     @DisplayName("PROCESSING 상태에서 complete하면 COMPLETED로 전이되고 응답이 기록된다")
     void complete_fromProcessing_transitionsToCompleted() {
         Portfolio p = portfolio();
+        p.process();
 
         p.complete("{\"result\":\"ok\"}", 1500L);
 
@@ -44,6 +67,7 @@ class PortfolioTest {
     @DisplayName("이미 종결된 상태에서 complete를 호출하면 아무 변화가 없다")
     void complete_alreadyFinished_isNoOp() {
         Portfolio p = portfolio();
+        p.process();
         p.fail("먼저 실패", 100L);
 
         p.complete("{}", 200L);
@@ -56,6 +80,7 @@ class PortfolioTest {
     @DisplayName("PROCESSING 상태에서 fail하면 FAILED로 전이되고 에러 메시지가 기록된다")
     void fail_fromProcessing_transitionsToFailed() {
         Portfolio p = portfolio();
+        p.process();
 
         p.fail("추천 가능한 공모가 없습니다.", 300L);
 
@@ -69,6 +94,7 @@ class PortfolioTest {
     @DisplayName("이미 종결된 상태에서 fail을 호출하면 아무 변화가 없다")
     void fail_alreadyFinished_isNoOp() {
         Portfolio p = portfolio();
+        p.process();
         p.complete("{}", 100L);
 
         p.fail("나중 실패", 200L);
