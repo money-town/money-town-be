@@ -2,6 +2,7 @@ package com.moneykk.moneytown.wallet.producer;
 
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.wallet.producer.dto.WalletCompensationResultPayload;
+import com.moneykk.moneytown.wallet.producer.dto.WalletDividendResultPayload;
 import com.moneykk.moneytown.wallet.producer.dto.WalletHoldResultPayload;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,5 +44,16 @@ class WalletEventPublishingListenerTest {
         listener.onCompensationResultReady(new WalletCompensationResultReadyEvent(event));
 
         verify(walletEventPublisher).publishCompensationResult(event);
+    }
+
+    @Test
+    @DisplayName("커밋 후 큐잉된 배당 결과 이벤트를 실제로 발행한다")
+    void onDividendResultReady_publishesDividendResult() {
+        EventEnvelope<WalletDividendResultPayload> event = WalletDividendResultPayload.succeeded(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "corr-1", 1L, 1L);
+
+        listener.onDividendResultReady(new WalletDividendResultReadyEvent(event));
+
+        verify(walletEventPublisher).publishDividendResult(event);
     }
 }
