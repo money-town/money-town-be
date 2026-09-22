@@ -17,7 +17,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -49,7 +48,7 @@ public class PortfolioGenerator {
     @Value("${spring.ai.portfolio.asset-enrich-enabled:false}")
     private boolean assetEnrichEnabled;
 
-    @Async("aiTaskExecutor")
+    
     public void generate(UUID portfolioId) {
         long t0 = System.currentTimeMillis();
         try{
