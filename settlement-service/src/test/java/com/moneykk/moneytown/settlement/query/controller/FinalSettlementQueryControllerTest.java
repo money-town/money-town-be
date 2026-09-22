@@ -48,7 +48,7 @@ class FinalSettlementQueryControllerTest {
         UUID finalSettlementBatchId = UUID.randomUUID();
         FinalSettlementBatchDetailResponse response = new FinalSettlementBatchDetailResponse(
                 finalSettlementBatchId, UUID.randomUUID(), Instant.parse("2026-09-01T00:00:00Z"), 1_000L, 100_000L,
-                SettlementStatus.COMPLETED, new FinalSettlementBatchDetailResponse.Progress(10, 10, 0, 0),
+                SettlementStatus.COMPLETED, new FinalSettlementBatchDetailResponse.Progress(10, 10, 0, 0, 0),
                 Instant.parse("2026-09-01T00:00:00Z"), Instant.parse("2026-09-02T00:00:00Z"));
         when(finalSettlementQueryService.getFinalSettlementBatch("ADMIN", finalSettlementBatchId)).thenReturn(response);
 

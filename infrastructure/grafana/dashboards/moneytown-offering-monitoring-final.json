@@ -136,41 +136,41 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "1000 *\r\nsum by (client_name) (\r\n  rate(http_client_requests_seconds_sum{\r\n    application=\"offering-service\",\r\n    client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n  }[$__rate_interval])\r\n)\r\n/\r\nclamp_min(\r\n  sum by (client_name) (\r\n    rate(http_client_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n    }[$__rate_interval])\r\n  ),\r\n  0.000001\r\n)",
-          "legendFormat": "{{client_name}} 평균",
-          "range": true,
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
-          }
+          },
+          "editorMode": "code",
+          "expr": "1000 *\r\nsum by (host) (\r\n  rate(feign_Client_seconds_sum{\r\n    application=\"offering-service\",\r\n    host=~\"user-service|analysis-service\"\r\n  }[$__rate_interval])\r\n)\r\n/\r\nclamp_min(\r\n  sum by (host) (\r\n    rate(feign_Client_seconds_count{\r\n      application=\"offering-service\",\r\n      host=~\"user-service|analysis-service\"\r\n    }[$__rate_interval])\r\n  ),\r\n  0.000001\r\n)",
+          "legendFormat": "{{host}} 평균",
+          "range": true,
+          "refId": "A"
         },
         {
-          "editorMode": "code",
-          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.95,\r\n  sum by (le, client_name) (\r\n    rate(\r\n      http_client_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "{{client_name}} p95",
-          "range": true,
-          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
-          }
+          },
+          "editorMode": "code",
+          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.95,\r\n  sum by (le, host) (\r\n    rate(\r\n      feign_Client_seconds_bucket{\r\n        application=\"offering-service\",\r\n        host=~\"user-service|analysis-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{host}} p95",
+          "range": true,
+          "refId": "B"
         },
         {
-          "editorMode": "code",
-          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.99,\r\n  sum by (le, client_name) (\r\n    rate(\r\n      http_client_requests_seconds_bucket{\r\n        application=\"offering-service\",\r\n        client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "{{client_name}} p99",
-          "range": true,
-          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
-          }
+          },
+          "editorMode": "code",
+          "expr": "1000 *\r\nhistogram_quantile(\r\n  0.99,\r\n  sum by (le, host) (\r\n    rate(\r\n      feign_Client_seconds_bucket{\r\n        application=\"offering-service\",\r\n        host=~\"user-service|analysis-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{host}} p99",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "Feign 평균/p95/p99 호출시간",
@@ -259,15 +259,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum by (client_name, status) (\r\n  rate(http_client_requests_seconds_count{\r\n    application=\"offering-service\",\r\n    client_name=~\".*(user-service|analysis-service|UserServiceClient|AnalysisServiceClient).*\"\r\n  }[$__rate_interval])\r\n)",
-          "legendFormat": "{{client_name}} {{status}}",
-          "range": true,
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
-          }
+          },
+          "editorMode": "code",
+          "expr": "sum by (host, http_status) (\r\n  rate(feign_Client_http_response_code_total{\r\n    application=\"offering-service\",\r\n    host=~\"user-service|analysis-service\"\r\n  }[$__rate_interval])\r\n)",
+          "legendFormat": "{{host}} {{http_status}}",
+          "range": true,
+          "refId": "A"
         }
       ],
       "title": "Feign 호출량·응답코드",
@@ -360,15 +360,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum(\r\n  jvm_threads_live_threads{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "legendFormat": "활성",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -494,17 +494,17 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "exemplar": false,
           "expr": "100 *\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\",\r\n      status=~\"2..\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
           "format": "time_series",
           "legendFormat": "{{method}} {{uri}} 성공률",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         }
       ],
       "title": "Offering API Success Rate",
@@ -604,15 +604,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "100 *\r\n(\r\n  sum by (method, uri) (\r\n    rate(\r\n      http_server_requests_seconds_count{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\",\r\n        status=~\"5..\"\r\n      }[$__rate_interval]\r\n    )\r\n  )\r\n  or\r\n  (\r\n    sum by (method, uri) (\r\n      rate(\r\n        http_server_requests_seconds_count{\r\n          application=\"offering-service\",\r\n          uri=~\"/api/v1/.*\"\r\n        }[$__rate_interval]\r\n      )\r\n    ) * 0\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum by (method, uri) (\r\n    rate(\r\n      http_server_requests_seconds_count{\r\n        application=\"offering-service\",\r\n        uri=~\"/api/v1/.*\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
           "legendFormat": "{{method}} {{uri}}",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         }
       ],
       "title": "Offering API 5xx Error Rate",
@@ -809,15 +809,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum(jvm_memory_used_bytes{\r\n  application=\"offering-service\",\r\n  area=\"heap\"\r\n})\r\n/\r\nsum(jvm_memory_max_bytes{\r\n  application=\"offering-service\",\r\n  area=\"heap\"\r\n})\r\n* 100",
           "legendFormat": "Heap 사용률",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         }
       ],
       "title": "Offering Service JVM Heap Usage",
@@ -907,15 +907,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum by (method, uri) (\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
           "legendFormat": "{{method}} {{uri}}",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         }
       ],
       "title": "Offering API Throughput",
@@ -1027,15 +1027,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "outbox_events_pending{\r\n  application=\"offering-service\"\r\n}",
           "legendFormat": "DB PENDING",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -1177,16 +1177,16 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "1000 *\r\nsum(\r\n  rate(\r\n    http_server_requests_seconds_sum{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nsum(\r\n  rate(\r\n    http_server_requests_seconds_count{\r\n      application=\"offering-service\",\r\n      uri=~\"/api/v1/.*\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
           "format": "time_series",
           "legendFormat": "평균",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -1319,15 +1319,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "1000 *\r\nsum by (result) (\r\n  rate(\r\n    outbox_publish_latency_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum by (result) (\r\n    rate(\r\n      outbox_publish_latency_seconds_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
           "legendFormat": "{{result}} Kafka 전송시간",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -1463,15 +1463,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum(\r\n  hikaricp_connections_active{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "legendFormat": "활성",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -1626,15 +1626,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum by (result) (\r\n  subscription_lifecycle_duration_seconds_sum{\r\n    application=\"offering-service\"\r\n  }\r\n)\r\n/\r\nsum by (result) (\r\n  subscription_lifecycle_duration_seconds_count{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "legendFormat": "평균 {{result}}",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -1746,15 +1746,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum by (result) (\r\n  rate(\r\n    subscription_lifecycle_outcomes_total{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
           "legendFormat": "{{result}}",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         }
       ],
       "title": "Subscription Lifecycle Outcomes",
@@ -1843,15 +1843,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "1000 *\r\nsum(\r\n  rate(\r\n    jvm_gc_pause_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum(\r\n    rate(\r\n      jvm_gc_pause_seconds_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
           "legendFormat": "평균 GC 정지시간",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -1954,15 +1954,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum by (scheduler) (\r\n  increase(\r\n    offering_scheduler_failures_total{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)",
           "legendFormat": "{{scheduler}}",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         }
       ],
       "title": "Offering Scheduler Failures",
@@ -2114,15 +2114,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum(\r\n  rate(\r\n    subscription_batch_confirmation_duration_seconds_sum{\r\n      application=\"offering-service\"\r\n    }[$__rate_interval]\r\n  )\r\n)\r\n/\r\nclamp_min(\r\n  sum(\r\n    rate(\r\n      subscription_batch_confirmation_duration_seconds_count{\r\n        application=\"offering-service\"\r\n      }[$__rate_interval]\r\n    )\r\n  ),\r\n  0.000001\r\n)",
           "legendFormat": "평균 확정시간",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -2251,15 +2251,15 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
           "editorMode": "code",
           "expr": "sum by (stage) (\r\n  subscription_saga_stuck{\r\n    application=\"offering-service\"\r\n  }\r\n)",
           "legendFormat": "고착 {{stage}}",
           "range": true,
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          }
+          "refId": "A"
         },
         {
           "datasource": {
@@ -2285,7 +2285,19 @@
     "offering-service"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {},
+        "includeAll": false,
+        "label": "Prometheus",
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
   },
   "time": {
     "from": "now-1h",
@@ -2295,6 +2307,6 @@
   "timezone": "browser",
   "title": "Offering Monitoring Custom",
   "uid": "afy4rdr7rj0g0b",
-  "version": 130,
+  "version": 135,
   "weekStart": ""
 }

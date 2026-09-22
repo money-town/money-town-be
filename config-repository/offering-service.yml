@@ -1,5 +1,11 @@
 server:
   port: 19096
+  tomcat:
+    # 순간적으로 몰리는 요청을 즉시 거절(502/503)하지 않고 대기열에 담아 처리하기 위해
+    # 기본값(100)보다 넉넉하게 잡는다. max-threads는 올리지 않는다 — 청약 생성은
+    # offering 행 하나에 대한 비관적 락으로 직렬화되어, 워커 스레드를 늘려도
+    # 그만큼 더 많은 스레드가 락 대기로 멈춰 있을 뿐 처리량은 늘지 않는다.
+    accept-count: 200
 
 # HTTP 요청 시간 Histogram 활성화
 management:
@@ -8,6 +14,7 @@ management:
       percentiles-histogram:
         "[http.server.requests]": true
         "[http.client.requests]": true
+        "[feign.Client]": true
         "[hikaricp.connections.acquire]": true
         "[subscription.lifecycle.duration]": true
         "[outbox.publish.latency]": true
@@ -21,6 +28,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/offering_db}
     hikari:
       connection-timeout: ${OFFERING_DB_CONNECTION_TIMEOUT:2000}
+      # 공용 기본값(application.yml, 5)을 그대로 쓰면 청약 생성이 몰릴 때
+      # 커넥션이 전부 row lock 대기로 묶여 스케줄러/헬스체크까지 마비된다.
+      # offering-service에서만 15로 올려서 다른 서비스에는 영향을 주지 않는다.
+      maximum-pool-size: ${OFFERING_DB_POOL_MAX_SIZE:15}
 
   flyway:
     postgresql:

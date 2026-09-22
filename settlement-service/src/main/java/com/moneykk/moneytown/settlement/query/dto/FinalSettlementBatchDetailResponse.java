@@ -37,7 +37,8 @@ public record FinalSettlementBatchDetailResponse(
             @Schema(description = "전체 반환 건수") long totalCount,
             @Schema(description = "반환 완료(PAID) 건수") long paidCount,
             @Schema(description = "실패(DEAD_LETTER) 건수") long failedCount,
-            @Schema(description = "대기중(QUEUED+PROCESSING+RETRYING) 건수") long pendingCount
+            @Schema(description = "대기중(QUEUED+PROCESSING+RETRYING) 건수") long pendingCount,
+            @Schema(description = "관리자가 포기 처리(ABANDONED)한 건수 — 별도 방법으로 반환 완료된 건이며 failedCount에는 포함되지 않는다") long abandonedCount
     ) {
     }
 }

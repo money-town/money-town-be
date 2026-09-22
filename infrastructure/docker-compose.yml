@@ -277,11 +277,14 @@ services:
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/wallet_db
+      SERVER_TOMCAT_THREADS_MAX: 50
+    mem_limit: 768m
     # 외부에서 내부 API를 직접 호출하지 못하도록 호스트 포트를 열지 않는다.
     expose: ["19094"]
     depends_on:
       config-server: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:19094/actuator/health"]
       interval: 15s
@@ -338,6 +341,13 @@ services:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/settlement_db
       SETTLEMENT_REVENUE_POLLING_ENABLED: ${SETTLEMENT_REVENUE_POLLING_ENABLED:-true}
+      SETTLEMENT_DISPATCH_CONSUMER_CONCURRENCY: ${SETTLEMENT_DISPATCH_CONSUMER_CONCURRENCY:-1}
+      OUTBOX_PUBLISH_BATCH_SIZE: ${OUTBOX_PUBLISH_BATCH_SIZE:-20}
+      OUTBOX_PUBLISH_FIXED_DELAY_MS: ${OUTBOX_PUBLISH_FIXED_DELAY_MS:-200}
+      OUTBOX_PUBLISH_MAX_IN_FLIGHT: ${OUTBOX_PUBLISH_MAX_IN_FLIGHT:-20}
+      OUTBOX_PUBLISH_WORKER_POOL_SIZE: ${OUTBOX_PUBLISH_WORKER_POOL_SIZE:-4}
+      OUTBOX_PUBLISH_WORKER_QUEUE_CAPACITY: ${OUTBOX_PUBLISH_WORKER_QUEUE_CAPACITY:-20}
+      OUTBOX_CALLBACK_QUEUE_CAPACITY: ${OUTBOX_CALLBACK_QUEUE_CAPACITY:-100}
       DB_POOL_MAX_SIZE: 15
     ports: ["19097:19097"]
     depends_on:

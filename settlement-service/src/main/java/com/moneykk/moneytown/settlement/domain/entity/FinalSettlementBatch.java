@@ -76,6 +76,11 @@ public class FinalSettlementBatch extends BaseUpdatableEntity {
         this.status = SettlementStatus.FAILED;
     }
 
+    // 남은 DEAD_LETTER 건이 전부 관리자에 의해 ABANDONED 처리됐을 때 배치를 마감
+    public void markClosedAbandoned() {
+        this.status = SettlementStatus.CLOSED_ABANDONED;
+    }
+
     public void markAssetTerminationCompleted(Instant completedAt) {
         this.assetTerminationCompletedAt = completedAt;
     }

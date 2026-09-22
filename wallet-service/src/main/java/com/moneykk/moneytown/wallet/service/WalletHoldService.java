@@ -10,6 +10,7 @@ import com.moneykk.moneytown.wallet.entity.WalletHold;
 import com.moneykk.moneytown.wallet.entity.WalletHoldStatus;
 import com.moneykk.moneytown.wallet.entity.WalletTransaction;
 import com.moneykk.moneytown.wallet.entity.WalletTransactionType;
+import com.moneykk.moneytown.wallet.global.config.WalletRedisCacheConfig;
 import com.moneykk.moneytown.wallet.global.exception.WalletErrorCode;
 import com.moneykk.moneytown.wallet.producer.WalletCompensationResultReadyEvent;
 import com.moneykk.moneytown.wallet.producer.WalletHoldResultReadyEvent;
@@ -23,6 +24,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +52,7 @@ public class WalletHoldService {
         meterRegistry.counter("wallet.transaction.count", "type", type.name()).increment();
     }
 
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#event.userId()")
     @Transactional
     public void processReservation(EventEnvelope<SubscriptionReservedPayload> event) // HOLD
     {
@@ -104,6 +107,7 @@ public class WalletHoldService {
                 subscriptionId, hold.getId(), wallet.getId(), amount);
     }
 
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#event.userId()")
     @Transactional
     public void confirmHold(EventEnvelope<Object> event)  // DEDUCT
     {
@@ -134,6 +138,7 @@ public class WalletHoldService {
                 subscriptionId, hold.getId(), wallet.getId(), hold.getAmount());
     }
 
+    @CacheEvict(cacheNames = WalletRedisCacheConfig.WALLET_CACHE, key = "#event.userId()")
     @Transactional
     public void compensateHold(EventEnvelope<SubscriptionCompensationRequestedPayload> event) // UNHOLD/REFUND
     {

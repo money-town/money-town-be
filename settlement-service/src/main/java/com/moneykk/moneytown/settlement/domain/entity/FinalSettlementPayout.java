@@ -48,6 +48,16 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
     @Column(name = "retry_count", nullable = false)
     private Integer retryCount;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "resolution_type", length = 20)
+    private ResolutionType resolutionType;
+
+    @Column(name = "resolution_reference", length = 200)
+    private String resolutionReference;
+
+    @Column(name = "resolution_note", length = 500)
+    private String resolutionNote;
+
     private FinalSettlementPayout(UUID finalSettlementBatchId, UUID investorId, Long quantity, Long amount) {
         this.id = UUID.randomUUID();
         this.finalSettlementBatchId = finalSettlementBatchId;
@@ -90,5 +100,12 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
 
     public void markDeadLetter() {
         this.status = PayoutStatus.DEAD_LETTER;
+    }
+
+    public void abandon(ResolutionType resolutionType, String resolutionReference, String resolutionNote) {
+        this.status = PayoutStatus.ABANDONED;
+        this.resolutionType = resolutionType;
+        this.resolutionReference = resolutionReference;
+        this.resolutionNote = resolutionNote;
     }
 }

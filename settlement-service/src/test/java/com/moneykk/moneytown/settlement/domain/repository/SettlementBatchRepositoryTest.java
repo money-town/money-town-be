@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,6 +34,7 @@ class SettlementBatchRepositoryTest extends RepositoryTestSupport {
             case COMPLETED -> batch.markCompleted();
             case PARTIAL_FAILED -> batch.markPartialFailed();
             case FAILED -> batch.markFailed();
+            case CLOSED_ABANDONED -> batch.markClosedAbandoned();
             case PENDING -> { /* open() 직후 기본값 */ }
         }
     }
@@ -59,23 +61,31 @@ class SettlementBatchRepositoryTest extends RepositoryTestSupport {
     }
 
     @Test
-    @DisplayName("자산에 COMPLETED가 아닌 진행 중 회차가 있으면 existsByAssetIdAndStatusNotAndIsDeletedFalse가 true를 반환한다")
-    void existsByAssetIdAndStatusNot_returnsTrue_whenBatchInProgressForAsset() {
+    @DisplayName("자산에 종결 상태가 아닌 진행 중 회차가 있으면 existsByAssetIdAndStatusNotInAndIsDeletedFalse가 true를 반환한다")
+    void existsByAssetIdAndStatusNotIn_returnsTrue_whenBatchInProgressForAsset() {
         UUID assetId = UUID.randomUUID();
         persistBatch(assetId, UUID.randomUUID(), SettlementStatus.CALCULATED);
 
-        assertThat(settlementBatchRepository
-                .existsByAssetIdAndStatusNotAndIsDeletedFalse(assetId, SettlementStatus.COMPLETED)).isTrue();
+        assertThat(settlementBatchRepository.existsByAssetIdAndStatusNotInAndIsDeletedFalse(
+                assetId, List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED))).isTrue();
     }
 
     @Test
-    @DisplayName("자산의 회차가 COMPLETED 상태면 existsByAssetIdAndStatusNotAndIsDeletedFalse는 false를 반환한다")
-    void existsByAssetIdAndStatusNot_returnsFalse_whenBatchCompleted() {
-        UUID assetId = UUID.randomUUID();
-        persistBatch(assetId, UUID.randomUUID(), SettlementStatus.COMPLETED);
+    @DisplayName("자산의 회차가 종결 상태(COMPLETED/CLOSED_ABANDONED)면 existsByAssetIdAndStatusNotInAndIsDeletedFalse는 false를 반환한다")
+    void existsByAssetIdAndStatusNotIn_returnsFalse_whenBatchTerminal() {
+        UUID completedAssetId = UUID.randomUUID();
+        persistBatch(completedAssetId, UUID.randomUUID(), SettlementStatus.COMPLETED);
 
+        UUID closedAbandonedAssetId = UUID.randomUUID();
+        SettlementBatch closedAbandoned = SettlementBatch.open(closedAbandonedAssetId, UUID.randomUUID(), LocalDate.of(2026, 9, 1), 10_000L);
+        closedAbandoned.markClosedAbandoned();
+        settlementBatchRepository.saveAndFlush(closedAbandoned);
+
+        List<SettlementStatus> terminalStatuses = List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED);
         assertThat(settlementBatchRepository
-                .existsByAssetIdAndStatusNotAndIsDeletedFalse(assetId, SettlementStatus.COMPLETED)).isFalse();
+                .existsByAssetIdAndStatusNotInAndIsDeletedFalse(completedAssetId, terminalStatuses)).isFalse();
+        assertThat(settlementBatchRepository
+                .existsByAssetIdAndStatusNotInAndIsDeletedFalse(closedAbandonedAssetId, terminalStatuses)).isFalse();
     }
 
     @Test
@@ -108,6 +118,64 @@ class SettlementBatchRepositoryTest extends RepositoryTestSupport {
         batch.softDelete(UUID.randomUUID());
         settlementBatchRepository.saveAndFlush(batch);
         assertThat(settlementBatchRepository.existsByIdAndIsDeletedFalse(batch.getId())).isFalse();
+    }
+
+    @Test
+    @DisplayName("findFirstByAssetIdAndStatusIn은 해당 자산의 FAILED/PARTIAL_FAILED 회차만 반환한다 (T5)")
+    void findFirstByAssetIdAndStatusIn_returnsOnlyFailedBatchOfSameAsset() {
+        UUID assetId = UUID.randomUUID();
+        SettlementBatch failed = persistBatch(assetId, UUID.randomUUID(), SettlementStatus.PARTIAL_FAILED);
+        persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.FAILED);
+        UUID disbursingAssetId = UUID.randomUUID();
+        persistBatch(disbursingAssetId, UUID.randomUUID(), SettlementStatus.DISBURSING);
+
+        List<SettlementStatus> failureStatuses = List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED);
+
+        assertThat(settlementBatchRepository.findFirstByAssetIdAndStatusInAndIsDeletedFalse(assetId, failureStatuses))
+                .get().extracting(SettlementBatch::getId).isEqualTo(failed.getId());
+        assertThat(settlementBatchRepository.findFirstByAssetIdAndStatusInAndIsDeletedFalse(disbursingAssetId, failureStatuses))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByStatusIn은 FAILED/PARTIAL_FAILED만 반환하고 마감(COMPLETED/CLOSED_ABANDONED)·진행 중·삭제된 회차는 제외한다 — 마감되면 재통보가 멈춘다 (T6)")
+    void findByStatusIn_returnsOnlyUnresolvedFailures() {
+        SettlementBatch failed = persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.FAILED);
+        SettlementBatch partial = persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.PARTIAL_FAILED);
+        persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.CLOSED_ABANDONED);
+        persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.COMPLETED);
+        persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.DISBURSING);
+        SettlementBatch deleted = persistBatch(UUID.randomUUID(), UUID.randomUUID(), SettlementStatus.FAILED);
+        deleted.softDelete(UUID.randomUUID());
+        settlementBatchRepository.saveAndFlush(deleted);
+
+        List<SettlementBatch> result = settlementBatchRepository.findByStatusInAndIsDeletedFalse(
+                List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED));
+
+        assertThat(result).extracting(SettlementBatch::getId).containsExactlyInAnyOrder(failed.getId(), partial.getId());
+    }
+
+    @Test
+    @DisplayName("CLOSED_ABANDONED로 마감된 회차가 있어도 같은 자산의 새 진행 중 회차를 저장할 수 있다 (V17 부분 유니크 인덱스)")
+    void closedAbandonedBatch_doesNotBlockNewBatchForSameAsset() {
+        UUID assetId = UUID.randomUUID();
+        persistBatch(assetId, UUID.randomUUID(), SettlementStatus.CLOSED_ABANDONED);
+
+        SettlementBatch next = persistBatch(assetId, UUID.randomUUID(), SettlementStatus.PENDING);
+
+        assertThat(settlementBatchRepository.findByIdAndIsDeletedFalse(next.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("PARTIAL_FAILED 회차가 있으면 같은 자산의 새 회차는 여전히 유니크 인덱스에 막힌다 (T5 차단 조건 유지)")
+    void partialFailedBatch_stillBlocksNewBatchForSameAsset() {
+        UUID assetId = UUID.randomUUID();
+        persistBatch(assetId, UUID.randomUUID(), SettlementStatus.PARTIAL_FAILED);
+
+        SettlementBatch duplicate = SettlementBatch.open(assetId, UUID.randomUUID(), LocalDate.of(2026, 9, 1), 5_000L);
+
+        assertThatThrownBy(() -> settlementBatchRepository.saveAndFlush(duplicate))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
