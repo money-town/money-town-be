@@ -3,9 +3,11 @@ package com.moneykk.moneytown.wallet.global.config;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.moneykk.moneytown.common.event.EventEnvelope;
+import com.moneykk.moneytown.wallet.consumer.dto.DividendPayoutDispatchPayload;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionCompensationRequestedPayload;
 import com.moneykk.moneytown.wallet.consumer.dto.SubscriptionReservedPayload;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -60,12 +62,17 @@ public class KafkaConsumerConfig {
         return envelopeConsumerFactory(kafkaProperties, Object.class);
     }
 
+    // 파티션이 1개일 땐 의미 없지만(#259로 6개 확장 예정), env var로 미리 받아두면 나중에 값만 바꿔도 됨.
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> subscriptionConfirmedKafkaListenerContainerFactory(
             ConsumerFactory<String, EventEnvelope<Object>> subscriptionConfirmedConsumerFactory,
-            CommonErrorHandler kafkaConsumerErrorHandler
+            CommonErrorHandler kafkaConsumerErrorHandler,
+            @Value("${WALLET_SUBSCRIPTION_CONFIRMED_CONSUMER_CONCURRENCY:1}") int concurrency
     ) {
-        return containerFactory(subscriptionConfirmedConsumerFactory, kafkaConsumerErrorHandler);
+        ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<Object>> factory =
+                containerFactory(subscriptionConfirmedConsumerFactory, kafkaConsumerErrorHandler);
+        factory.setConcurrency(concurrency);
+        return factory;
     }
 
     @Bean
@@ -81,6 +88,26 @@ public class KafkaConsumerConfig {
             CommonErrorHandler kafkaConsumerErrorHandler
     ) {
         return containerFactory(subscriptionCompensationRequestedConsumerFactory, kafkaConsumerErrorHandler);
+    }
+
+    @Bean
+    public ConsumerFactory<String, EventEnvelope<DividendPayoutDispatchPayload>> dividendPayoutDispatchConsumerFactory(
+            KafkaProperties kafkaProperties
+    ) {
+        return envelopeConsumerFactory(kafkaProperties, DividendPayoutDispatchPayload.class);
+    }
+
+    // DB 풀 크기(5)와 직접 충돌하는 지점이라 동시성을 하드코딩하지 않고 env var로 받는다.
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<DividendPayoutDispatchPayload>> dividendPayoutDispatchKafkaListenerContainerFactory(
+            ConsumerFactory<String, EventEnvelope<DividendPayoutDispatchPayload>> dividendPayoutDispatchConsumerFactory,
+            CommonErrorHandler kafkaConsumerErrorHandler,
+            @Value("${WALLET_DIVIDEND_DISPATCH_CONSUMER_CONCURRENCY:1}") int concurrency
+    ) {
+        ConcurrentKafkaListenerContainerFactory<String, EventEnvelope<DividendPayoutDispatchPayload>> factory =
+                containerFactory(dividendPayoutDispatchConsumerFactory, kafkaConsumerErrorHandler);
+        factory.setConcurrency(concurrency);
+        return factory;
     }
 
     // 1초→2초→4초 간격 3회 재시도, 그래도 실패하면 "{원본토픽}-dlt"로 보내고 다음 메시지로 넘어간다.

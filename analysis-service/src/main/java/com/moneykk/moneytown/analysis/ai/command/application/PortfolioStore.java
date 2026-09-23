@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.analysis.ai.command.application;
 
+import com.moneykk.moneytown.analysis.ai.domain.AiStatus;
 import com.moneykk.moneytown.analysis.ai.domain.Portfolio;
 import com.moneykk.moneytown.analysis.ai.domain.repository.PortfolioRepository;
 import lombok.RequiredArgsConstructor;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,4 +53,18 @@ public class PortfolioStore {
     }
 
 
+    public boolean hasActivePortfolio(UUID userId){
+        return portfolioRepository.findFirstByUserIdAndStatusInAndIsDeleted(
+                userId, List.of(AiStatus.PENDING, AiStatus.PROCESSING), false
+        ).isPresent();
+    }
+
+    @Transactional
+    public List<UUID> claimBatch(int limit){
+        if(limit <= 0) return List.of();
+        List<UUID> ids = portfolioRepository.findPendingIdsForUpdateSkipLocked(limit);
+        if(ids.isEmpty()) return List.of();
+        portfolioRepository.markProcessing(ids, Instant.now());
+        return ids;
+    }
 }

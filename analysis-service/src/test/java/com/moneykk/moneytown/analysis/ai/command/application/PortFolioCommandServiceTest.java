@@ -1,7 +1,6 @@
 package com.moneykk.moneytown.analysis.ai.command.application;
 
 import com.moneykk.moneytown.analysis.ai.command.application.PortFolioCommandService;
-import com.moneykk.moneytown.analysis.ai.command.application.PortfolioGenerator;
 import com.moneykk.moneytown.analysis.ai.command.application.PortfolioStore;
 import com.moneykk.moneytown.analysis.ai.command.dto.CreatePortfolioRequest;
 import com.moneykk.moneytown.analysis.ai.command.dto.CreatePortfolioResponse;
@@ -21,19 +20,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.RejectedExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,8 +39,6 @@ class PortFolioCommandServiceTest {
     private PortfolioRepository portfolioRepository;
     @Mock
     private PortfolioStore portfolioStore;
-    @Mock
-    private PortfolioGenerator portfolioGenerator;
 
     private PortFolioCommandService service;
 
@@ -54,11 +48,11 @@ class PortFolioCommandServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PortFolioCommandService(portfolioRepository, portfolioStore, portfolioGenerator);
+        service = new PortFolioCommandService(portfolioRepository, portfolioStore);
     }
 
     private CreatePortfolioRequest request() {
-        return new CreatePortfolioRequest(1_000_000L, RiskType.MEDIUM, null);
+        return new CreatePortfolioRequest(1_000_000L, RiskType.MEDIUM, null, "U0000TEST");
     }
 
     private Portfolio portfolioWithId(UUID id) {
@@ -78,7 +72,7 @@ class PortFolioCommandServiceTest {
     // ===== createPortfolio =====
 
     @Test
-    @DisplayName("이미 같은 멱등키로 생성된 포트폴리오가 있으면 그대로 반환하고 claim/generate는 호출하지 않는다")
+    @DisplayName("이미 같은 멱등키로 생성된 포트폴리오가 있으면 그대로 반환하고 claim은 호출하지 않는다")
     void createPortfolio_existingIdempotencyKey_returnsExistingWithoutClaiming() {
         Portfolio existing = portfolioWithId(portfolioId);
         when(portfolioStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey))
@@ -88,12 +82,11 @@ class PortFolioCommandServiceTest {
 
         assertThat(response.portfolioId()).isEqualTo(portfolioId);
         verify(portfolioStore, never()).claim(any());
-        verifyNoInteractions(portfolioGenerator);
     }
 
     @Test
-    @DisplayName("새 요청이면 claim 후 비동기 생성에 위임하고 PROCESSING 응답을 반환한다")
-    void createPortfolio_newRequest_claimsAndDelegatesGeneration() {
+    @DisplayName("새 요청이면 claim만 하고 PENDING 응답을 즉시 반환한다 (실제 생성은 디스패처가 담당)")
+    void createPortfolio_newRequest_claimsAndReturnsPending() {
         Portfolio claimed = portfolioWithId(portfolioId);
         when(portfolioStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey))
                 .thenReturn(Optional.empty());
@@ -102,8 +95,8 @@ class PortFolioCommandServiceTest {
         CreatePortfolioResponse response = service.createPortfolio(userId, idempotencyKey, request());
 
         assertThat(response.portfolioId()).isEqualTo(portfolioId);
-        assertThat(response.status()).isEqualTo(AiStatus.PROCESSING);
-        verify(portfolioGenerator).generate(portfolioId);
+        assertThat(response.status()).isEqualTo(AiStatus.PENDING);
+        verify(portfolioStore).claim(any(Portfolio.class));
     }
 
     @Test
@@ -118,7 +111,6 @@ class PortFolioCommandServiceTest {
         CreatePortfolioResponse response = service.createPortfolio(userId, idempotencyKey, request());
 
         assertThat(response.portfolioId()).isEqualTo(portfolioId);
-        verifyNoInteractions(portfolioGenerator);
     }
 
     @Test
@@ -136,21 +128,36 @@ class PortFolioCommandServiceTest {
     }
 
     @Test
-    @DisplayName("AI 처리 스레드풀이 포화되어 생성 위임이 거부되면 FAILED로 마감하고 AI_CAPACITY_EXCEEDED를 던진다")
-    void createPortfolio_generateRejected_marksFailedAndThrowsCapacityExceeded() {
-        Portfolio claimed = portfolioWithId(portfolioId);
+    @DisplayName("유저가 이미 진행 중(PENDING/PROCESSING)인 포트폴리오가 있으면 AI_PORTFOLIO_DUPLICATE를 던진다")
+    void createPortfolio_userHasActivePortfolio_throwsDuplicate() {
         when(portfolioStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey))
                 .thenReturn(Optional.empty());
-        when(portfolioStore.claim(any(Portfolio.class))).thenReturn(claimed);
-        doThrow(new RejectedExecutionException("queue full"))
-                .when(portfolioGenerator).generate(portfolioId);
+        when(portfolioStore.hasActivePortfolio(userId)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.createPortfolio(userId, idempotencyKey, request()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(AnalysisErrorCode.AI_PORTFOLIO_DUPLICATE);
+
+        verify(portfolioStore, never()).claim(any());
+    }
+
+    @Test
+    @DisplayName("PENDING+PROCESSING 총합이 용량을 초과하면 AI_CAPACITY_EXCEEDED를 던진다")
+    void createPortfolio_capacityExceeded_throwsCapacityExceeded() {
+        when(portfolioStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey))
+                .thenReturn(Optional.empty());
+        when(portfolioStore.hasActivePortfolio(userId)).thenReturn(false);
+        when(portfolioRepository.countByStatusInAndIsDeleted(
+                eq(List.of(AiStatus.PENDING, AiStatus.PROCESSING)), eq(false)
+        )).thenReturn(501);
 
         assertThatThrownBy(() -> service.createPortfolio(userId, idempotencyKey, request()))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(AnalysisErrorCode.AI_CAPACITY_EXCEEDED);
 
-        verify(portfolioStore).fail(eq(portfolioId), any(), eq(0L));
+        verify(portfolioStore, never()).claim(any());
     }
 
     // ===== deletePortfolio =====
@@ -183,7 +190,8 @@ class PortFolioCommandServiceTest {
     @DisplayName("ADMIN이면 소유자가 아니어도 삭제할 수 있다")
     void deletePortfolio_adminNotOwner_succeeds() {
         Portfolio portfolio = portfolioWithId(portfolioId);
-        portfolio.complete("{}", 100L); // PROCESSING -> COMPLETED로 전이시켜 삭제 가능 상태로 만든다
+        portfolio.process();
+        portfolio.complete("{}", 100L); // PENDING -> PROCESSING -> COMPLETED로 전이시켜 삭제 가능 상태로 만든다
         when(portfolioRepository.findByIdAndIsDeletedIsFalse(portfolioId)).thenReturn(Optional.of(portfolio));
 
         UUID adminUserId = UUID.randomUUID();
@@ -197,7 +205,8 @@ class PortFolioCommandServiceTest {
     @DisplayName("PROCESSING 상태면 삭제할 수 없다")
     void deletePortfolio_processingStatus_throwsProcessingConflict() {
         Portfolio portfolio = portfolioWithId(portfolioId);
-        // Portfolio.builder()로 만들면 초기 status가 PROCESSING이다.
+        portfolio.process(); // PENDING -> PROCESSING
+
         when(portfolioRepository.findByIdAndIsDeletedIsFalse(portfolioId)).thenReturn(Optional.of(portfolio));
 
         assertThatThrownBy(() -> service.deletePortfolio("USER", userId, portfolioId))
@@ -210,7 +219,8 @@ class PortFolioCommandServiceTest {
     @DisplayName("소유자이고 PROCESSING이 아니면 정상적으로 소프트 삭제된다")
     void deletePortfolio_ownerAndNotProcessing_softDeletes() {
         Portfolio portfolio = portfolioWithId(portfolioId);
-        portfolio.complete("{}", 100L); // PROCESSING -> COMPLETED로 전이시켜 삭제 가능 상태로 만든다
+        portfolio.process();
+        portfolio.complete("{}", 100L); // PENDING -> PROCESSING -> COMPLETED로 전이시켜 삭제 가능 상태로 만든다
         when(portfolioRepository.findByIdAndIsDeletedIsFalse(portfolioId)).thenReturn(Optional.of(portfolio));
 
         DeletePortfolioResponse response = service.deletePortfolio("USER", userId, portfolioId);

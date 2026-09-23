@@ -53,6 +53,9 @@ public class Portfolio extends BaseUpdatableEntity {
     @Column(name = "prefered_asset_type", length = 30)
     private AssetType assetType;
 
+    @Column(name = "slack_id", length = 50)
+    private String slackId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 20, nullable = false)
     private AiStatus status;
@@ -77,15 +80,21 @@ public class Portfolio extends BaseUpdatableEntity {
 
     @Builder
     private Portfolio(UUID idempotencyKey, UUID userId, Long investmentAmount,
-                      RiskType riskType, AssetType assetType, String model, String promptVersion) {
+                      RiskType riskType, AssetType assetType, String model, String promptVersion, String slackId) {
         this.idempotencyKey = idempotencyKey;
         this.userId = userId;
         this.investmentAmount = investmentAmount;
         this.riskType = riskType;
         this.assetType = assetType;
-        this.status = AiStatus.PROCESSING;   // 초기 상태
+        this.slackId = slackId;
+        this.status = AiStatus.PENDING;   // 초기 상태
         this.model = model;
         this.promptVersion = promptVersion;
+    }
+
+    public void process(){
+        if(this.status != AiStatus.PENDING) return;
+        this.status = AiStatus.PROCESSING;
     }
 
     public void complete(String response, long processingTime){

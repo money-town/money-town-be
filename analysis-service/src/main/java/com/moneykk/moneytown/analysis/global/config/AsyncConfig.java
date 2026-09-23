@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.analysis.global.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -15,11 +16,12 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class AsyncConfig {
 
     @Bean(name = "aiTaskExecutor")
-    public Executor aiTaskExecutor(){
+    public ThreadPoolTaskExecutor aiTaskExecutor(
+            @Value("${spring.ai.portfolio.worker-pool-size:5}") int workerPoolSize){
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(40);
-        ex.setMaxPoolSize(60);
-        ex.setQueueCapacity(60);
+        ex.setCorePoolSize(workerPoolSize);
+        ex.setMaxPoolSize(workerPoolSize);
+        ex.setQueueCapacity(0);
         ex.setThreadNamePrefix("ai-portfolio-");
         ex.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         ex.setWaitForTasksToCompleteOnShutdown(true);

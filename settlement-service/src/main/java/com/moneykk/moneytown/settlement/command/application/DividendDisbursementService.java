@@ -1,12 +1,8 @@
 package com.moneykk.moneytown.settlement.command.application;
 
-import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.infrastructure.client.SettlementFailureNotifier;
-import com.moneykk.moneytown.settlement.infrastructure.client.WalletServiceClient;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositRequest;
-import com.moneykk.moneytown.settlement.infrastructure.client.dto.DividendDepositResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -24,7 +20,6 @@ public class DividendDisbursementService {
     private static final List<SettlementStatus> FAILURE_STATUSES = List.of(SettlementStatus.FAILED, SettlementStatus.PARTIAL_FAILED);
 
     private final DividendPayoutWriter payoutWriter;
-    private final WalletServiceClient walletServiceClient;
     private final SettlementFailureNotifier settlementFailureNotifier;
 
     @Async("disbursementTaskExecutor")
@@ -32,7 +27,8 @@ public class DividendDisbursementService {
         disburse(settlementBatchId);
     }
 
-    // claim + Outbox 저장까지만 한다. 실제 지급(attempt)은 Outbox → Kafka → 컨슈머가 payout 1건씩 처리한다.
+    // claim + Outbox 저장까지만 한다. 실제 지급은 Outbox → Kafka → 지갑이 처리하고, 그 결과를
+    // applyDispatchResult로 돌려받는다(정산은 더 이상 지갑을 직접 호출하지 않음).
     public void disburse(UUID settlementBatchId) {
         payoutWriter.markDisbursing(settlementBatchId);
 
@@ -48,12 +44,19 @@ public class DividendDisbursementService {
         }
     }
 
-    // 컨슈머 진입점 — payout 1건 처리 + 회차 마감 확인
-    public void processDispatchedPayout(UUID payoutId, UUID settlementBatchId, UUID investorId, Long amount) {
+    // 지갑 결과 컨슈머 진입점 — payout 1건에 지갑이 알려준 결과를 반영 + 회차 마감 확인
+    // 지갑을 더 이상 직접 부르지 않으므로 attempt()의 예외 처리(FeignException 등)는 필요X
+    // 여기서 던지는 예외는 역직렬화 실패 같은 시스템 오류뿐이고, Kafka 재시도 후 DLT로 간다.
+    public void applyDispatchResult(UUID payoutId, UUID settlementBatchId, boolean succeeded, String reason) {
         if (payoutWriter.isProcessing(payoutId)) {
-            attempt(settlementBatchId, payoutId, investorId, amount);
+            if (succeeded) {
+                payoutWriter.markPaid(payoutId);
+            } else {
+                log.warn("배당 지급 실패 결과 수신. payoutId={}, reason={}", payoutId, reason);
+                payoutWriter.markFailedAttempt(payoutId);
+            }
         } else {
-            log.warn("이미 처리됐거나 회수된 배당 지급 건의 메시지를 건너뜁니다 (중복 수신 등). payoutId={}", payoutId);
+            log.warn("이미 처리됐거나 회수된 배당 지급 건의 결과를 건너뜁니다 (중복 수신 등). payoutId={}", payoutId);
         }
         finalizeBatchIfDone(settlementBatchId);
     }
@@ -72,33 +75,5 @@ public class DividendDisbursementService {
 
     public int reclaimStalledProcessing(Instant staleBefore) {
         return payoutWriter.reclaimStalledProcessing(staleBefore);
-    }
-
-    private void attempt(UUID settlementBatchId, UUID payoutId, UUID investorId, Long amount) {
-        try {
-            ApiResponse<DividendDepositResponse> response = walletServiceClient.depositDividend(new DividendDepositRequest(
-                    payoutId.toString(), investorId, settlementBatchId, amount));
-            if (!response.success()) {
-                payoutWriter.markFailedAttempt(payoutId);
-                return;
-            }
-
-            DividendDepositResponse data = response.data();
-            if (data == null || !settlementBatchId.equals(data.settlementBatchId())) {
-                // TODO: 도전 기능 = 별도 상태/플래그를 둬서 재처리 API가 이 건을 구분 -> 지갑 트랜잭션 대조 확인 후에만 재처리 가능
-                // 일반 DEAD_LETTER와 같은 재처리 경로(retryBatch) -> 사람이 로그를 못 보고 재처리 버튼을 누르면 대조 확인 없이 재시도 가능
-                log.error("지갑 응답의 settlementBatchId가 요청과 다릅니다 — 재처리 전 지갑 트랜잭션 대조 확인 필요. "
-                                + "payoutId={}, 요청 settlementBatchId={}, 응답 settlementBatchId={}, transactionId={}",
-                        payoutId, settlementBatchId, data == null ? null : data.settlementBatchId(),
-                        data == null ? null : data.transactionId());
-                payoutWriter.markResponseMismatch(payoutId);
-                return;
-            }
-
-            payoutWriter.markPaid(payoutId);
-        } catch (Exception e) {
-            log.error("배당 지급 처리 중 예외 발생. payoutId={}", payoutId, e);
-            payoutWriter.markFailedAttempt(payoutId);
-        }
     }
 }
