@@ -51,7 +51,7 @@ public class PortfolioCommandController {
                 .status(HttpStatus.CREATED)
                 .body(
                         ApiResponse.success(portFolioCommandService.createPortfolio(userId, idempotencyKey, request),
-                                "AI 포트폴리오 생성 요청이 접수되었습니다."))
+                                "AI 포트폴리오 생성 요청이 접수되었습니다. 다만 현재 요청 개수에 따라 대기시간이 달라질 수 있습니다. 생성완료되면 슬랙 DM으로 알려드리겠습니다."))
                 ;
     }
 

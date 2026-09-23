@@ -8,16 +8,15 @@ import com.moneykk.moneytown.analysis.ai.domain.Portfolio;
 import com.moneykk.moneytown.analysis.ai.domain.repository.PortfolioRepository;
 import com.moneykk.moneytown.analysis.global.exception.AnalysisErrorCode;
 import com.moneykk.moneytown.common.exception.BusinessException;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.RejectedExecutionException;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +24,7 @@ public class PortFolioCommandService {
 
     private final PortfolioRepository portfolioRepository;
     private final PortfolioStore portfolioStore;
-    private final PortfolioGenerator portfolioGenerator;
+    private static final int MAX_CAPACITY = 500;
 
     @Value("${spring.ai.openai.chat.options.model}")
     private String model;
@@ -39,6 +38,17 @@ public class PortFolioCommandService {
             return CreatePortfolioResponse.from(existing.get());
         }
 
+        if(portfolioStore.hasActivePortfolio(userId)){
+            throw new BusinessException(AnalysisErrorCode.AI_PORTFOLIO_DUPLICATE);
+        }
+
+        int count = portfolioRepository.countByStatusInAndIsDeleted(
+                List.of(AiStatus.PENDING, AiStatus.PROCESSING), false
+        );
+        if(count > MAX_CAPACITY){
+            throw new BusinessException(AnalysisErrorCode.AI_CAPACITY_EXCEEDED);
+        }
+
         Portfolio portfolio;
         try{
             portfolio = portfolioStore.claim(
@@ -47,6 +57,7 @@ public class PortFolioCommandService {
                             .userId(userId)
                             .investmentAmount(request.investmentAmount())
                             .riskType(request.riskType())
+                            .slackId(request.slackId())
                             .assetType(request.assetType())   // nullable 허용
                             .model(model)
                             .promptVersion(PROMPT_VERSION)
@@ -58,12 +69,6 @@ public class PortFolioCommandService {
                             () -> new BusinessException(AnalysisErrorCode.AI_PORTFOLIO_NOT_FOUND)
                     )
             );
-        }
-        try{
-            portfolioGenerator.generate(portfolio.getId());
-        }catch (RejectedExecutionException e) {
-            portfolioStore.fail(portfolio.getId(), "AI 처리량 초과로 요청이 거절되었습니다.", 0L);
-            throw new BusinessException(AnalysisErrorCode.AI_CAPACITY_EXCEEDED);
         }
 
 

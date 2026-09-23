@@ -5,7 +5,7 @@ import com.moneykk.moneytown.analysis.ai.domain.RiskType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+
 
 public record CreatePortfolioRequest(
     @Schema(description = "투자 금액(원). 최소 10,000원", example = "1000000")
@@ -16,6 +16,9 @@ public record CreatePortfolioRequest(
     @NotNull(message = "리스크 타입은 꼭 입력 해주셔야합니다.")
     RiskType riskType,
     @Schema(description = "선호 자산 유형 (선택, 미지정 시 전체)", example = "REAL_ESTATE")
-    AssetType assetType
+    AssetType assetType,
+    @NotNull
+    @Schema(description = "포트폴리오 생성 완료 시 연락 받을 슬랙 ID(필수)", example = "0000-0000-0000-0000")
+    String slackId
 ) {
 }

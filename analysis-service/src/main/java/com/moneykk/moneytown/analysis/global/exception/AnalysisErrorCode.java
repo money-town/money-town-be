@@ -29,7 +29,8 @@ public enum AnalysisErrorCode implements ErrorCode {
     AI_FORBIDDEN(HttpStatus.FORBIDDEN, "AI_403_01", "AI 포트폴리오 접근 권한이 없습니다."),
     AI_PROCESSING(HttpStatus.CONFLICT,"AI_409_01" , "AI 생성중에는 삭제를 할 수 없습니다."),
     AI_CAPACITY_EXCEEDED(HttpStatus.SERVICE_UNAVAILABLE, "AI_503_01", "AI 포트폴리오 생성 요청이 많아 잠시 후 다시 시도해주세요."),
-    AI_SERVICE_ERROR(HttpStatus.INTERNAL_SERVER_ERROR,"AI_500_01" , "AI 포트폴리오 삭제 중 오류가 발생했습니다.");
+    AI_SERVICE_ERROR(HttpStatus.INTERNAL_SERVER_ERROR,"AI_500_01" , "AI 포트폴리오 삭제 중 오류가 발생했습니다."),
+    AI_PORTFOLIO_DUPLICATE(HttpStatus.CONFLICT,"AI_409_02" , "AI 포트폴리오 생성 요청을 이미 보냈습니다. 생성이 완료될 때 까지 기다려주세요.");
 
     private final HttpStatus status;
     private final String code;
