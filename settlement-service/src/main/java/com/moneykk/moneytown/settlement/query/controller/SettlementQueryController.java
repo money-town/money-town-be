@@ -62,10 +62,11 @@ public class SettlementQueryController implements SettlementQueryApi {
     @Override
     @GetMapping("/dividends/me")
     public ResponseEntity<ApiResponse<PageResponse<MyDividendPayoutListItemResponse>>> getMyDividends(
-            @RequestHeader("X-User-Id") UUID investorId,
+            @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @RequestHeader(AuthHeaderConstants.USER_ID) UUID investorId,
             @RequestParam(required = false) UUID assetId,
             @PageableDefault(size = 20) Pageable pageable) {
-        PageResponse<MyDividendPayoutListItemResponse> response = settlementQueryService.getMyDividends(investorId, assetId, pageable);
+        PageResponse<MyDividendPayoutListItemResponse> response = settlementQueryService.getMyDividends(role, investorId, assetId, pageable);
         return ResponseEntity.ok(ApiResponse.success(response, "배당 내역을 조회했습니다."));
     }
 }

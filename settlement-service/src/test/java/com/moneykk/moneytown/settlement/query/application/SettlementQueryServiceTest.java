@@ -327,7 +327,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
 
             PageResponse<MyDividendPayoutListItemResponse> response =
-                    settlementQueryService.getMyDividends(investorId, ASSET_ID, pageable);
+                    settlementQueryService.getMyDividends("INVESTOR", investorId, ASSET_ID, pageable);
 
             assertThat(response.content()).hasSize(1);
             MyDividendPayoutListItemResponse item = response.content().get(0);
@@ -354,7 +354,7 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
 
             PageResponse<MyDividendPayoutListItemResponse> response =
-                    settlementQueryService.getMyDividends(investorId, null, pageable);
+                    settlementQueryService.getMyDividends("INVESTOR", investorId, null, pageable);
 
             assertThat(response.content()).hasSize(1);
             assertThat(response.content().get(0).status()).isEqualTo(PayoutStatus.QUEUED);
@@ -374,9 +374,38 @@ class SettlementQueryServiceTest {
                     .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
 
             PageResponse<MyDividendPayoutListItemResponse> response =
-                    settlementQueryService.getMyDividends(investorId, ASSET_ID, pageable);
+                    settlementQueryService.getMyDividends("INVESTOR", investorId, ASSET_ID, pageable);
 
             assertThat(response.content().get(0).paidAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("ISSUER도 자신의 배당 내역을 조회할 수 있다 (발행자 승인 시 role이 교체되므로)")
+        void allowsIssuerRole() {
+            UUID investorId = UUID.randomUUID();
+            Pageable pageable = PageRequest.of(0, 20);
+            when(dividendPayoutRepository.findMyDividendPayouts(investorId, null, pageable))
+                    .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+            PageResponse<MyDividendPayoutListItemResponse> response =
+                    settlementQueryService.getMyDividends("ISSUER", investorId, null, pageable);
+
+            assertThat(response.content()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("INVESTOR·ISSUER가 아닌 role(ADMIN 등)은 DIVIDEND_ACCESS_DENIED이며 조회하지 않는다")
+        void rejectsNonInvestorOrIssuerRole() {
+            UUID investorId = UUID.randomUUID();
+            Pageable pageable = PageRequest.of(0, 20);
+
+            for (String role : new String[]{ADMIN_ROLE, "SYSTEM", "", null}) {
+                assertThatThrownBy(() -> settlementQueryService.getMyDividends(role, investorId, null, pageable))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                        .isEqualTo(SettlementErrorCode.DIVIDEND_ACCESS_DENIED);
+            }
+            verifyNoInteractions(dividendPayoutRepository);
         }
     }
 
