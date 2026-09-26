@@ -49,6 +49,10 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
     private Integer retryCount;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "dead_letter_reason", length = 30)
+    private DeadLetterReason deadLetterReason;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "resolution_type", length = 20)
     private ResolutionType resolutionType;
 
@@ -76,6 +80,7 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
     public void requeue() {
         this.status = PayoutStatus.QUEUED;
         this.retryCount = 0;
+        this.deadLetterReason = null;
     }
 
     public void markProcessing() {
@@ -98,8 +103,13 @@ public class FinalSettlementPayout extends BaseUpdatableEntity {
         this.status = PayoutStatus.RETRYING;
     }
 
-    public void markDeadLetter() {
+    public void markDeadLetter(DeadLetterReason reason) {
         this.status = PayoutStatus.DEAD_LETTER;
+        this.deadLetterReason = reason;
+    }
+
+    public boolean requiresManualResolution() {
+        return this.status == PayoutStatus.DEAD_LETTER && this.deadLetterReason == DeadLetterReason.RESPONSE_MISMATCH;
     }
 
     public void abandon(ResolutionType resolutionType, String resolutionReference, String resolutionNote) {

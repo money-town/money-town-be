@@ -4,6 +4,7 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.exception.GlobalExceptionHandler;
 import com.moneykk.moneytown.common.response.PageResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
+import com.moneykk.moneytown.settlement.domain.entity.DeadLetterReason;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
 import com.moneykk.moneytown.settlement.domain.entity.SettlementStatus;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
@@ -90,7 +91,8 @@ class FinalSettlementQueryControllerTest {
     void getPayouts_withStatusFilter_delegatesToServiceAndReturnsPage() throws Exception {
         UUID finalSettlementBatchId = UUID.randomUUID();
         FinalSettlementPayoutListItemResponse item = new FinalSettlementPayoutListItemResponse(
-                UUID.randomUUID(), UUID.randomUUID(), 10L, 10_000L, PayoutStatus.DEAD_LETTER, 2);
+                UUID.randomUUID(), UUID.randomUUID(), 10L, 10_000L, PayoutStatus.DEAD_LETTER, 2,
+                DeadLetterReason.RESPONSE_MISMATCH, true);
         PageResponse<FinalSettlementPayoutListItemResponse> page =
                 new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true, false);
         when(finalSettlementQueryService.getPayouts(
@@ -102,7 +104,9 @@ class FinalSettlementQueryControllerTest {
                         .param("status", "DEAD_LETTER"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].finalSettlementPayoutId").value(item.finalSettlementPayoutId().toString()))
-                .andExpect(jsonPath("$.data.content[0].status").value("DEAD_LETTER"));
+                .andExpect(jsonPath("$.data.content[0].status").value("DEAD_LETTER"))
+                .andExpect(jsonPath("$.data.content[0].deadLetterReason").value("RESPONSE_MISMATCH"))
+                .andExpect(jsonPath("$.data.content[0].manualResolutionRequired").value(true));
     }
 
     @Test

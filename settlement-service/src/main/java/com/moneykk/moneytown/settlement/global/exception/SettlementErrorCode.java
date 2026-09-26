@@ -31,6 +31,8 @@ public enum SettlementErrorCode implements ErrorCode {
     RESOLUTION_NOTE_REQUIRED(HttpStatus.CONFLICT, "SETTLEMENT_409_12", "OTHER 방식으로 포기 처리하려면 상세 설명(resolutionNote)이 필수입니다."),
     FINAL_SETTLEMENT_PAYOUT_NOT_ABANDONABLE(HttpStatus.CONFLICT, "SETTLEMENT_409_13", "DEAD_LETTER 상태의 최종 정산 지급 건만 포기 처리할 수 있습니다."),
     FINAL_SETTLEMENT_PAYOUT_BATCH_MISMATCH(HttpStatus.CONFLICT, "SETTLEMENT_409_14", "지급 건이 요청한 최종 정산 회차에 속하지 않습니다."),
+    FINAL_SETTLEMENT_PAYOUT_MANUAL_RESOLUTION_REQUIRED(HttpStatus.CONFLICT, "SETTLEMENT_409_15",
+            "지갑 응답 불일치(RESPONSE_MISMATCH)로 실패한 지급 건은 재처리할 수 없습니다. 지갑 트랜잭션을 대조한 뒤 수동 지급하고 수동 지급(abandon) 처리해야 합니다."),
 
     ASSET_HOLDINGS_PAGINATION_STALLED(HttpStatus.INTERNAL_SERVER_ERROR, "SETTLEMENT_500_01",
             "자산 서비스의 보유지분 스냅샷 페이지네이션이 비정상적으로 종료되지 않습니다.");
