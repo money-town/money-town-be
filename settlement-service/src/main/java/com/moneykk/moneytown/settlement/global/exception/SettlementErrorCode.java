@@ -36,7 +36,10 @@ public enum SettlementErrorCode implements ErrorCode {
             "지갑 응답 불일치(RESPONSE_MISMATCH)로 실패한 지급 건은 재처리할 수 없습니다. 지갑 트랜잭션을 대조한 뒤 수동 지급하고 수동 지급(abandon) 처리해야 합니다."),
 
     ASSET_HOLDINGS_PAGINATION_STALLED(HttpStatus.INTERNAL_SERVER_ERROR, "SETTLEMENT_500_01",
-            "자산 서비스의 보유지분 스냅샷 페이지네이션이 비정상적으로 종료되지 않습니다.");
+            "자산 서비스의 보유지분 스냅샷 페이지네이션이 비정상적으로 종료되지 않습니다."),
+
+    ASSET_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "SETTLEMENT_503_01",
+            "자산 서비스가 일시적으로 응답하지 않아 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String code;
