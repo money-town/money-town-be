@@ -61,7 +61,10 @@ public interface FinalSettlementCommandApi {
             summary = "최종 정산 실패 건 재처리",
             description = "ADMIN 권한으로 FAILED/PARTIAL_FAILED 상태인 최종 정산 회차의 실패 건을 재처리한다. "
                     + "finalSettlementPayoutIds를 지정하지 않으면 회차의 DEAD_LETTER 건 전체를, 지정하면 그 건들만 선택적으로 QUEUED로 되돌린다. "
-                    + "amount는 최초 계산 시점 값(quantity × unitPrice)을 그대로 재사용하며 재계산하지 않는다."
+                    + "amount는 최초 계산 시점 값(quantity × unitPrice)을 그대로 재사용하며 재계산하지 않는다. "
+                    + "단, 지갑 응답 불일치(deadLetterReason=RESPONSE_MISMATCH)로 실패한 건은 재시도해도 해결되지 않으므로 재처리 대상이 아니다. "
+                    + "ID를 생략한 전체 재처리에서는 해당 건이 자동으로 제외되고, ID로 직접 지정하면 거절된다(409_15). "
+                    + "이런 건은 지갑 트랜잭션을 대조하고 수동으로 반환을 완료한 뒤 포기 처리(abandon) API로 마감해야 한다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -77,7 +80,8 @@ public interface FinalSettlementCommandApi {
                     content = @Content(schema = @Schema(implementation = ApiResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "409",
-                    description = "FAILED/PARTIAL_FAILED 상태가 아니어서 재시도 불가(409_08) 또는 재처리 가능한 실패 건 없음(409_09)",
+                    description = "FAILED/PARTIAL_FAILED 상태가 아니어서 재시도 불가(409_08) / 재처리 가능한 실패 건 없음(409_09) "
+                            + "/ 수동 지급이 필요한 RESPONSE_MISMATCH 건을 ID로 지정함(409_15)",
                     content = @Content(schema = @Schema(implementation = ApiResponse.class)))
     })
     @PostMapping("/final-settlements/{finalSettlementBatchId}/retry")

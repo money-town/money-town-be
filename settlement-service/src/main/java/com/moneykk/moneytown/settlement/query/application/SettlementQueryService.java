@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -30,6 +31,8 @@ import java.util.UUID;
 public class SettlementQueryService {
 
     private static final String ADMIN_ROLE = "ADMIN";
+    // ISSUER 승인 시 role이 INVESTOR에서 ISSUER로 교체되므로, 발행자가 된 뒤에도 기존 보유분의 배당을 조회할 수 있어야 한다
+    private static final Set<String> MY_DIVIDEND_ROLES = Set.of("INVESTOR", "ISSUER");
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
@@ -62,7 +65,8 @@ public class SettlementQueryService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<MyDividendPayoutListItemResponse> getMyDividends(UUID investorId, UUID assetId, Pageable pageable) {
+    public PageResponse<MyDividendPayoutListItemResponse> getMyDividends(String role, UUID investorId, UUID assetId, Pageable pageable) {
+        validateMyDividendRole(role);
         Pageable unsortedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
         Page<DividendPayoutRepository.MyDividendPayoutRow> payouts =
                 dividendPayoutRepository.findMyDividendPayouts(investorId, assetId, unsortedPageable);
@@ -85,6 +89,12 @@ public class SettlementQueryService {
                 .sum();
 
         return SettlementReconciliationResponse.of(settlementBatchId, expectedAmount, totalPayoutAmount, paidAmount);
+    }
+
+    private void validateMyDividendRole(String role) {
+        if (role == null || !MY_DIVIDEND_ROLES.contains(role)) {
+            throw new BusinessException(SettlementErrorCode.DIVIDEND_ACCESS_DENIED);
+        }
     }
 
     private void validateAdmin(String role) {

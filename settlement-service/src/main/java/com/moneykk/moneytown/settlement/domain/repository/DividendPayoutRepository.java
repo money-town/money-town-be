@@ -46,17 +46,32 @@ public interface DividendPayoutRepository extends JpaRepository<DividendPayout, 
             "WHERE p.settlementBatchId = :settlementBatchId AND p.isDeleted = false GROUP BY p.status")
     List<PayoutStatusCount> countByStatusGrouped(@Param("settlementBatchId") UUID settlementBatchId);
 
-    //TODO: 가독성 개선
-    @Query(value = "SELECT p.id AS dividendPayoutId, b.assetId AS assetId, p.settlementBatchId AS settlementBatchId, " +
-            "b.recordDate AS recordDate, p.shareRatio AS shareRatio, p.amount AS amount, " +
-            "p.status AS status, p.updatedAt AS updatedAt " +
-            "FROM DividendPayout p JOIN SettlementBatch b ON b.id = p.settlementBatchId " +
-            "WHERE p.investorId = :investorId AND (:assetId IS NULL OR b.assetId = :assetId) " +
-            "AND p.isDeleted = false AND b.isDeleted = false " +
-            "ORDER BY p.updatedAt DESC, p.id ASC",
-            countQuery = "SELECT COUNT(p) FROM DividendPayout p JOIN SettlementBatch b ON b.id = p.settlementBatchId " +
-                    "WHERE p.investorId = :investorId AND (:assetId IS NULL OR b.assetId = :assetId) " +
-                    "AND p.isDeleted = false AND b.isDeleted = false")
+    @Query(value = """
+            SELECT p.id AS dividendPayoutId,
+                   b.assetId AS assetId,
+                   p.settlementBatchId AS settlementBatchId,
+                   b.recordDate AS recordDate,
+                   p.shareRatio AS shareRatio,
+                   p.amount AS amount,
+                   p.status AS status,
+                   p.updatedAt AS updatedAt
+            FROM DividendPayout p
+            JOIN SettlementBatch b ON b.id = p.settlementBatchId
+            WHERE p.investorId = :investorId
+              AND (:assetId IS NULL OR b.assetId = :assetId)
+              AND p.isDeleted = false
+              AND b.isDeleted = false
+            ORDER BY p.updatedAt DESC, p.id ASC
+            """,
+            countQuery = """
+            SELECT COUNT(p)
+            FROM DividendPayout p
+            JOIN SettlementBatch b ON b.id = p.settlementBatchId
+            WHERE p.investorId = :investorId
+              AND (:assetId IS NULL OR b.assetId = :assetId)
+              AND p.isDeleted = false
+              AND b.isDeleted = false
+            """)
     Page<MyDividendPayoutRow> findMyDividendPayouts(@Param("investorId") UUID investorId,
                                                       @Param("assetId") UUID assetId,
                                                       Pageable pageable);

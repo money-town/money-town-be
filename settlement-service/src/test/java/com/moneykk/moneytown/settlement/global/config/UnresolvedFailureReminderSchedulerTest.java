@@ -81,4 +81,30 @@ class UnresolvedFailureReminderSchedulerTest {
         verify(settlementFailureNotifier).remindUnresolvedDividendBatch(healthy, null);
         verify(settlementFailureNotifier).remindUnresolvedFinalSettlementBatch(finalBatch);
     }
+
+    @Test
+    @DisplayName("배당 회차 조회가 실패해도 최종 정산 회차 재통보는 계속 진행한다")
+    void dividendQueryFailureDoesNotBlockFinalSettlementReminders() {
+        FinalSettlementBatch finalBatch = FinalSettlementBatch.open(UUID.randomUUID(), Instant.now(), 1_000L, 9_000L);
+        when(settlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED)).thenThrow(new RuntimeException("db down"));
+        when(finalSettlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED)).thenReturn(List.of(finalBatch));
+
+        scheduler.remindUnresolvedFailures();
+
+        verify(settlementFailureNotifier).remindUnresolvedFinalSettlementBatch(finalBatch);
+        verify(settlementFailureNotifier, never()).remindUnresolvedDividendBatch(any(), any());
+    }
+
+    @Test
+    @DisplayName("최종 정산 회차 조회가 실패해도 배당 회차 재통보는 계속 진행한다")
+    void finalSettlementQueryFailureDoesNotBlockDividendReminders() {
+        SettlementBatch dividend = SettlementBatch.open(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 1), 1_000L);
+        when(settlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED)).thenReturn(List.of(dividend));
+        when(finalSettlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED)).thenThrow(new RuntimeException("db down"));
+
+        scheduler.remindUnresolvedFailures();
+
+        verify(settlementFailureNotifier).remindUnresolvedDividendBatch(dividend, null);
+        verify(settlementFailureNotifier, never()).remindUnresolvedFinalSettlementBatch(any());
+    }
 }

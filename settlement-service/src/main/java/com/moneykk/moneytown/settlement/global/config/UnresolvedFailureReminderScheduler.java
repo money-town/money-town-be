@@ -31,15 +31,35 @@ public class UnresolvedFailureReminderScheduler {
 
     @Scheduled(fixedDelay = SCAN_INTERVAL_MS)
     public void remindUnresolvedFailures() {
-        List<SettlementBatch> dividendBatches = settlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED_STATUSES);
-        List<FinalSettlementBatch> finalBatches = finalSettlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED_STATUSES);
-        if (dividendBatches.isEmpty() && finalBatches.isEmpty()) {
+        // 한 종류의 조회 장애가 다른 종류의 재통보 주기를 취소하지 않도록 종류별로 조회부터 격리한다.
+        runKindIsolated("배당", this::remindDividendBatches);
+        runKindIsolated("최종 정산", this::remindFinalSettlementBatches);
+    }
+
+    private void remindDividendBatches() {
+        List<SettlementBatch> batches = settlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED_STATUSES);
+        if (batches.isEmpty()) {
             return;
         }
-        log.info("미해결 실패 회차 재통보 점검 (배당 {}건, 최종 정산 {}건)", dividendBatches.size(), finalBatches.size());
+        log.info("미해결 실패 배당 회차 재통보 점검 ({}건)", batches.size());
+        batches.forEach(batch -> runIsolated(batch.getId(), () -> settlementFailureNotifier.remindUnresolvedDividendBatch(batch, null)));
+    }
 
-        dividendBatches.forEach(batch -> runIsolated(batch.getId(), () -> settlementFailureNotifier.remindUnresolvedDividendBatch(batch, null)));
-        finalBatches.forEach(batch -> runIsolated(batch.getId(), () -> settlementFailureNotifier.remindUnresolvedFinalSettlementBatch(batch)));
+    private void remindFinalSettlementBatches() {
+        List<FinalSettlementBatch> batches = finalSettlementBatchRepository.findByStatusInAndIsDeletedFalse(UNRESOLVED_STATUSES);
+        if (batches.isEmpty()) {
+            return;
+        }
+        log.info("미해결 실패 최종 정산 회차 재통보 점검 ({}건)", batches.size());
+        batches.forEach(batch -> runIsolated(batch.getId(), () -> settlementFailureNotifier.remindUnresolvedFinalSettlementBatch(batch)));
+    }
+
+    private void runKindIsolated(String kind, Runnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            log.warn("미해결 실패 {} 회차 재통보 점검 실패 — 다른 종류 점검은 계속 진행합니다", kind, e);
+        }
     }
 
     // 한 회차의 실패가 다른 회차 재통보를 막지 않게 격리한다.
