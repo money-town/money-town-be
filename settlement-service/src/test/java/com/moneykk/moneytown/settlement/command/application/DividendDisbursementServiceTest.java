@@ -47,6 +47,7 @@ class DividendDisbursementServiceTest {
     void disburseOnlyClaimsAndDoesNotFinalize() {
         UUID batchId = UUID.randomUUID();
         DividendPayout payout = DividendPayout.queue(batchId, UUID.randomUUID(), BigDecimal.ONE, 1_000_000L);
+        when(payoutWriter.markDisbursing(batchId)).thenReturn(true);
         when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of(payout));
 
         dividendDisbursementService.disburse(batchId);
@@ -63,6 +64,7 @@ class DividendDisbursementServiceTest {
     void disburseFinalizesDirectlyWhenNothingClaimed() {
         UUID batchId = UUID.randomUUID();
         SettlementBatch completedBatch = batchWithStatus(batchId, SettlementStatus.COMPLETED);
+        when(payoutWriter.markDisbursing(batchId)).thenReturn(true);
         when(payoutWriter.claimPendingPayouts(batchId)).thenReturn(List.of());
         when(payoutWriter.hasInProgressPayouts(batchId)).thenReturn(false);
         when(payoutWriter.finalizeBatchIfDisbursing(batchId)).thenReturn(Optional.of(completedBatch));
@@ -71,6 +73,19 @@ class DividendDisbursementServiceTest {
 
         verify(payoutWriter).finalizeBatchIfDisbursing(batchId);
         verify(settlementFailureNotifier, never()).notifyDividendBatchFailed(any());
+    }
+
+    @Test
+    @DisplayName("disburse: 이미 종결된 회차(markDisbursing=false)면 claim·마감 판정 없이 중단한다")
+    void disburseSkipsWhenBatchAlreadyClosed() {
+        UUID batchId = UUID.randomUUID();
+        when(payoutWriter.markDisbursing(batchId)).thenReturn(false);
+
+        dividendDisbursementService.disburse(batchId);
+
+        verify(payoutWriter, never()).claimPendingPayouts(any());
+        verify(payoutWriter, never()).hasInProgressPayouts(any());
+        verify(payoutWriter, never()).finalizeBatchIfDisbursing(any());
     }
 
     @Test
