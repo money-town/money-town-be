@@ -30,7 +30,11 @@ public class DividendDisbursementService {
     // claim + Outbox 저장까지만 한다. 실제 지급은 Outbox → Kafka → 지갑이 처리하고, 그 결과를
     // applyDispatchResult로 돌려받는다(정산은 더 이상 지갑을 직접 호출하지 않음).
     public void disburse(UUID settlementBatchId) {
-        payoutWriter.markDisbursing(settlementBatchId);
+        if (!payoutWriter.markDisbursing(settlementBatchId)) {
+            log.warn("이미 종결된 정산 회차라 지급 처리를 건너뜁니다 (settlementBatchId={}). 남은 QUEUED/RETRYING 지급 건이 있다면 데이터 정합성을 확인하세요.",
+                    settlementBatchId);
+            return;
+        }
 
         long claimStartedAt = System.nanoTime();
         List<DividendPayout> claimedPayouts = payoutWriter.claimPendingPayouts(settlementBatchId);

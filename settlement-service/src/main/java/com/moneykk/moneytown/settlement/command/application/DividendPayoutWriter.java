@@ -30,17 +30,26 @@ class DividendPayoutWriter {
     private static final List<PayoutStatus> CLAIMABLE_STATUSES = List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING);
     private static final List<PayoutStatus> IN_PROGRESS_STATUSES =
             List.of(PayoutStatus.QUEUED, PayoutStatus.RETRYING, PayoutStatus.PROCESSING);
+    private static final List<SettlementStatus> CLOSED_STATUSES =
+            List.of(SettlementStatus.COMPLETED, SettlementStatus.CLOSED_ABANDONED);
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
     private final OutboxEventStore outboxEventStore;
     private final MeterRegistry meterRegistry;
 
+    // 이미 종결된 회차(COMPLETED/CLOSED_ABANDONED)는 되돌리지 않고 false를 반환한다 — 되돌리면 상태가 역행하고,
+    // 자산당 진행 중 회차를 1개로 제한하는 uk_settlement_batches_asset_in_progress 위반으로 매 스케줄러 사이클마다 예외가 난다.
+    // PARTIAL_FAILED/FAILED는 진행 중 지급 건이 남은 경우 다시 열려 마감 판정(finalizeBatchIfDisbursing)이 돌 수 있어야 하므로 허용한다.
     @Transactional
-    public void markDisbursing(UUID settlementBatchId) {
+    public boolean markDisbursing(UUID settlementBatchId) {
         SettlementBatch batch = loadBatch(settlementBatchId);
+        if (CLOSED_STATUSES.contains(batch.getStatus())) {
+            return false;
+        }
         batch.markDisbursing();
         settlementBatchRepository.save(batch);
+        return true;
     }
 
     @Transactional

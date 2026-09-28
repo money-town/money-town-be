@@ -54,7 +54,9 @@ public interface FinalSettlementQueryApi {
     @Operation(
             summary = "회차별 개별 반환 내역 조회",
             description = "ADMIN 권한으로 최종 정산 회차의 투자자별 원금반환 내역을 페이지 조회한다. status를 생략하면 전체 상태를 조회하며, "
-                    + "DEAD_LETTER로 필터링하면 retryCount 내림차순, 그 외에는 amount 내림차순으로 정렬된다."
+                    + "DEAD_LETTER로 필터링하면 retryCount 내림차순, 그 외에는 amount 내림차순으로 정렬된다. "
+                    + "DEAD_LETTER 건은 deadLetterReason으로 실패 사유를 구분한다 — manualResolutionRequired=true(RESPONSE_MISMATCH)인 건은 "
+                    + "재처리가 불가능하므로 지갑 트랜잭션을 대조하고 관리자가 수동으로 반환한 뒤 포기(abandon) 처리해야 한다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(

@@ -2,6 +2,7 @@ package com.moneykk.moneytown.settlement.query.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.PageResponse;
+import com.moneykk.moneytown.settlement.domain.entity.DeadLetterReason;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
@@ -105,7 +106,7 @@ class FinalSettlementQueryServiceTest {
             paid.markPaid();
             FinalSettlementPayout deadLetter = FinalSettlementPayout.queue(batch.getId(), UUID.randomUUID(), 400L, 400_000_000L);
             deadLetter.markProcessing();
-            deadLetter.markDeadLetter();
+            deadLetter.markDeadLetter(DeadLetterReason.RETRY_EXCEEDED);
             when(finalSettlementPayoutRepository.findByFinalSettlementBatchIdAndIsDeletedFalse(batch.getId()))
                     .thenReturn(List.of(paid, deadLetter));
 
@@ -276,7 +277,7 @@ class FinalSettlementQueryServiceTest {
         void sortsByRetryCountDescWhenFilteredByDeadLetter() {
             UUID batchId = UUID.randomUUID();
             FinalSettlementPayout payout = FinalSettlementPayout.queue(batchId, UUID.randomUUID(), 30L, 30_000_000L);
-            payout.markDeadLetter();
+            payout.markDeadLetter(DeadLetterReason.RETRY_EXCEEDED);
             Pageable requestedPageable = PageRequest.of(0, 20);
             Pageable expectedPageable = PageRequest.of(0, 20,
                     Sort.by(Sort.Direction.DESC, "retryCount").and(Sort.by(Sort.Direction.ASC, "id")));

@@ -141,7 +141,7 @@ class SettlementQueryControllerTest {
     }
 
     @Test
-    @DisplayName("내 배당 내역 조회는 X-User-Id 헤더의 투자자 ID로 서비스를 호출한다")
+    @DisplayName("내 배당 내역 조회는 X-User-Role·X-User-Id 헤더 값으로 서비스를 호출한다")
     void getMyDividends_success_returns200() throws Exception {
         UUID investorId = UUID.randomUUID();
         MyDividendPayoutListItemResponse item = new MyDividendPayoutListItemResponse(
@@ -149,10 +149,11 @@ class SettlementQueryControllerTest {
                 BigDecimal.valueOf(0.1), 1_000L, PayoutStatus.PAID, Instant.parse("2026-09-02T00:00:00Z"));
         PageResponse<MyDividendPayoutListItemResponse> page =
                 new PageResponse<>(List.of(item), 0, 20, 1, 1, true, true, false);
-        when(settlementQueryService.getMyDividends(eq(investorId), isNull(), any(Pageable.class))).thenReturn(page);
+        when(settlementQueryService.getMyDividends(eq("INVESTOR"), eq(investorId), isNull(), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/v1/dividends/me")
-                        .header("X-User-Id", investorId.toString()))
+                        .header(AuthHeaderConstants.USER_ROLE, "INVESTOR")
+                        .header(AuthHeaderConstants.USER_ID, investorId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].dividendPayoutId").value(item.dividendPayoutId().toString()));
     }
@@ -160,7 +161,30 @@ class SettlementQueryControllerTest {
     @Test
     @DisplayName("X-User-Id 헤더가 없으면 400을 반환한다")
     void getMyDividends_missingUserIdHeader_returns400() throws Exception {
-        mockMvc.perform(get("/api/v1/dividends/me"))
+        mockMvc.perform(get("/api/v1/dividends/me")
+                        .header(AuthHeaderConstants.USER_ROLE, "INVESTOR"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("X-User-Role 헤더가 없으면 400을 반환한다")
+    void getMyDividends_missingRoleHeader_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/dividends/me")
+                        .header(AuthHeaderConstants.USER_ID, UUID.randomUUID().toString()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("허용되지 않은 role이면 403(SETTLEMENT_403_04)을 반환한다")
+    void getMyDividends_forbiddenRole_returns403() throws Exception {
+        UUID userId = UUID.randomUUID();
+        when(settlementQueryService.getMyDividends(eq("ADMIN"), eq(userId), isNull(), any(Pageable.class)))
+                .thenThrow(new BusinessException(SettlementErrorCode.DIVIDEND_ACCESS_DENIED));
+
+        mockMvc.perform(get("/api/v1/dividends/me")
+                        .header(AuthHeaderConstants.USER_ROLE, "ADMIN")
+                        .header(AuthHeaderConstants.USER_ID, userId.toString()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SETTLEMENT_403_04"));
     }
 }

@@ -229,6 +229,12 @@ public class SecurityConfig {
                                         "/api/v1/subscriptions/{subscriptionId}"
                                 ).hasAnyRole("INVESTOR", "ADMIN")
 
+                                // 내 배당 내역 조회 — 발행자 승인 시 role이 INVESTOR에서 ISSUER로 교체되므로 ISSUER도 허용
+                                .pathMatchers(
+                                        HttpMethod.GET,
+                                        "/api/v1/dividends/me"
+                                ).hasAnyRole("INVESTOR", "ISSUER")
+
                                 // 마지막에 위치
                                 .anyExchange().authenticated()
                 )

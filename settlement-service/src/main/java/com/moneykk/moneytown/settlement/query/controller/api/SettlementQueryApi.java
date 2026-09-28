@@ -103,22 +103,27 @@ public interface SettlementQueryApi {
             @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
             @Parameter(description = "정합성을 검증할 정산 회차 ID") @PathVariable UUID settlementBatchId);
 
-    // TODO: Gateway 인증/인가 정책 확정 후 INVESTOR 권한 및 사용자 정보 전달 방식 재검토
     @Operation(
             tags = "Settlement",
             summary = "내 배당 내역·산출 근거 조회",
             description = "로그인한 투자자 본인의 배당 지급 내역을 페이지 조회한다. assetId를 지정하면 해당 자산으로 필터링하고, "
-                    + "생략하면 투자자의 전체 배당 내역을 조회한다. paidAt은 PAID 상태일 때만 값이 채워진다."
+                    + "생략하면 투자자의 전체 배당 내역을 조회한다. paidAt은 PAID 상태일 때만 값이 채워진다. "
+                    + "INVESTOR와 ISSUER 권한만 호출할 수 있다(발행자 승인 시 role이 ISSUER로 교체되므로 기존 보유분 조회를 위해 허용)."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     description = "조회 성공",
-                    content = @Content(schema = @Schema(implementation = PageResponse.class)))
+                    content = @Content(schema = @Schema(implementation = PageResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "INVESTOR 또는 ISSUER 권한이 아님 (SETTLEMENT_403_04)",
+                    content = @Content(schema = @Schema(implementation = ApiResponse.class)))
     })
     @GetMapping("/dividends/me")
     ResponseEntity<ApiResponse<PageResponse<MyDividendPayoutListItemResponse>>> getMyDividends(
-            @Parameter(hidden = true) @RequestHeader("X-User-Id") UUID investorId,
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
+            @Parameter(hidden = true) @RequestHeader(AuthHeaderConstants.USER_ID) UUID investorId,
             @Parameter(description = "자산 ID 필터 (생략 시 전체 자산 조회)") @RequestParam(required = false) UUID assetId,
             @PageableDefault(size = 20) Pageable pageable);
 }

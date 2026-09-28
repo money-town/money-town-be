@@ -159,11 +159,20 @@ public class FinalSettlementCommandService {
     private List<FinalSettlementPayout> findRetryablePayouts(UUID finalSettlementBatchId, FinalSettlementRetryRequest request) {
         List<UUID> payoutIds = request.finalSettlementPayoutIds();
         if (payoutIds == null || payoutIds.isEmpty()) {
+            // 전체 재처리에서는 수동 지급이 필요한 건(지갑 응답 불일치)을 조용히 제외한다
             return finalSettlementPayoutRepository
-                    .findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(finalSettlementBatchId, PayoutStatus.DEAD_LETTER);
+                    .findByFinalSettlementBatchIdAndStatusAndIsDeletedFalse(finalSettlementBatchId, PayoutStatus.DEAD_LETTER)
+                    .stream()
+                    .filter(payout -> !payout.requiresManualResolution())
+                    .toList();
         }
-        return finalSettlementPayoutRepository
+        List<FinalSettlementPayout> requested = finalSettlementPayoutRepository
                 .findByFinalSettlementBatchIdAndIdInAndStatusAndIsDeletedFalse(finalSettlementBatchId, payoutIds, PayoutStatus.DEAD_LETTER);
+        // 운영자가 ID를 직접 지정한 경우엔 조용히 빼지 않고 명시적으로 거절한다
+        if (requested.stream().anyMatch(FinalSettlementPayout::requiresManualResolution)) {
+            throw new BusinessException(SettlementErrorCode.FINAL_SETTLEMENT_PAYOUT_MANUAL_RESOLUTION_REQUIRED);
+        }
+        return requested;
     }
 
     // 관리자가 다른 방법으로 실제 원금 반환을 완료한 뒤에만 호출해야 한다

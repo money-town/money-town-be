@@ -92,8 +92,7 @@ public class FinalSettlementDisbursementService {
 
             SettlementDepositResponse data = response.data();
             if (data == null || !finalSettlementBatchId.equals(data.finalSettlementBatchId())) {
-                // TODO 도전 기능 = 별도 상태/플래그를 둬서 재처리 API가 구분 -> 지갑 트랜잭션 대조 확인 후에만 재처리
-                // 일반 DEAD_LETTER와 같은 재처리 경로(retryFinalSettlement) -> 사람이 로그를 못 보고 재처리 버튼을 누르면 대조 확인 없이 재시도 가능
+                // RESPONSE_MISMATCH로 표시되어 재처리 API(retryFinalSettlement) 대상에서 제외된다 — 관리자가 지갑 트랜잭션을 대조하고 수동 지급 후 abandon 처리
                 log.error("지갑 응답의 finalSettlementBatchId가 요청과 다릅니다 — 재처리 전 지갑 트랜잭션 대조 확인 필요. "
                                 + "payoutId={}, 요청 finalSettlementBatchId={}, 응답 finalSettlementBatchId={}, transactionId={}",
                         payout.getId(), finalSettlementBatchId, data == null ? null : data.finalSettlementBatchId(),

@@ -1,5 +1,6 @@
 package com.moneykk.moneytown.settlement.domain.repository;
 
+import com.moneykk.moneytown.settlement.domain.entity.DeadLetterReason;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
@@ -54,7 +55,7 @@ class FinalSettlementPayoutRepositoryTest extends RepositoryTestSupport {
             case PROCESSING -> payout.markProcessing();
             case PAID -> payout.markPaid();
             case RETRYING -> payout.markRetrying();
-            case DEAD_LETTER -> payout.markDeadLetter();
+            case DEAD_LETTER -> payout.markDeadLetter(DeadLetterReason.RETRY_EXCEEDED);
             case QUEUED -> { /* queue() 직후 기본값 */ }
         }
     }

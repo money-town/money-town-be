@@ -1,6 +1,5 @@
 package com.moneykk.moneytown.settlement.command.application;
 
-import com.moneykk.moneytown.common.client.FeignExceptionTranslator;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.settlement.command.dto.SettlementBatchResponse;
 import com.moneykk.moneytown.settlement.domain.entity.DividendPayout;
@@ -14,6 +13,7 @@ import com.moneykk.moneytown.settlement.domain.repository.SettlementBatchReposit
 import com.moneykk.moneytown.settlement.domain.service.DividendDistributionCalculator;
 import com.moneykk.moneytown.settlement.global.exception.SettlementErrorCode;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetHoldingsSnapshotFetcher;
+import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceCaller;
 import com.moneykk.moneytown.settlement.infrastructure.client.AssetServiceClient;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueResponse;
 import com.moneykk.moneytown.settlement.infrastructure.client.dto.RevenueTransferStatus;
@@ -208,7 +208,7 @@ public class SettlementCommandService {
     }
 
     private RevenueResponse fetchAndValidateRevenue(UUID assetId, UUID revenueId) {
-        RevenueResponse revenue = FeignExceptionTranslator.call(
+        RevenueResponse revenue = AssetServiceCaller.call(
                 () -> assetServiceClient.getRevenue(assetId, revenueId, "SYSTEM").data(),
                 SettlementErrorCode.ASSET_REVENUE_NOT_FOUND);
 
