@@ -30,8 +30,8 @@
 |---|----------------------------|
 | **📆 프로젝트 기간** | 2026.08.25 ~ 2026.09.28    |
 | **🔗 배포 링크** | https://www.moneytown.shop |
-| **🎬 시연 영상** |  https://drive.google.com/file/d/1s3ViN5XZVm_tsH-eOvjJu9KlD8uJSL7O/view?usp=drive_link                          |
-| **📑 발표 자료** |  https://docs.google.com/presentation/d/11AwnJ5f7cQOf3NaIYF7t0QEVCiKctk0y/edit?usp=drive_link&ouid=106430970059448745336&rtpof=true&sd=true                          |
+| **🎬 시연 영상** |  [시연 영상](https://drive.google.com/file/d/1s3ViN5XZVm_tsH-eOvjJu9KlD8uJSL7O/view?usp=drive_link)                          |
+| **📑 발표 자료** |  [발표 자료](https://docs.google.com/presentation/d/11AwnJ5f7cQOf3NaIYF7t0QEVCiKctk0y/edit?usp=drive_link&ouid=106430970059448745336&rtpof=true&sd=true)                          |
 
 ### 🏗️ 제공 기능
 
@@ -145,7 +145,7 @@ money-town
 
 ### ⚙️ 배포 아키텍처
 
-![배포 아키텍처](docs/assets/architecture/3-current-staggered.png)
+<img width="2154" height="1692" alt="3-current-staggered" src="https://github.com/user-attachments/assets/b0ddff18-06c2-4431-ada4-b425e9c044e8" />
 
 
 ### 📔 데이터베이스 ERD
