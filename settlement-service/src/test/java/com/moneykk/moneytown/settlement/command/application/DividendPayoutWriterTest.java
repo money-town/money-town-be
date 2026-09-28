@@ -72,6 +72,58 @@ class DividendPayoutWriterTest {
     }
 
     @Test
+    @DisplayName("markDisbursing: 성공하면 true를 반환한다")
+    void marksDisbursing_returnsTrue() {
+        SettlementBatch batch = openBatch();
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        assertThat(dividendPayoutWriter.markDisbursing(batch.getId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("markDisbursing: COMPLETED 회차는 되돌리지 않고 false를 반환한다 (유니크 인덱스 충돌·상태 역행 방지)")
+    void marksDisbursing_completedBatchIsNotReopened() {
+        SettlementBatch batch = openBatch();
+        batch.markCompleted();
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        assertThat(dividendPayoutWriter.markDisbursing(batch.getId())).isFalse();
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        verify(settlementBatchRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("markDisbursing: CLOSED_ABANDONED 회차는 되돌리지 않고 false를 반환한다")
+    void marksDisbursing_closedAbandonedBatchIsNotReopened() {
+        SettlementBatch batch = openBatch();
+        batch.markClosedAbandoned();
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(batch.getId())).thenReturn(Optional.of(batch));
+
+        assertThat(dividendPayoutWriter.markDisbursing(batch.getId())).isFalse();
+
+        assertThat(batch.getStatus()).isEqualTo(SettlementStatus.CLOSED_ABANDONED);
+        verify(settlementBatchRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("markDisbursing: PARTIAL_FAILED/FAILED 회차는 진행 중 지급 건의 마감 판정을 위해 다시 DISBURSING으로 열린다")
+    void marksDisbursing_failedBatchesAreReopened() {
+        SettlementBatch partial = openBatch();
+        partial.markPartialFailed();
+        SettlementBatch failed = openBatch();
+        failed.markFailed();
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(partial.getId())).thenReturn(Optional.of(partial));
+        when(settlementBatchRepository.findByIdAndIsDeletedFalse(failed.getId())).thenReturn(Optional.of(failed));
+
+        assertThat(dividendPayoutWriter.markDisbursing(partial.getId())).isTrue();
+        assertThat(dividendPayoutWriter.markDisbursing(failed.getId())).isTrue();
+
+        assertThat(partial.getStatus()).isEqualTo(SettlementStatus.DISBURSING);
+        assertThat(failed.getStatus()).isEqualTo(SettlementStatus.DISBURSING);
+    }
+
+    @Test
     @DisplayName("markDisbursing: 존재하지 않는 배치면 예외")
     void marksDisbursing_batchNotFound() {
         UUID unknownBatchId = UUID.randomUUID();

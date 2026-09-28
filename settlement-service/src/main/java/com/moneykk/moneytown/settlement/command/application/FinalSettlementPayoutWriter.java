@@ -1,6 +1,7 @@
 package com.moneykk.moneytown.settlement.command.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
+import com.moneykk.moneytown.settlement.domain.entity.DeadLetterReason;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementBatch;
 import com.moneykk.moneytown.settlement.domain.entity.FinalSettlementPayout;
 import com.moneykk.moneytown.settlement.domain.entity.PayoutStatus;
@@ -91,7 +92,7 @@ class FinalSettlementPayoutWriter {
         payout.incrementRetryCount();
         meterRegistry.counter("settlement.payout.retry", "type", "final").increment();
         if (payout.getRetryCount() >= MAX_RETRY_COUNT) {
-            payout.markDeadLetter();
+            payout.markDeadLetter(DeadLetterReason.RETRY_EXCEEDED);
             meterRegistry.counter("settlement.payout.dead_letter", "type", "final", "reason", "retry_exceeded").increment();
         } else {
             payout.markRetrying();
@@ -100,10 +101,11 @@ class FinalSettlementPayoutWriter {
     }
 
     // 지갑 응답이 success=true인데 우리가 보낸 finalSettlementBatchId와 다른 값을 돌려준 경우 : 즉시 DEAD_LETTER
+    // RESPONSE_MISMATCH로 표시해 재처리 API 대상에서 제외한다 — 지갑 트랜잭션 대조 후 관리자가 수동 지급(abandon)해야 한다
     @Transactional
     public void markResponseMismatch(UUID payoutId) {
         FinalSettlementPayout payout = loadPayout(payoutId);
-        payout.markDeadLetter();
+        payout.markDeadLetter(DeadLetterReason.RESPONSE_MISMATCH);
         meterRegistry.counter("settlement.payout.dead_letter", "type", "final", "reason", "response_mismatch").increment();
         finalSettlementPayoutRepository.save(payout);
     }
