@@ -3,6 +3,7 @@ package com.moneykk.moneytown.offering.subscription.infrastructure.event;
 import com.moneykk.moneytown.common.event.EventEnvelope;
 import com.moneykk.moneytown.offering.global.outbox.OutboxEventStore;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionRequest;
 import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,9 @@ public class SubscriptionEventPublisher {
 
     private static final String AGGREGATE_TYPE = "SUBSCRIPTION";
     private static final String SUBSCRIPTION_REQUEST_AGGREGATE_TYPE = "SUBSCRIPTION_REQUEST";
+
+    private static final String REQUESTED_EVENT_TYPE = "SubscriptionRequested";
+    private static final String REQUESTED_TOPIC = "subscription-requested";
 
     private static final String RESERVED_EVENT_TYPE = "SubscriptionReserved";
     private static final String RESERVED_TOPIC = "subscription-reserved";
@@ -33,6 +37,36 @@ public class SubscriptionEventPublisher {
     private static final String WALLET_HOLD_FAILURE_SOURCE = "WALLET_HOLD";
 
     private final OutboxEventStore outboxEventStore;
+
+    /**
+     * HTTP 접수와 동일한 트랜잭션에서 실제 청약 처리 작업을 저장한다.
+     */
+    public void publishRequested(SubscriptionRequest request) {
+        Objects.requireNonNull(request, "subscriptionRequest는 필수입니다.");
+
+        SubscriptionRequestedPayload payload =
+                new SubscriptionRequestedPayload(
+                        request.getOfferingId(),
+                        request.getQuantity(),
+                        request.getIdempotencyKey(),
+                        request.getRequestHash()
+                );
+
+        EventEnvelope<SubscriptionRequestedPayload> envelope =
+                EventEnvelope.of(
+                        REQUESTED_EVENT_TYPE,
+                        request.getSubscriptionRequestId().toString(),
+                        request.getUserId(),
+                        request.getCorrelationId(),
+                        payload
+                );
+
+        outboxEventStore.save(
+                SUBSCRIPTION_REQUEST_AGGREGATE_TYPE,
+                REQUESTED_TOPIC,
+                envelope
+        );
+    }
 
     /**
      * 청약금 동결 요청 이벤트를 Outbox에 저장한다.

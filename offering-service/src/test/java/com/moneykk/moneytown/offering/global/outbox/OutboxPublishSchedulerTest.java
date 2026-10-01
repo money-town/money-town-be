@@ -92,6 +92,51 @@ class OutboxPublishSchedulerTest {
     }
 
     @Test
+    @DisplayName("청약 접수 이벤트는 offeringId를 Kafka 메시지 Key로 사용한다")
+    void publishesSubscriptionRequestedWithOfferingIdKey() {
+        UUID eventId = UUID.randomUUID();
+        UUID offeringId = UUID.randomUUID();
+        String envelopeJson = """
+                {
+                  "eventId": "%s",
+                  "eventType": "SubscriptionRequested",
+                  "aggregateId": "%s",
+                  "userId": "%s",
+                  "payload": {
+                    "offeringId": "%s",
+                    "quantity": 1,
+                    "idempotencyKey": "key",
+                    "requestHash": "%s"
+                  }
+                }
+                """.formatted(
+                eventId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                offeringId,
+                "a".repeat(64)
+        );
+        OutboxPublishService.ClaimedEvent event =
+                new OutboxPublishService.ClaimedEvent(
+                        eventId,
+                        "subscription-requested",
+                        envelopeJson,
+                        Instant.now()
+                );
+
+        when(outboxPublishService.claimPendingEvents(10))
+                .thenReturn(List.of(event));
+        when(outboxKafkaPublisher.publish(event, offeringId.toString()))
+                .thenReturn(successfulFuture());
+        when(outboxPublishService.markPublished(event)).thenReturn(true);
+
+        scheduler.publishPendingEvents();
+
+        verify(outboxKafkaPublisher).publish(event, offeringId.toString());
+        verify(outboxPublishService).markPublished(event);
+    }
+
+    @Test
     @DisplayName(
             "한 이벤트의 Kafka 발행이 실패해도 다음 이벤트를 계속 처리한다"
     )

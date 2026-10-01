@@ -9,6 +9,22 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicConfig {
 
     @Bean
+    public NewTopic subscriptionRequestedTopic() {
+        return TopicBuilder.name("subscription-requested")
+                .partitions(6)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic subscriptionRequestedDltTopic() {
+        return TopicBuilder.name("subscription-requested-dlt")
+                .partitions(6)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
     public NewTopic subscriptionConfirmedTopic() {
         return TopicBuilder.name("subscription-confirmed")
                 .partitions(6)
