@@ -107,12 +107,12 @@ resilience4j:
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 5
 
-  # user-service 호출의 동시 실행을 기본 8개로 제한하고,
+  # user-service 호출의 동시 실행을 기본 16개로 제한하고,
   # 순간 버스트에는 최대 200ms까지 permit 반환을 기다린다.
   bulkhead:
     configs:
       default:
-        max-concurrent-calls: ${USER_SERVICE_BULKHEAD_MAX_CONCURRENT_CALLS:8}
+        max-concurrent-calls: ${USER_SERVICE_BULKHEAD_MAX_CONCURRENT_CALLS:16}
         max-wait-duration: 200ms
 
 subscription:
