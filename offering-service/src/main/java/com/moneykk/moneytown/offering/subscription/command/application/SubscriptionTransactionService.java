@@ -2,11 +2,13 @@ package com.moneykk.moneytown.offering.subscription.command.application;
 
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
+import com.moneykk.moneytown.offering.offering.domain.repository.OfferingRepository;
 import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
 import com.moneykk.moneytown.offering.subscription.domain.entity.IdempotencyOperation;
 import com.moneykk.moneytown.offering.subscription.domain.entity.Subscription;
 import com.moneykk.moneytown.offering.subscription.domain.repository.IdempotencyRequestRepository;
 import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRepository;
+import com.moneykk.moneytown.offering.subscription.domain.repository.SubscriptionRequestRepository;
 import com.moneykk.moneytown.offering.subscription.infrastructure.event.SubscriptionEventPublisher;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
@@ -33,7 +35,9 @@ public class SubscriptionTransactionService {
     private static final String DUPLICATE_SUBSCRIPTION_CONSTRAINT = "uq_subscriptions_offering_user";
 
     private final SubscriptionRepository subscriptionRepository;
+    private final OfferingRepository offeringRepository;
     private final IdempotencyRequestRepository idempotencyRequestRepository;
+    private final SubscriptionRequestRepository subscriptionRequestRepository;
 
     private final SubscriptionEventPublisher subscriptionEventPublisher;
     private final OfferingQuantityReservationService offeringQuantityReservationService;
@@ -131,6 +135,73 @@ public class SubscriptionTransactionService {
 
             throw e;
         }
+    }
+
+    /**
+     * 비동기 접수의 실제 청약을 생성하고 접수 상태를 같은 트랜잭션에서 완료한다.
+     * 외부 호출이 끝난 뒤 수량 선점, Subscription/Outbox 저장, 접수 완료만
+     * 하나의 짧은 로컬 트랜잭션으로 묶어 중간 종료 시에도 함께 롤백한다.
+     */
+    @Transactional
+    public SubscriptionCreateResponse createSubscriptionForRequest(
+            UUID requestId,
+            UUID offeringId,
+            UUID userId,
+            Long quantity,
+            Long pricePerUnit,
+            String correlationId
+    ) {
+        validateDuplicateSubscription(offeringId, userId);
+
+        /*
+         * 비동기 경로에서는 외부 호출이 이미 끝난 뒤이므로 수량 UPDATE,
+         * Subscription/Outbox 저장, 접수 완료를 하나의 짧은 트랜잭션으로 묶는다.
+         * 프로세스가 중간 종료되어도 수량만 차감된 상태가 남지 않는다.
+         */
+        int updatedRows = offeringRepository.reserveQuantity(
+                offeringId,
+                quantity,
+                userId
+        );
+
+        if (updatedRows == 0) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.INSUFFICIENT_REMAINING_QUANTITY
+            );
+        }
+
+        Instant reservationExpiresAt = Instant.now().plus(
+                reservationTimeoutMinutes,
+                ChronoUnit.MINUTES
+        );
+
+        Subscription savedSubscription = saveSubscription(
+                Subscription.create(
+                        offeringId,
+                        userId,
+                        quantity,
+                        pricePerUnit,
+                        reservationExpiresAt
+                )
+        );
+
+        subscriptionEventPublisher.publishReserved(
+                savedSubscription,
+                correlationId
+        );
+
+        var acceptedRequest = subscriptionRequestRepository
+                .findByIdForUpdate(requestId)
+                .orElseThrow(() -> new BusinessException(
+                        SubscriptionErrorCode.IDEMPOTENCY_REQUEST_STATE_INVALID
+                ));
+
+        acceptedRequest.complete(
+                savedSubscription.getSubscriptionId(),
+                Instant.now()
+        );
+
+        return SubscriptionCreateResponse.from(savedSubscription);
     }
 
     /**
