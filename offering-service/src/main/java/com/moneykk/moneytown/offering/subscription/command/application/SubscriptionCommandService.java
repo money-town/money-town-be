@@ -86,7 +86,7 @@ public class SubscriptionCommandService {
             );
         }
 
-        // 로컬 DB에서 판정 가능한 요청을 먼저 거절해 외부 서비스 호출을 줄인다.
+        // 공모·수량 검증을 통과한 요청만 외부 자격 검증을 수행한다.
         validateUserEligibility(userId);
 
         // 안정적인 requestId를 사용하여 Consumer 재시도 시 Pre-FDS도 멱등 처리한다.
