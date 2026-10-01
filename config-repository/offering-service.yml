@@ -1,10 +1,10 @@
 server:
   port: 19096
   tomcat:
-    # 순간적으로 몰리는 요청을 즉시 거절(502/503)하지 않고 대기열에 담아 처리하기 위해
-    # 기본값(100)보다 넉넉하게 잡는다. max-threads는 올리지 않는다 — 청약 생성은
-    # offering 행 하나에 대한 비관적 락으로 직렬화되어, 워커 스레드를 늘려도
-    # 그만큼 더 많은 스레드가 락 대기로 멈춰 있을 뿐 처리량은 늘지 않는다.
+    # 순간 버스트가 Tomcat worker 수를 초과하더라도
+    # 대기열에서 수용할 수 있도록 기본값보다 확장한다.
+    # 동시 처리량 증가는 DB·외부 서비스 부하를 높일 수 있어
+    # max-threads는 기본값을 유지한다.
     accept-count: 200
 
 # HTTP 요청 시간 Histogram 활성화
@@ -70,7 +70,6 @@ spring:
     listener:
       ack-mode: record
 
-
   task:
     scheduling:
       pool:
@@ -96,11 +95,8 @@ spring:
             connect-timeout: ${WALLET_SERVICE_CONNECT_TIMEOUT:1000}
             read-timeout: ${WALLET_SERVICE_READ_TIMEOUT:2000}
 
-# user-service 조회(투자 자격 검증)에만 서킷브레이커/벌크헤드를 적용한다.
-# offering-service는 Feign 클라이언트가 5개(user/asset/analysis/holding/wallet)라
-# feign.circuitbreaker.enabled 전역 스위치를 켜면 나머지 4개까지 전부 서킷브레이커로
-# 감싸져 CallNotPermittedException이 기존 FeignException 처리 로직을 우회하게 된다.
-# 그래서 전역 스위치 대신 CircuitBreakerRegistry/BulkheadRegistry를 user-service 호출부에서만 직접 사용한다.
+# 투자자 자격 검증을 위한 user-service 호출에만
+# Circuit Breaker와 Bulkhead를 명시적으로 적용한다.
 resilience4j:
   circuitbreaker:
     configs:
@@ -109,15 +105,15 @@ resilience4j:
         minimum-number-of-calls: 20
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
 
-  # user-service의 HikariCP 풀(10개, wallet-service와 공유)이 offering-service 하나만으로
-  # 소진되지 않도록 동시 호출 수를 제한한다. 대기 없이 즉시 거절(fail-fast)한다.
+  # user-service 호출의 동시 실행을 기본 8개로 제한하고,
+  # 순간 버스트에는 최대 200ms까지 permit 반환을 기다린다.
   bulkhead:
     configs:
       default:
         max-concurrent-calls: ${USER_SERVICE_BULKHEAD_MAX_CONCURRENT_CALLS:8}
-        max-wait-duration: 0
-        permitted-number-of-calls-in-half-open-state: 5
+        max-wait-duration: 200ms
 
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
