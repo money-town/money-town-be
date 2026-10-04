@@ -4,11 +4,12 @@ import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.common.security.AuthHeaderConstants;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
-import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCommandService;
+import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionRequestIntakeService;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
-import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
-import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResult;
+import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionRequestAcceptedResponse;
+import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionRequestAcceptedResult;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,18 +33,37 @@ import java.util.UUID;
 @RequestMapping("/api/v1/offerings/{offeringId}/subscriptions")
 public class SubscriptionCommandController {
 
-    private final SubscriptionCommandService subscriptionCommandService;
+    private final SubscriptionRequestIntakeService subscriptionRequestIntakeService;
 
     @Operation(
             summary = "선착순 청약 접수",
             description = """
-                        INVESTOR가 모집 중인 공모에 청약을 요청합니다.
-                        사용자 자격, PreFDS 및 청약 수량을 검증한 후 수량을 확보하고,
-                        Wallet에 자금 동결을 비동기로 요청합니다.
+                        INVESTOR의 청약 요청을 내구성 있는 접수 상태와 Outbox에 저장하고
+                        202 Accepted를 반환합니다. 사용자 자격·Pre-FDS 검증, 수량 선점과
+                        Wallet 동결 요청은 Kafka Consumer가 제한된 동시성으로 처리합니다.
+                        같은 Idempotency-Key와 같은 요청은 최초 requestId를 반환합니다.
                     """
     )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "202",
+                    description = "접수 저장 완료. QUEUED 상태와 requestId 반환"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "청약 수량, Idempotency-Key 또는 요청 정보가 올바르지 않음"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "INVESTOR 역할이 아닌 사용자"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "409",
+                    description = "동일 Idempotency-Key에 다른 요청 해시가 전달됨"
+            )
+    })
     @PostMapping
-    public ResponseEntity<ApiResponse<SubscriptionCreateResponse>> createSubscription(
+    public ResponseEntity<ApiResponse<SubscriptionRequestAcceptedResponse>> createSubscription(
             @PathVariable UUID offeringId,
             @RequestHeader(AuthHeaderConstants.USER_ID) UUID userId,
             @RequestHeader(AuthHeaderConstants.USER_ROLE) String role,
@@ -57,8 +77,8 @@ public class SubscriptionCommandController {
             );
         }
 
-        SubscriptionCreateResult result =
-                subscriptionCommandService.create(
+        SubscriptionRequestAcceptedResult result =
+                subscriptionRequestIntakeService.accept(
                         offeringId,
                         userId,
                         idempotencyKey,

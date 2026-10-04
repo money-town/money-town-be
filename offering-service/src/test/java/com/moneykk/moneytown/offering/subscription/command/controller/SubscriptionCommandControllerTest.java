@@ -3,11 +3,11 @@ package com.moneykk.moneytown.offering.subscription.command.controller;
 import com.moneykk.moneytown.common.exception.BusinessException;
 import com.moneykk.moneytown.common.response.ApiResponse;
 import com.moneykk.moneytown.offering.global.exception.SubscriptionErrorCode;
-import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionCommandService;
+import com.moneykk.moneytown.offering.subscription.command.application.SubscriptionRequestIntakeService;
 import com.moneykk.moneytown.offering.subscription.command.dto.request.SubscriptionCreateRequest;
-import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResponse;
-import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionCreateResult;
-import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionStatus;
+import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionRequestAcceptedResponse;
+import com.moneykk.moneytown.offering.subscription.command.dto.response.SubscriptionRequestAcceptedResult;
+import com.moneykk.moneytown.offering.subscription.domain.entity.SubscriptionRequestStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 class SubscriptionCommandControllerTest {
 
     @Mock
-    private SubscriptionCommandService subscriptionCommandService;
+    private SubscriptionRequestIntakeService subscriptionRequestIntakeService;
 
     @InjectMocks
     private SubscriptionCommandController subscriptionCommandController;
@@ -45,20 +45,21 @@ class SubscriptionCommandControllerTest {
 
         SubscriptionCreateRequest request = new SubscriptionCreateRequest(10L);
 
-        SubscriptionCreateResponse serviceResponse = new SubscriptionCreateResponse(
-                UUID.randomUUID(), offeringId, 10L, 1_000L, 10_000L,
-                SubscriptionStatus.PROCESSING
+        SubscriptionRequestAcceptedResponse serviceResponse =
+                new SubscriptionRequestAcceptedResponse(
+                UUID.randomUUID(), SubscriptionRequestStatus.QUEUED,
+                null, null
         );
 
-        SubscriptionCreateResult result =
-                SubscriptionCreateResult.created(serviceResponse);
+        SubscriptionRequestAcceptedResult result =
+                new SubscriptionRequestAcceptedResult(serviceResponse, false);
 
-        when(subscriptionCommandService.create(
+        when(subscriptionRequestIntakeService.accept(
                 offeringId, userId, idempotencyKey, request, correlationId
         )).thenReturn(result);
 
         // when
-        ResponseEntity<ApiResponse<SubscriptionCreateResponse>> response =
+        ResponseEntity<ApiResponse<SubscriptionRequestAcceptedResponse>> response =
                 subscriptionCommandController.createSubscription(
                         offeringId, userId, "INVESTOR",
                         correlationId, idempotencyKey, request
@@ -71,7 +72,7 @@ class SubscriptionCommandControllerTest {
         assertThat(response.getBody().message())
                 .isEqualTo("청약 요청이 접수되었습니다.");
 
-        verify(subscriptionCommandService).create(
+        verify(subscriptionRequestIntakeService).accept(
                 offeringId, userId, idempotencyKey, request, correlationId
         );
     }
@@ -87,20 +88,21 @@ class SubscriptionCommandControllerTest {
 
         SubscriptionCreateRequest request = new SubscriptionCreateRequest(10L);
 
-        SubscriptionCreateResponse serviceResponse = new SubscriptionCreateResponse(
-                UUID.randomUUID(), offeringId, 10L, 1_000L, 10_000L,
-                SubscriptionStatus.CONFIRMED
+        SubscriptionRequestAcceptedResponse serviceResponse =
+                new SubscriptionRequestAcceptedResponse(
+                UUID.randomUUID(), SubscriptionRequestStatus.COMPLETED,
+                UUID.randomUUID(), null
         );
 
-        SubscriptionCreateResult result =
-                SubscriptionCreateResult.replayed(serviceResponse);
+        SubscriptionRequestAcceptedResult result =
+                new SubscriptionRequestAcceptedResult(serviceResponse, true);
 
-        when(subscriptionCommandService.create(
+        when(subscriptionRequestIntakeService.accept(
                 offeringId, userId, idempotencyKey, request, correlationId
         )).thenReturn(result);
 
         // when
-        ResponseEntity<ApiResponse<SubscriptionCreateResponse>> response =
+        ResponseEntity<ApiResponse<SubscriptionRequestAcceptedResponse>> response =
                 subscriptionCommandController.createSubscription(
                         offeringId, userId, "INVESTOR",
                         correlationId, idempotencyKey, request
@@ -135,6 +137,6 @@ class SubscriptionCommandControllerTest {
                                 .isEqualTo(SubscriptionErrorCode.SUBSCRIPTION_ACCESS_DENIED)
                 );
 
-        verifyNoInteractions(subscriptionCommandService);
+        verifyNoInteractions(subscriptionRequestIntakeService);
     }
 }

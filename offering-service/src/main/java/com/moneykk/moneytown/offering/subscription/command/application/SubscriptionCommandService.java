@@ -60,6 +60,49 @@ public class SubscriptionCommandService {
 
     private static final String USER_SERVICE_RESILIENCE_KEY = "user-service";
 
+    /**
+     * Kafka로 접수된 요청의 실제 업무 처리를 수행한다.
+     * 접수 멱등성은 p_subscription_requests가 담당하므로 기존
+     * p_idempotency_requests 선점 로직은 실행하지 않는다.
+     */
+    public SubscriptionCreateResponse processAcceptedRequest(
+            UUID requestId,
+            UUID offeringId,
+            UUID userId,
+            String idempotencyKey,
+            Long quantity,
+            String correlationId
+    ) {
+        validateIdempotencyKey(idempotencyKey);
+        validateCorrelationId(correlationId);
+
+        Offering offering = findOffering(offeringId);
+        validateOfferingAvailable(offering);
+        validateSubscriptionQuantity(offering, quantity);
+
+        if (quantity > offering.getMaxSubscriptionQuantity()) {
+            throw new BusinessException(
+                    SubscriptionErrorCode.SUBSCRIPTION_LIMIT_EXCEEDED
+            );
+        }
+
+        // 공모·수량 검증을 통과한 요청만 외부 자격 검증을 수행한다.
+        validateUserEligibility(userId);
+
+        // 안정적인 requestId를 사용하여 Consumer 재시도 시 Pre-FDS도 멱등 처리한다.
+        validatePreFds(requestId, userId, offering.getAssetId());
+
+        return subscriptionTransactionService
+                .createSubscriptionForRequest(
+                        requestId,
+                        offering.getOfferingId(),
+                        userId,
+                        quantity,
+                        offering.getPricePerUnit(),
+                        correlationId
+                );
+    }
+
     public SubscriptionCreateResult create(
             UUID offeringId,
             UUID userId,
