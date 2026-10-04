@@ -118,6 +118,17 @@ resilience4j:
 subscription:
   reservation-timeout-minutes: ${SUBSCRIPTION_RESERVATION_TIMEOUT_MINUTES:10}
 
+  # HTTP에서는 접수와 Outbox만 저장하고, 실제 검증·수량 선점은
+  # 제한된 Kafka Consumer 동시성으로 수행하여 Tomcat/Hikari 포화를 막는다.
+  request:
+    consumer:
+      concurrency: ${SUBSCRIPTION_REQUEST_CONSUMER_CONCURRENCY:4}
+    recovery:
+      stuck-seconds: ${SUBSCRIPTION_REQUEST_RECOVERY_STUCK_SECONDS:300}
+      batch-size: ${SUBSCRIPTION_REQUEST_RECOVERY_BATCH_SIZE:100}
+      fixed-delay-ms: ${SUBSCRIPTION_REQUEST_RECOVERY_FIXED_DELAY_MS:60000}
+    metrics-refresh-delay-ms: ${SUBSCRIPTION_REQUEST_METRICS_REFRESH_DELAY_MS:10000}
+
   timeout:
     batch-size: ${SUBSCRIPTION_TIMEOUT_BATCH_SIZE:100}
     max-batches-per-run: ${SUBSCRIPTION_TIMEOUT_MAX_BATCHES_PER_RUN:2}

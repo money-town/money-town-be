@@ -333,6 +333,12 @@ public class OutboxPublishScheduler {
 
         String eventType = envelope.path("eventType").asText();
 
+        if ("SubscriptionRequested".equals(eventType)) {
+            return UUID.fromString(
+                    envelope.path("payload").path("offeringId").asText()
+            ).toString();
+        }
+
         // userId를 Kafka 메시지 key로 사용하는 이벤트
         if (!"SubscriptionReserved".equals(eventType)
                 && !"SubscriptionConfirmed".equals(eventType)
