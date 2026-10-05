@@ -28,10 +28,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/offering_db}
     hikari:
       connection-timeout: ${OFFERING_DB_CONNECTION_TIMEOUT:2000}
-      # 공용 기본값(application.yml, 5)을 그대로 쓰면 청약 생성이 몰릴 때
-      # 커넥션이 전부 row lock 대기로 묶여 스케줄러/헬스체크까지 마비된다.
-      # offering-service에서만 15로 올려서 다른 서비스에는 영향을 주지 않는다.
+      # 순간 청약 버스트의 DB 연결 대기를 줄이기 위해
+      # Offering 전용 풀을 15개로 유지하고 연결을 미리 준비한다.
       maximum-pool-size: ${OFFERING_DB_POOL_MAX_SIZE:15}
+      minimum-idle: ${OFFERING_DB_POOL_MIN_IDLE:15}
 
   flyway:
     postgresql:
