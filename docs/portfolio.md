@@ -292,8 +292,11 @@ docker compose --env-file .env -f infrastructure/docker-compose.yml logs --no-co
 
 ### Phase 1 — 본 실험 실행 절차 (EC2, 명령어)
 
-**1) `settlement-mvp`로 재빌드·재배포** — `pg_stat_statements`는 `shared_preload_libraries`라 postgres 재시작이 있어야 반영된다(6개 서비스 DB가 공유하는 인스턴스라 짧은 순단 발생, 테스트 서버라 무방). A0/D 진단 로그, `metrics` actuator 노출도 이 재배포로 같이 반영된다.
+**1) `settlement-mvp`로 재빌드·재배포** — EC2는 로컬과 별개의 git 체크아웃이므로, **먼저 origin의 최신 커밋을 받아야** A0/D 진단 로그·`DB_POOL_MAX_SIZE` 변수화·`metrics` actuator 노출(`0445f0d`, `814c75b`)이 반영된다. `pg_stat_statements`는 `shared_preload_libraries`라 postgres 재시작이 있어야 반영된다(6개 서비스 DB가 공유하는 인스턴스라 짧은 순단 발생, 테스트 서버라 무방).
 ```bash
+git fetch origin settlement-mvp
+git log --oneline origin/settlement-mvp..HEAD   # 비어 있어야 한다(로컬에 EC2가 못 받은 커밋이 없는지 확인)
+git checkout settlement-mvp && git pull origin settlement-mvp
 ./gradlew :settlement-service:bootJar
 docker compose --env-file .env -f infrastructure/docker-compose.yml build settlement-service
 docker compose --env-file .env -f infrastructure/docker-compose.yml up -d postgres
@@ -429,7 +432,11 @@ pending/active가 **연속 2~3회** 모두 0이면 평온 상태로 간주한다
     - **X ≥ 20초**(지금 설정값과 같거나 넘음 — 실제 운영에서 이미 간당간당했을 수 있다는 뜻): `X + 10초`로 상향하고, **`reWriteBatchedInserts` 등 flush 비용 자체를 줄이는 작업을 후속 과제가 아니라 즉시 착수 대상으로 승격**한다.
     - **n=6 중 timeout 실패(롤백)가 1건이라도 있으면, 다른 트리거의 최댓값과 무관하게 무조건 `X ≥ 20초` 구간을 적용한다** — timeout에 걸려 롤백됐다는 사실 자체가 "실제 저장 시간이 최소 20초 이상이었다"는 직접 증거이기 때문이다(아래 실패 처리 규칙 4번과 연결).
 - **왜 혼잡 라운드에서 실패가 나올 수 있는가**: 혼잡 라운드는 풀(15)에 JMeter 30 스레드의 `GET`이 걸린 상태에서 `POST /settlements`의 `persist()`를 트리거한다. 로컬 실험 결과가 "시계가 대기를 포함한다"(A→C)로 나오면, 이 혼잡 조건에서 **대기가 길어지는 것만으로도 timeout 실패가 현실적으로 자주 나올 수 있다** — 이건 이상 상황이 아니라 혼잡 조건을 거는 목적 자체가 드러나는 것이다.
-- **실패 처리 규칙**: 혼잡 라운드에서 트리거가 실제로 timeout에 걸려 롤백될 수 있다. 이 경우:
+- **실패 처리 규칙**: 혼잡 라운드에서 트리거가 실제로 timeout에 걸려 롤백될 수 있다. **로컬 시계 실험에서 서로 다른 두 예외를 실제로 봤으므로, 어느 쪽만 "실패"로 집계할지 미리 정한다**:
+    - `org.hibernate.TransactionException: transaction timeout expired`(또는 `JpaSystemException: transaction timeout expired`) — `persist()`의 `@Transactional(timeout=20)` 자체가 터진 것. **이것만 "20초가 혼잡 상황에서 아슬아슬하다"는 판정 기준의 실패로 집계한다.**
+    - `SQLTransientConnectionException: HikariPool-1 - Connection is not available`(`CannotGetJdbcConnectionException`/`CannotCreateTransactionException`) — HikariCP `connection-timeout`(기본 30s)이 터진 것으로, `persist()`의 timeout=20과는 **별개 메커니즘**이다. 이건 "풀 고갈"로 **별도 기록**하되, 판정 기준의 실패 횟수에는 넣지 않는다 — 넣으면 "저장 자체가 느리다"와 "풀이 작다"가 섞여 timeout 값 판단이 흐려진다.
+
+    이 구분을 전제로:
     1. 그 라운드를 "실패"로 **기록하되 버리지 않는다** — 실패 횟수 자체가 "20초가 혼잡 상황에서 얼마나 아슬아슬한가"를 보여주는 결과다.
     2. `REQUIRES_NEW` 트랜잭션이라 타임아웃 시 해당 트랜잭션만 롤백된다 — 아래 쿼리로 그 배치의 행이 실제로 안 남아있는지 확인한다.
        ```bash
