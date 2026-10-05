@@ -36,6 +36,8 @@ class SettlementBatchWriter {
         saveNewBatch(batch);
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
+        dividendPayoutRepository.flush();
+        log.info("[진단]persist flush 완료 — 커밋 대기 (batchId={})", batch.getId());
     }
 
     private void saveNewBatch(SettlementBatch batch) {
