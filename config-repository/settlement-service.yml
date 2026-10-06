@@ -1,6 +1,15 @@
 server:
   port: 19097
 
+# application.yml의 공통 노출 목록(health,info,prometheus)은 그대로 두고, 이 서비스에만
+# metrics를 추가로 켠다 — timeout 재측정 실험(HikariCP pending/active/acquire 조회)에만 필요해서
+# 다른 6개 서비스까지 같이 넓히지 않는다. 실험이 끝나면 되돌려도 된다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+
 spring:
   cloud:
     openfeign:
