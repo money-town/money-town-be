@@ -337,6 +337,9 @@ services:
   settlement-service:
     <<: *app-common
     build: { context: .., dockerfile: infrastructure/Dockerfile, args: { SERVICE: settlement-service } }
+    # x-app-common의 mem_limit(512m)은 리터럴이라 셸 변수로 못 덮어쓴다(DB_POOL_MAX_SIZE와 같은 문제).
+    # 이 서비스만 변수로 오버라이드할 수 있게 직접 키를 둔다 — YAML 머지(<<:)는 직접 쓴 키가 우선한다.
+    mem_limit: ${SETTLEMENT_MEM_LIMIT:-512m}
     environment:
       <<: *common-environment
       DB_URL: jdbc:postgresql://postgres:5432/settlement_db

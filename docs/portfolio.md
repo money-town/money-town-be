@@ -169,346 +169,128 @@ HTTP 부하 재현(회차 5,000, 30 threads·180초)에서도 동일하게 개�
 응답시간만으로 인덱스 효과를 주장하면 캐시 상태에 따라 반박당할 수 있다 — `EXPLAIN (ANALYZE, BUFFERS)`처럼 흔들리지 않는 지표를 1차 증거로 삼고, 인프라를 통째로 재구축해도 재현되는지까지 확인해야 신뢰할 수 있는 숫자가 된다. 또한 읽기 개선만 보고 인덱스를 채택하지 않고, 그 인덱스가 만드는 쓰기 비용까지 별도로 실측해 트레이드오프 전체를 숫자로 보여줘야 설득력이 생긴다.
 
 ---
+## 정산 회차 개시 API가 @Transactional 안에서 asset-service Feign을 101회(수익 조회 1회 + 보유지분 페이징 100회) 호출해 DB 커넥션 1개를 약 79초간 점유
 
-## 정산 저장 트랜잭션 타임아웃(20초) 재측정 설계 (진행 중, 배포 서버)
+**Situation**
 
-### 배경 — 보류됐던 이슈
+정산 회차 개시 API가 @Transactional 안에서 asset-service Feign을 101회(수익 조회 1회 + 보유지분 페이징 100회) 호출해 DB 커넥션 1개를 약 79초간 점유
+HikariCP 풀 5개를 개시 요청 5건과 배당 조회 요청 5건이 동시에 두고 경쟁해, 정산과 무관한 배당 조회가 30초 커넥션 타임아웃으로 실패 (위기 구간 에러율 68.42%)
 
-`SettlementBatchWriter.persist()`(회차 저장: `SettlementBatch` + `HoldingSnapshot` + payout 최대 1만 건을 한 트랜잭션에 묶어 저장)는 `@Transactional(propagation = REQUIRES_NEW, timeout = 20)`로 걸려 있다. 이 20초는 원래 "저장" 구간 내부에 찍은 진단 로그로 잰 **14.2~16.7초**에 마진을 더해 정한 값이었는데, 이후 그 로그 자체가 실제 flush/commit 이전(엔티티를 영속성 컨텍스트에 큐잉만 한 시점)에 찍히고 있었다는 "측정 버그"가 드러났다(`docs/localTest.md` "측정 버그 발견 및 정정" 절). 재측정은 당시 비용 대비 효용이 낮다고 판단해 보류했고, 20초는 "근거가 불확실해졌지만 부족하면 `TransactionException`으로 즉시 드러나 위험은 낮다"는 전제로 그대로 두기로 했었다.
+**Task**
 
-### 재조사 — 지금 다시 재는 게 안전한가
+회차 개시 중에도 배당 조회 API가 영향받지 않도록 격리
+서비스 9개가 Postgres 하나를 공유하므로, 풀 확대보다 커넥션 점유 구조를 먼저 개선하는 방향으로 설정
 
-재측정을 실제로 추진하기 전에, 로그 위치 수정 커밋(`1e3fbe5 정산 회차 개시 로그 위치 변경`)이 지금 로드테스트 배포 서버(`loadtest-b-after-kafka2`, `996a80c`)에 반영돼 있는지부터 확인했다 — 반영 안 된 서버에서 측정하면 예전과 똑같은 버그를 반복하게 된다.
+**Action**
 
-- `git merge-base --is-ancestor`로 확인한 결과, 해당 커밋은 배포 서버 브랜치에 **이미 포함돼 있었다**. `persist 완료` 로그는 `SettlementBatchWriter` 내부가 아니라 `SettlementCommandService`로 옮겨져 있어, `persist()`가 반환된(=커밋이 끝난) 이후 시점을 찍는다.
-- 배포 서버 브랜치와 최신 브랜치(`settlement-mvp`) 사이의 `settlement-service` 전체 diff를 직접 비교해, 이 측정에 영향을 줄 만한 차이(DB 풀 크기, `hibernate.jdbc.batch_size`, 트랜잭션/타임아웃 설정)가 **없음**을 확인했다. 차이는 전부 이 트랜잭션과 무관한 것들(지갑 서킷브레이커/Feign 타임아웃, 최종 정산 DEAD_LETTER 세분화 등)이었다.
-- 다만 `settlement-mvp`의 `docker-compose.yml`에는 postgres에 `pg_stat_statements`가 추가돼 있어, 앱 로그 타이밍 하나에만 의존하지 않고 DB 쪽 독립 지표로 교차검증할 수 있는 수단이 하나 더 생겼다 — 이걸 쓰려면 최신 코드로 재배포하는 게 낫다고 판단했다.
+운영 환경과 분리된 부하테스트 전용 EC2를 구성하고, 코드 상태를 태그로 고정해 단계별 변경 외의 변수를 차단
+Feign 호출을 트랜잭션 밖으로 빼고, 저장만 별도 Bean의 짧은 트랜잭션에서 처리 (스프링 프록시의 self-invocation 제약 대응)
+회차당 배당 10,000행을 쓰는 워크로드에 맞춰 정산 서비스에만 JDBC 배치 저장을 적용하고 트랜잭션 timeout을 재산정
+개선 후에도 조회 실패가 남자 진단 로그와 Zipkin 트레이스로 추적. 실패 원인이 저장 지연이 아니라 커넥션 획득 대기(29초)임을 확인해 두 번째 원인(동시 수요 10 > 풀 5)을 특정
+다른 서비스의 커넥션 여유를 지키기 위해 풀 확대(5 → 15)는 settlement-service에만 적용
 
-### 측정 설계
+**Result**
+배당 조회 5xx: 위기 구간 68.42% → 전 구간 0건
+배당 조회 최대 응답시간: 30,154ms → 525ms (p99 187ms)
+커넥션 대기 최대: 8 → 0 / 정산 개시 5/5 성공
 
-**진단 로그를 3줄에서 5줄로 늘렸다** — 기존 3줄(A/B/C)만으로는 "홀딩스 페이징 시간"이 측정이 아니라 총 소요시간에서 역산한 값이었고, "저장"(C−B) 안에서 flush와 커밋을 구분할 수 없었다. 두 줄을 코드에 추가했다(`SettlementCommandService.java`, `SettlementBatchWriter.java`에 반영 완료):
-- `SettlementCommandService.openBatchInternal()`에 **A0** 추가: `fetchAndValidateHoldingsSnapshot` 호출 **직전**에 `log.info("[진단]holdings 페이징 시작 ...")`.
-- `SettlementBatchWriter.persist()`에 **D** 추가: `dividendPayoutRepository.saveAll(payouts)` 바로 뒤에 `dividendPayoutRepository.flush()`(명시적 flush, `JpaRepository`가 제공하는 메서드)를 호출하고 `log.info("[진단]persist flush 완료 — 커밋 대기 ...")`.
-
-```
-A0: [진단]holdings 페이징 시작                      ← fetchAndValidateHoldingsSnapshot() 호출 직전 (SettlementCommandService)
-A : [진단]holdings 페이징 완료, persist 호출 시작    ← persist() 호출 직전 (SettlementCommandService)
-B : [진단]persist 진입 — 커넥션 획득 완료            ← persist() 진입 (SettlementBatchWriter) — "획득 완료"라는 문구는 아래 로컬 실험으로 검증
-D : [진단]persist flush 완료 — 커밋 대기             ← saveAll()+flush() 직후, 커밋 전 (SettlementBatchWriter, 신규)
-C : [진단]persist 완료 — 저장 종료                   ← persist() 반환 후(=커밋 완료 후) (SettlementCommandService)
-```
-
-- **A0→A = "홀딩스 페이징"** — 직접 측정된다.
-- **A→B = "대기"(가칭)** — B가 실제로 커넥션 획득 시점인지는 아래 "시계 질문" 절에서 확인한다.
-- **B→D = "flush"** — payout 1만 건의 영속성 컨텍스트 flush·dirty-checking·실제 INSERT 실행.
-- **D→C = "커밋"** — WAL fsync를 포함한 커밋 자체 비용. `pg_stat_statements`의 `COMMIT` 행과 직접 비교할 구간.
-
-⚠️ **남은 미확정 사항 하나**: "대기"가 정말 timeout=20의 시계 안에 있는지 — 아래 로컬 미니 실험으로 확인한다(EC2 불필요).
-
-측정은 다음을 지킨다:
-1. **독립적인 두 지표로 교차검증한다** — 앱 로그와 `pg_stat_statements`(`total_exec_time`)가 같은 자릿수로 나오는지 확인한다. 둘의 차이를 "네트워크 왕복"으로 단정하지 않는다 — `pg_stat_statements.calls`는 **서버 측 실행 횟수**일 뿐 클라이언트 왕복 횟수가 아니다. "DB 밖" 시간은 B→D(flush) 구간을 직접 재서 확인한다.
-2. **평온한 상태뿐 아니라 혼잡한 상태에서도 잰다 — 각 3회(총 6회).** 이 항목의 가치는 "혼잡 조건에서의 분포"이므로 n=1~2로는 최댓값 자체가 의미를 잃는다. 반대로 5+5는 EC2 자산 예산·시간 대비 얻는 신뢰도 증가가 작다 — 3+3을 최소선으로 잡는다.
-3. **평온/혼잡을 블록으로 몰아서 하지 않고 번갈아 실행한다** — 매 트리거마다 payout 1만 건이 쌓여 인덱스도 커지므로, 혼잡 효과와 데이터 누적 효과를 분리하기 위해서다.
-4. **CPU 크레딧·스케줄러 소음 추적은 상시 수행하지 않는다** — 값이 눈에 띄게 튀는 트리거가 나왔을 때만 원인 후보로 확인한다(아래 "값이 이상하면" 참고). 매번 확인하는 건 이 실험의 본질(timeout 값 산출)과 무관한 비용이다.
-
-### 시계 질문 — 로컬 미니 실험 (EC2·재배포 불필요, 약 5분)
-
-"대기가 timeout=20의 시계에 포함되는가"는 **로컬에서 풀을 최소치로, timeout을 임시로 낮춰 일부러 터뜨려보는 게 가장 싼 확인이다** — 소스만 읽고 "Spring 문서상 이렇다"로 끝내면 포트폴리오에서 "검증했다"가 아니라 "읽었다"가 된다.
-
-⚠️ **실측으로 드러난 사실 — 풀=1은 쓸 수 없다.** 처음 `DB_POOL_MAX_SIZE=1`로 재배포했더니 애플리케이션이 기동조차 못 하고 계속 재시작했다. 로그 원인:
-```
-HikariPool-1 - Connection is not available, request timed out after 30229ms (total=1, active=1, idle=0, waiting=0)
-Caused by: org.flywaydb.core.internal.exception.FlywaySqlException ...
-```
-Flyway가 마이그레이션 중 advisory lock용 커넥션과 별개로 커넥션을 하나 더 필요로 하는 경우가 있어서, 풀이 정확히 1개면 **Flyway가 기동 시점에 자기 자신과 데드락**한다. 그래서 **풀은 2로, 동시 트리거는 3개로** 설계를 바꿨다 — 자산 1(5만 명)이 먼저 1자리를 쥐고, 남은 1자리를 자산 2·3(둘 다 소규모)이 동시에 다투게 하면 둘 중 하나는 반드시 기다린다.
-
-**이 실험이 판별되려면 "대기 > timeout > 저장 단독"이 성립해야 한다** — 자산 1(5만 명)이 쥔 커넥션 점유 시간(= 자산 1의 "저장")이 timeout(3초)보다 길어야 하고, 자산 2·3 중 못 받은 쪽이 그 안에 persist()에 진입해 기다려야 한다. 아래 "판정"의 마지막 항목(자산 1의 저장이 3초를 넘었는지 확인)이 이 조건을 사후에 검증하는 단계다. **로컬 실험의 결과는 "시계가 무엇을 재는가"에만 쓰고, timeout 값 산출(최종 n=6 계산)에는 쓰지 않는다** — 로컬과 EC2는 하드웨어가 다르므로 섞으면 근거가 흐려진다. 이 한 줄을 측정 환경표에도 적어둔다.
-
-**준비** (완료 — 아래는 실제로 실행해서 확인한 상태)
-1. 로컬 스택 기동: `docker compose --env-file .env -f infrastructure/docker-compose.yml up -d`. ✅
-2. `SettlementBatchWriter.java`의 `timeout = 20`을 **로컬에서만** `timeout = 3`으로 변경(`// 로컬 시계 실험 전용, 실험 후 git checkout으로 원복` 주석 포함). 커밋 안 함. ✅
-3. `.env`에 `DB_POOL_MAX_SIZE=2`(처음엔 1로 했다가 위 Flyway 데드락으로 2로 수정) 추가 후 재빌드·재기동. 컨테이너 안 `DB_POOL_MAX_SIZE=2`, `curl .../actuator/health` → `{"status":"UP"}` 확인됨. ✅
-4. 자산 3개를 시딩(`docs/seed-settlement-timeout-assets.sql`을 세 번 호출 — `ON CONFLICT DO NOTHING`이라 이미 있는 자산·보유 투자자는 재실행해도 안 늘어남):
-   ```bash
-   docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-     psql -U moneytown -d asset_db -v asset_count=1 -v investor_count=50000 -f - < docs/seed-settlement-timeout-assets.sql
-   docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-     psql -U moneytown -d asset_db -v asset_count=2 -v investor_count=100 -f - < docs/seed-settlement-timeout-assets.sql
-   docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-     psql -U moneytown -d asset_db -v asset_count=3 -v investor_count=100 -f - < docs/seed-settlement-timeout-assets.sql
-   ```
-   자산 1(투자자 5만 명)은 "저장"이 3초를 확실히 넘도록 일부러 크게, 자산 2·3(투자자 100명씩)은 풀의 남은 1자리를 서로 다투게만 하면 되므로 작게 잡았다. 실측 결과 `p_holdings` 건수는 자산 1=50,000 / 자산 2=100 / 자산 3=100으로 의도대로 분리됐다.
-
-**실행** (아래부터는 사용자가 직접 커맨드를 입력해 실행) — ⚠️ 이전 실행의 로그가 쌓여 있으면 `grep -q "persist 진입"`이 **그 이전 기록에 바로 걸려** 대기 없이 바로 나갈 수 있다(여러 자산이 같은 메시지를 찍어 batchId로도 구분이 안 됨). 실험 시작 시각을 기록해 `--since`로 그 이후 로그만 보게 한다.
-```bash
-START_TS=$(date -u +%Y-%m-%dT%H:%M:%S)
-
-# 자산 1(큰 것) 먼저 트리거 — 백그라운드. 풀 2자리 중 1자리를 이 트랜잭션이 쥔다.
-curl -s -X POST http://localhost:19097/api/v1/settlements \
-  -H "Content-Type: application/json" -H "X-User-Role: ADMIN" \
-  -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \
-  -d '{"assetId":"<asset_1>","revenueId":"<revenue_1>"}' &
-
-# 자산 1이 persist()에 진입(=커넥션 1자리를 쥠)할 때까지 대기 — START_TS 이후 로그만 본다
-until docker compose --env-file .env -f infrastructure/docker-compose.yml logs --since "$START_TS" settlement-service \
-  | grep -q "진단\]persist 진입"; do sleep 0.2; done
-
-# 자산 2·3(작은 것 둘) 동시 트리거 — 남은 1자리를 서로 다툰다. 하나는 바로 받고 하나는 기다린다.
-curl -s -X POST http://localhost:19097/api/v1/settlements \
-  -H "Content-Type: application/json" -H "X-User-Role: ADMIN" \
-  -H "X-User-Id: 22222222-2222-2222-2222-222222222222" \
-  -d '{"assetId":"<asset_2>","revenueId":"<revenue_2>"}' &
-curl -s -X POST http://localhost:19097/api/v1/settlements \
-  -H "Content-Type: application/json" -H "X-User-Role: ADMIN" \
-  -H "X-User-Id: 33333333-3333-3333-3333-333333333333" \
-  -d '{"assetId":"<asset_3>","revenueId":"<revenue_3>"}' &
-wait
-
-docker compose --env-file .env -f infrastructure/docker-compose.yml logs --no-color --timestamps --since "$START_TS" settlement-service \
-  | grep -E "진단\]|TransactionTimedOutException|TransactionSystemException"
-```
-
-**판정** — batchId로 자산 2·3 중 **대기가 생긴 쪽**(A와 B 사이 시간 간격이 뚜렷한 쪽)의 로그를 본다:
-- **A는 찍혔는데 B가 안 찍힌 채로 예외**: 시계가 "대기"를 포함한다 — timeout과 비교할 값은 **A→C**다.
-- **B는 찍혔는데 D 전에 예외**: 시계가 대기를 포함하지 않고 B에서 시작한다 — timeout과 비교할 값은 **B→C**다.
-- **자산 1(큰 것)의 A0~C 로그로 "저장"이 실제로 3초를 넘었는지**도 같이 확인한다 — 안 넘었으면 자산 1 규모를 더 키워 재시도한다(이 실험 자체도 "최악 쪽에서 실제로 쟀다"는 근거가 된다).
-
-### 로컬 시계 실험 — 결과 (실측 완료, 2026-10-05)
-
-| 자산 | A0→A(홀딩스 페이징) | A→B(대기) | B 이후 | 결과 |
-|---|---|---|---|---|
-| 1(5만 명) | 99.34s | 0.005s | B+3.09s에 `TransactionException: transaction timeout expired` | 실패(롤백) |
-| 2(100명) | 0.19s | **30.003s** | B+0.439s(flush)+0.031s(commit) | **성공**(예외 없음) |
-| 3(100명) | 0.16s | B를 못 찍음, 30.18s 후 `CannotGetJdbcConnectionException` | — | 실패(커넥션 자체를 못 받음) |
-
-**결론: 시계는 "대기"를 포함하지 않는다 — 기준값은 B→C로 확정한다.** 자산 2가 정확히 HikariCP `connection-timeout`(기본값 30,000ms)만큼 대기했다가 커넥션을 받은 뒤, `timeout=3`인 상태로 flush+commit을 아무 예외 없이 마쳤다 — 대기(30.003s)+저장(0.47s)을 합친 총 소요(30.47s)가 3초를 몇 배나 넘었는데도 안 터졌으므로, 시계가 대기를 포함했다면 나올 수 없는 결과다. 반례가 성립할 수 없는 구조라 추가 라운드 없이 이걸로 확정한다.
-
-부수적으로 확인된 것:
-- 자산 1의 실패 시점(B+3.09s)이 곧 "`payout 5만 건 flush`가 3초를 실제로 넘는다"는 직접 증거다(추정이 아니라 Hibernate의 statement timeout이 정확히 그 경계에서 끊어준 것).
-- 자산 3의 실패는 `persist()`의 `timeout=3`이 아니라 HikariCP 자체의 `connection-timeout`(30s, 별개 메커니즘)이다 — 같은 시간대에 백그라운드 스케줄러 스레드(`scheduling-1`)도 같은 예외를 겪어, 풀=2가 스케줄러와도 경쟁할 만큼 작았다는 걸 보여준다. 이건 본 질문(시계 포함 여부)과 무관한 노이즈다.
-- `p_settlement_batches`에 자산 1·3의 행이 0건 — 두 실패 모두 `REQUIRES_NEW` 트랜잭션이 깨끗하게 롤백됐음을 확인(부분 커밋 없음).
-
-**원복 완료**: `git checkout`으로 `SettlementBatchWriter.java`를 되돌리고(`timeout=20` 복원), `.env`의 `DB_POOL_MAX_SIZE` 줄을 삭제한 뒤 재빌드·재기동해 `DB_POOL_MAX_SIZE=15`·`{"status":"UP"}`로 확인했다. 이 실험은 EC2를 전혀 건드리지 않았으므로 Phase 1에 영향이 없다.
-
-### Phase 1 — 본 실험 실행 절차 (EC2, 명령어)
-
-**1) `settlement-mvp`로 재빌드·재배포** — EC2는 로컬과 별개의 git 체크아웃이므로, **먼저 origin의 최신 커밋을 받아야** A0/D 진단 로그·`DB_POOL_MAX_SIZE` 변수화·`metrics` actuator 노출(`0445f0d`, `814c75b`)이 반영된다. `pg_stat_statements`는 `shared_preload_libraries`라 postgres 재시작이 있어야 반영된다(6개 서비스 DB가 공유하는 인스턴스라 짧은 순단 발생, 테스트 서버라 무방).
-```bash
-git fetch origin settlement-mvp
-git log --oneline origin/settlement-mvp..HEAD   # 비어 있어야 한다(로컬에 EC2가 못 받은 커밋이 없는지 확인)
-git checkout settlement-mvp && git pull origin settlement-mvp
-./gradlew :settlement-service:bootJar
-docker compose --env-file .env -f infrastructure/docker-compose.yml build settlement-service
-docker compose --env-file .env -f infrastructure/docker-compose.yml up -d postgres
-docker compose --env-file .env -f infrastructure/docker-compose.yml up -d settlement-service
-```
-
-**1-1) 수익 폴링이 꺼진 채로 재배포됐는지 재확인** — `.env`의 `SETTLEMENT_REVENUE_POLLING_ENABLED=false`(`settlement.scheduler.revenue-polling.enabled` 프로퍼티, `RevenuePollingScheduler`를 `@ConditionalOnProperty`로 끄는 값)는 postgres를 포함한 재배포 과정에서 `.env` 자체가 덮어써지는 실수가 있어도 컨테이너 안에서는 안 보인다. 이전에 이 값이 안 꺼져 있어서 3분 폴러가 시드해둔 READY 수익을 먼저 가져가 트리거가 전부 409로 실패했던 적이 있었으므로, 재배포 직후 반드시 컨테이너 내부 값으로 확인한다.
-```bash
-docker compose --env-file .env -f infrastructure/docker-compose.yml exec settlement-service env | grep SETTLEMENT_REVENUE_POLLING
-```
-`SETTLEMENT_REVENUE_POLLING_ENABLED=false`가 안 나오면(값이 없거나 `true`면) `.env` 마지막 줄에 개행 없이 이어붙어 조용히 무시된 경우가 흔하다 — `.env`를 직접 열어 확인 후 재기동한다.
-
-**1-2) 자산·수익 사전 시딩** — 정산은 같은 자산·수익으로 회차를 다시 열 수 없다(`uk_settlement_batches_revenue_id`, `uk_settlement_batches_asset_in_progress` — asset당 `FAILED`/`PARTIAL_FAILED`/`DISBURSING` 등 "진행 중" 배치가 있으면 새 배치를 못 연다). 평온 3회 + 혼잡 3회(아래 6번) + 여유 몇 개를 위해 **자산 10개**를 미리 만든다(실행 중간에 바닥나서 409가 뜨고 재시딩으로 측정 조건이 깨지는 걸 막으려는 목적).
-
-`seed-settlement-index-cost.sql`은 이 용도로 못 쓴다 — 그건 `settlement_db`에 SQL로 직접 꽂는 스크립트라 애플리케이션의 asset-service Feign 왕복(`fetchAndValidateRevenue`/`fetchAndValidateHoldingsSnapshot`) 경로를 거치지 않는다. 대신 전용 스크립트(`docs/seed-settlement-timeout-assets.sql`)로 `asset_db`에 자산 10개 + 자산당 투자자 1만 명 holdings + READY 수익 1건씩을 만든다.
-```bash
-docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-  psql -U moneytown -d asset_db -v asset_count=10 -v investor_count=10000 -f - \
-  < docs/seed-settlement-timeout-assets.sql
-```
-마지막 `SELECT`가 출력하는 `(asset_id, revenue_id)` 10쌍 중 1~3을 평온, 4~6을 혼잡, 7~10을 실패 시 여유분으로 쓴다(재사용하지 않음).
-
-**1-3) `pg_stat_statements` extension이 실제로 생성됐는지 확인** — `docker-compose.yml`의 `shared_preload_libraries=pg_stat_statements`는 postgres 재시작 시에만 반영되는 **서버 설정**이고, 실제로 쿼리를 걸 수 있는 `pg_stat_statements` 뷰는 **DB별로 `CREATE EXTENSION`을 따로 해야 생긴다**. `infrastructure/postgres/init.sql`이 이 extension을 만들어주지만 **그건 `postgres` DB에 한 번, 그리고 볼륨이 새로 만들어질 때(`docker-entrypoint-initdb.d`)만** 실행된다 — 기존 볼륨을 그대로 쓰고 있다면 1)번에서 postgres를 재시작해도 extension 자체는 없을 수 있다. 1)번 재시작 후 이걸로 확인·생성한다.
-```bash
-docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-  psql -U moneytown -d settlement_db -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
-```
-
-**2) 측정 구간 직전 `pg_stat_statements` 초기화**
-```bash
-docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-  psql -U moneytown -d settlement_db -c "SELECT pg_stat_statements_reset();"
-```
-
-**3) `POST /settlements` 트리거** — 자산 1개당 투자자 1만 명 이상 규모로, 한 번에 회차 1개씩만 호출(로그 A/B/C 쌍이 섞이지 않도록). `SettlementCommandController.openSettlementBatch`는 `X-User-Role`만 `@RequestHeader`로 받고 `X-User-Id`는 요구하지 않는다(코드로 확인 — 없어도 400이 나지 않는다). 다만 혹시 다른 경로에서 막히는 경우를 대비해 방어적으로 같이 보낸다.
-```bash
-curl -X POST http://localhost:19097/api/v1/settlements \
-  -H "Content-Type: application/json" \
-  -H "X-User-Role: ADMIN" \
-  -H "X-User-Id: 11111111-1111-1111-1111-111111111111" \
-  -d '{"assetId":"<assetId>","revenueId":"<READY 상태 revenueId>"}'
-```
-
-**4) 로그에서 A0/A/B/D/C 타임스탬프 추출** — 같은 트리거 안에서 순서대로 5줄이 나온다.
-```bash
-docker compose --env-file .env -f infrastructure/docker-compose.yml logs --no-color --timestamps settlement-service \
-  | grep -E "진단\]holdings 페이징 시작|진단\]holdings 페이징 완료|진단\]persist 진입|진단\]persist flush 완료|진단\]persist 완료" | tail -30
-```
-각 줄 맨 앞 타임스탬프로 네 구간을 계산한다: **홀딩스 페이징**(A−A0), **대기**(B−A), **flush**(D−B), **커밋**(C−D). "저장"(기존 C−B)은 flush+커밋(D−B + C−D)으로 쪼개서 본다.
-
-**5) `pg_stat_statements`로 교차검증** — 혼잡 라운드(6번)에서는 JMeter가 `GET /dividends/me`를 초당 수십~수백 번 쏘는데, 그 SELECT도 `p_dividend_payouts`를 참조하므로 `%p_dividend_payouts%` 같은 느슨한 `ILIKE` 조건에 같이 걸려 INSERT와 SELECT가 섞여 나온다. `INSERT INTO ...%`로 앞을 고정해 SELECT가 원천적으로 안 걸리게 한다. ⚠️ **테이블명은 `p_holdings_snapshots`(holdings, 복수)다** — `HoldingSnapshot` 엔티티의 `@Table(name = "p_holdings_snapshots")`로 코드에서 직접 확인했다. `p_holding_snapshots`(단수)로 쓰면 그 INSERT는 하나도 안 잡힌다.
-```bash
-docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-  psql -U moneytown -d settlement_db -c \
-  "SELECT query, calls, mean_exec_time, max_exec_time, total_exec_time, rows
-   FROM pg_stat_statements
-   WHERE query ILIKE 'INSERT INTO p_dividend_payouts%'
-      OR query ILIKE 'INSERT INTO p_settlement_batches%'
-      OR query ILIKE 'INSERT INTO p_holdings_snapshots%'
-      OR query = 'COMMIT'
-   ORDER BY max_exec_time DESC;"
-```
-**비교 대상은 `mean_exec_time`이 아니라 `total_exec_time`(또는 `calls × mean_exec_time`)이다.** JDBC 데이터소스에 `reWriteBatchedInserts`를 켜두지 않았다(코드로 확인 — 어디에도 설정돼 있지 않다), 그래서 `hibernate.jdbc.batch_size=100`이 있어도 PgJDBC는 payout 1만 건을 1만 번의 개별 INSERT로 보낸다. 즉 `calls`가 약 10,000, `mean_exec_time`은 1ms 미만으로 잡히는 게 정상이고, 이 `mean`을 초 단위인 C−B와 비교하면 항상 안 맞는 것처럼 보인다. `total_exec_time`(모든 호출의 실행 시간 합)을 C−B와 비교해야 한다.
-- `total_exec_time`이 C−B에 가까우면: 시간이 **DB 실행 자체**에 쓰인 것(병목이 DB 안).
-- `total_exec_time`이 C−B보다 뚜렷이 작으면: 시간이 **DB 밖**(네트워크 왕복, flush, JVM)에서 쓰인 것. C−B에는 왕복·flush·커밋까지 포함되므로 DB 실행 합계보다 작게 나오는 게 오히려 정상이며, 이 자체가 "시간이 어디서 쓰였는가"를 보여주는 유의미한 결과다.
-- `COMMIT` 행은 WAL fsync를 포함한 커밋 자체의 비용을 보여준다(PgJDBC가 `COMMIT`을 별도 쿼리로 보내 `track=top` 설정에서도 잡힌다).
-
-**6) 평온/혼잡을 3라운드로 번갈아 실행** — "평온만 몰아서 끝내고 혼잡으로 넘어간다"는 하지 않는다(측정 설계 3번 — 데이터 누적 효과와 혼잡 효과가 섞인다). **라운드 r = 1..3**을 돌며 라운드마다 "평온 1회 → 혼잡 1회"를 짝지어 수행한다 — 평온 3회 + 혼잡 3회(총 6회)를 확보하면서 누적 효과가 평온/혼잡 양쪽에 고르게 섞이게 한다.
-
-라운드 r마다:
-1. (평온 확인 — 아래 박스) 통과 후 2)~5)를 1회 트리거 → `quiet-r`로 기록.
-2. JMeter(아래 "JMeter 동시조회 부하 플랜") 시작, 60초 대기(안정화).
-3. 부하가 도는 중에 2)~5)를 1회 트리거 → `congested-r`로 기록.
-4. JMeter 정지, pending/active가 다시 0으로 돌아올 때까지(30초~1분) 대기.
-5. 다음 라운드로.
-
-**각 트리거에 `(quiet|congested)-r` 순번을 매겨 기록**해두고, 3라운드가 끝나면 "저장" 값을 라운드 순서대로 늘어놓아 **단조 증가하는지 확인**한다 — 평온·혼잡 양쪽이 같이 단조 증가한다면 혼잡이 아니라 데이터 누적(인덱스 커짐)이 원인일 가능성이 높다는 신호다. 한 트리거의 `C`(persist 완료) 로그가 찍힌 걸 확인한 뒤에 다음 트리거를 친다.
-
-```bash
-for i in 1 2 3; do
-  curl -s http://localhost:19097/actuator/metrics/hikaricp.connections.pending | jq '.measurements'
-  curl -s http://localhost:19097/actuator/metrics/hikaricp.connections.active | jq '.measurements'
-  sleep 2
-done
-```
-pending/active가 **연속 2~3회** 모두 0이면 평온 상태로 간주한다. 한 번만 보면 마침 비는 순간을 잘못 "평온"으로 오인할 수 있다.
-
-위 1번(평온 확인)과 2~3번("60초 안정화 후 혼잡 중 트리거")의 근거는 시나리오 A가 TG-2를 TG-1보다 60초 먼저 투입한 것과 같다 — "부하가 걸리는 과도기"가 아니라 "이미 경쟁 중인 평형 상태"를 보고 싶은 것이다. 사정상 6회를 못 채우면 "표본 수가 n=⟨실제 횟수⟩"라고 결과에 명시한다(모르는 걸 안다고 하지 않는다).
-
-**값이 이상하면 (상시 수행하지 않는 보조 확인)** — 6회 중 특정 트리거의 "저장" 값이 유독 튀면, 그때만 원인을 좁힌다:
-- `POST /settlements` 직후 `dividendDisbursementService.disburseAsync()`가 claim+Outbox 저장과 Kafka 발행을 바로 시작한다. wallet_db를 이번 실험에서 시딩하지 않아 지급이 실패·재시도할 수 있고(`DisbursementRetryScheduler`·`UnresolvedFailureReminderScheduler`는 끄는 스위치가 없음, 코드로 확인), 이게 다음 트리거와 겹치면 소음이 된다. 의심되면 그 트리거의 `[A0, C]` 구간에 `재트리거합니다`/`재통보 점검` 로그가 끼었는지 grep해서 확인한다.
-- CPU 크레딧 소진(`t3a.large` 등 버스터블 인스턴스)이 의심되면 그때 CloudWatch `CPUCreditBalance`를 확인한다.
-- B 로그 위치가 의심되면(이례적으로 대기만 유독 커 보이면) `/actuator/metrics/hikaricp.connections.acquire`의 `MAX`를 그 트리거 전후로 떠서 대조한다(로컬 미니 실험과 같은 방법).
-
-### JMeter 동시조회 부하 플랜 — 어디를 클릭하나
-
-> GUI 실행은 JMeter 자체가 CPU를 먹으므로 플랜 작성·디버그에만 쓰고, 실측은 `-n`(비GUI)로 돌린다. `GET /dividends/me`는 게이트웨이의 JWT 검증 없이 settlement-service 포트(19097)로 직접 치면 `X-User-Role`/`X-User-Id` 헤더만으로 통과하므로, 실제 로그인·토큰 발급 없이 바로 플랜을 만들 수 있다. **가능하면 JMeter는 EC2가 아닌 다른 머신(본인 노트북 등)에서 돌린다** — 앱·DB가 떠 있는 EC2가 2vCPU 같은 소형 인스턴스라면 JMeter 자체가 그 CPU를 나눠 먹어 "DB/앱이 혼잡"이 아니라 "JMeter가 CPU를 뺏어가서" 느려진 것과 구분이 안 된다. 같은 머신에서 돌릴 수밖에 없다면 이 사실을 결과에 명시한다.
-
-1. **CSV 준비(실제 존재하는 투자자 ID로 로테이션)**: `uuidgen`으로 아무 UUID나 생성하면 `p_dividend_payouts.investor_id`에 없는 값이라, 인덱스가 "없음"을 즉시 확인하고 끝나는 **가장 가벼운** 조회가 된다 — 혼잡 조건을 의도와 반대로 가볍게 만든다. 대신 시딩 스크립트(`docs/seed-settlement-timeout-assets.sql`)가 쓴 **결정론적 공식**(`md5('timeout-seed-investor-'||asset_no||'-'||i)::uuid`)으로 **그 라운드에 이미 트리거한 자산의 투자자 ID**를 직접 생성한다 — 그 자산은 라운드 r의 `quiet-r` 트리거로 이미 payout이 만들어진 상태라 실제 데이터에 맞는다. 라운드 r을 시작하기 전마다 이 스크립트로 `investors.csv`를 **그 라운드의 asset_no로 다시 만든다.**
-   ```bash
-   # <asset_no> = 이번 라운드(quiet-r)에서 쓴 1~3번 중 해당 번호
-   { echo "userId";
-     for i in $(seq 1 200); do
-       raw=$(printf '%s' "timeout-seed-investor-<asset_no>-$i" | md5sum | awk '{print $1}')
-       echo "${raw:0:8}-${raw:8:4}-${raw:12:4}-${raw:16:4}-${raw:20:12}"
-     done; } > investors.csv
-   ```
-2. **Thread Group 만들기**: JMeter 실행 → **Test Plan** 우클릭 → **Add → Threads (Users) → Thread Group** → 이름을 `TG-load-dividends-me`로 변경. `Number of Threads (users)` = `30`(현재 `DB_POOL_MAX_SIZE=15`보다 커야 경쟁이 생긴다), `Ramp-up period` = `10`, **Loop Count 대신 하단 `Specify Thread lifetime`** 체크 → `Duration (seconds)` = `300`.
-3. **CSV Data Set Config 추가**: `TG-load-dividends-me` 우클릭 → **Add → Config Element → CSV Data Set Config** → `Filename` = `investors.csv`, `Variable Names` = `userId`, `Ignore first line` = **True**, `Recycle on EOF` = **True**(스레드 수(30)가 CSV 행 수(200)보다 적으니 재사용), `Sharing mode` = **All threads**(스레드마다 다른 ID를 쓰게 분산).
-4. **헤더 설정**: `TG-load-dividends-me` 우클릭 → **Add → Config Element → HTTP Header Manager** → **Add** 버튼으로 두 줄 추가: `X-User-Role` = `USER`, `X-User-Id` = `${userId}`(3번에서 만든 변수).
-5. **HTTP Request 추가**: `TG-load-dividends-me` 우클릭 → **Add → Sampler → HTTP Request** → `Server Name or IP` = `<EC2 IP>`, `Port` = `19097`, `Method` = `GET`, `Path` = `/api/v1/dividends/me`.
-   5-1. **Assertion 추가**: 그 HTTP Request 우클릭 → **Add → Assertions → Response Assertion** → Field to Test = Response Code, Pattern = `200`. 같은 Request에 **Add → Assertions → JSON Assertion** → `Assert JSON Path exists` = `$.success`, `Additionally assert value` 체크, Expected Value = `true`. 1라운드 초반에는 그 라운드 asset의 payout이 막 생긴 참이라 응답이 비정상이면 바로 드러나야 한다(응답 본문이 빈 배열이어도 `$.success=true`는 유지되므로 "빈 결과"와 "에러"를 구분해서 본다).
-6. **결과 수집**: `TG-load-dividends-me` 우클릭 → **Add → Listener → Summary Report**(경량, 실측용). `View Results Tree`는 디버그 때만 켜고 실측 전에 반드시 **Disable**(우클릭 → Disable) — 응답 본문을 전부 메모리에 들고 있어서 느려진다.
-7. **저장**: `File → Save Test Plan as...` → `scenario-timeout-load.jmx`.
-8. **1회 디버그(GUI)**: 상단 녹색 ▶ **Start** 버튼으로 몇 초만 돌려 응답 코드 200·에러 0을 확인한 뒤 바로 ■ **Stop**.
-9. **실측 실행(CLI, 비GUI)**:
-   ```bash
-   jmeter -n -t scenario-timeout-load.jmx -l results/timeout-load.jtl -Jhost=<EC2 IP>
-   ```
-   Duration(300초)이 끝나면 자동 종료된다. 중간에 멈추려면 터미널에서 `Ctrl+C`.
-10. **혼잡이 실제로 걸렸다는 증거를 같이 남긴다** — "혼잡 구간이라 느려졌다"는 주장은 부하가 실제로 EC2에 걸렸다는 증거가 있어야 성립한다. JMeter 실행 중 `docker stats --no-stream`과 Summary Report의 처리량(req/s)을 캡처해둔다.
-
-**7) timeout 값 확정** — 평온 3회 + 혼잡 3회(n=6)에서 나온 "저장"(flush(D−B) + 커밋(C−D)) 값을 모은다. ⚠️ **표준편차 기반 margin을 쓰지 않는다** — n=6처럼 표본이 적으면 표준편차 자체의 신뢰도가 낮고, "최댓값+2σ"는 최댓값·표준편차는 실측이어도 "2배"라는 배수는 측정값이 아니라 관례다. 대신 **최솟값·중앙값·최댓값(범위)로 보고한다.** 아래 "판정 기준"에서 미리 정한 규칙을 그대로 적용해 값을 정하고, 그 값을 **"관측 최댓값 X초에 안전마진을 둔 휴리스틱"**이라고 솔직하게 적는다(실측 기반 margin이라고 과대포장하지 않음). 결과를 `SettlementBatchWriter.java`의 주석에 반영하고, `docs/localTest.md`의 "정확한 값 미상"을 실측값(+ 위 휴리스틱 설명)으로 채운다.
-
-### 판정 기준 (로컬 시계 실험 종료 후, EC2 측정 시작 전에 확정·커밋)
-
-**커밋 시점을 여기로 못박는다.** timeout과 비교할 값이 A→C인지 B→C인지는 위 "시계 질문" 로컬 실험이 끝나야 알 수 있으므로, "측정 시작 전"이 아니라 **로컬 실험이 끝난 직후, EC2 Phase 1 1라운드 트리거 전**에 아래 기준을 숫자까지 확정해 커밋한다(예시 상태로 남겨두지 않는다 — 이 절 자체를 그 시점에 다시 다듬어 커밋해야 사전 등록이 된다):
-
-- **기준 지표**: **B→C로 확정** — 로컬 시계 실험(위 "로컬 시계 실험 — 결과" 참고, 2026-10-05 실측) 결과 시계가 "대기"를 포함하지 않는 것으로 나왔다.
-- **구간별 조치** (기준값 X의 평온+혼잡 전체 관측 최댓값 기준 — 상향 폭과 후속 조치를 구간별로 다르게 한다):
-    - **X < 10초**: 20초 유지(여유 2배 이상 확보).
-    - **10초 ≤ X < 20초**: `X + 10초`로 상향(지금 20초보다는 여유를 더 둔다는 뜻). 후속 조치는 없음 — 다음 재측정 주기에 다시 본다.
-    - **X ≥ 20초**(지금 설정값과 같거나 넘음 — 실제 운영에서 이미 간당간당했을 수 있다는 뜻): `X + 10초`로 상향하고, **`reWriteBatchedInserts` 등 flush 비용 자체를 줄이는 작업을 후속 과제가 아니라 즉시 착수 대상으로 승격**한다.
-    - **n=6 중 timeout 실패(롤백)가 1건이라도 있으면, 다른 트리거의 최댓값과 무관하게 무조건 `X ≥ 20초` 구간을 적용한다** — timeout에 걸려 롤백됐다는 사실 자체가 "실제 저장 시간이 최소 20초 이상이었다"는 직접 증거이기 때문이다(아래 실패 처리 규칙 4번과 연결).
-- **왜 혼잡 라운드에서 실패가 나올 수 있는가**: 혼잡 라운드는 풀(15)에 JMeter 30 스레드의 `GET`이 걸린 상태에서 `POST /settlements`의 `persist()`를 트리거한다. 로컬 실험 결과가 "시계가 대기를 포함한다"(A→C)로 나오면, 이 혼잡 조건에서 **대기가 길어지는 것만으로도 timeout 실패가 현실적으로 자주 나올 수 있다** — 이건 이상 상황이 아니라 혼잡 조건을 거는 목적 자체가 드러나는 것이다.
-- **실패 처리 규칙**: 혼잡 라운드에서 트리거가 실제로 timeout에 걸려 롤백될 수 있다. **로컬 시계 실험에서 서로 다른 두 예외를 실제로 봤으므로, 어느 쪽만 "실패"로 집계할지 미리 정한다**:
-    - `org.hibernate.TransactionException: transaction timeout expired`(또는 `JpaSystemException: transaction timeout expired`) — `persist()`의 `@Transactional(timeout=20)` 자체가 터진 것. **이것만 "20초가 혼잡 상황에서 아슬아슬하다"는 판정 기준의 실패로 집계한다.**
-    - `SQLTransientConnectionException: HikariPool-1 - Connection is not available`(`CannotGetJdbcConnectionException`/`CannotCreateTransactionException`) — HikariCP `connection-timeout`(기본 30s)이 터진 것으로, `persist()`의 timeout=20과는 **별개 메커니즘**이다. 이건 "풀 고갈"로 **별도 기록**하되, 판정 기준의 실패 횟수에는 넣지 않는다 — 넣으면 "저장 자체가 느리다"와 "풀이 작다"가 섞여 timeout 값 판단이 흐려진다.
-
-    이 구분을 전제로:
-    1. 그 라운드를 "실패"로 **기록하되 버리지 않는다** — 실패 횟수 자체가 "20초가 혼잡 상황에서 얼마나 아슬아슬한가"를 보여주는 결과다.
-    2. `REQUIRES_NEW` 트랜잭션이라 타임아웃 시 해당 트랜잭션만 롤백된다 — 아래 쿼리로 그 배치의 행이 실제로 안 남아있는지 확인한다.
-       ```bash
-       docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
-         psql -U moneytown -d settlement_db -c \
-         "SELECT count(*) FROM p_settlement_batches WHERE asset_id = '<해당 asset_id>';"
-       ```
-       0이면 롤백 확인, 0이 아니면(부분 커밋 등 예상 밖 상태) 그 자체를 별도 이슈로 기록한다.
-    3. 롤백이 확인되면 같은 asset/revenue는 재사용하지 않고 여유 자산으로 다음 라운드를 계속한다.
-    4. **실패한 트리거의 값은 최댓값 계산에서 제외한다** — timeout 직전에 끊긴 값이라 실제 "저장"보다 짧게 기록돼 있어서, 그대로 최댓값 계산에 넣으면 판정이 낙관 쪽으로 틀어진다. 대신 **실패 횟수를 별도로 보고**하고, 그 라운드의 "저장"은 **최소 timeout 값 이상이었을 것으로 보수적으로 간주**한다.
-    5. **혼잡 3회 중 2회 이상 실패하면, 나머지를 억지로 채우지 않고 그 자체(실패율)를 결과로 정리한다** — 이미 20초가 혼잡 조건에서 구조적으로 못 버틴다는 걸 보여주는 결과이므로 3라운드를 다 채우는 것보다 그 사실 자체가 더 중요한 결론이다.
-
-이 기준이 있어야 "20초 유지"라는 결론이 나와도 "그냥 안 바꿨네"가 아니라 "미리 정한 기준을 충족해서 유지했다"고 설명할 수 있다.
-
-### 타임아웃 값 결정에 넣을 논거
-
-- **비대칭 비용** — timeout이 너무 짧으면 정상 저장이 롤백된다. 이미 끝난 holdings 페이징(이번엔 A0→A로 직접 측정, 추정값 아님)이 통째로 낭비되고 운영자가 회차 개시를 다시 눌러야 한다. 반대로 너무 길면 커넥션 점유가 조금 길어질 뿐이다 — 이 비대칭이 "짧게 잡아 실패 비용을 줄이기"보다 "넉넉하게 잡아 낭비를 막기" 쪽으로 margin을 둘 근거가 된다.
-- **시딩한 최대 규모에서 측정** — 코드에 "회차당 payout 상한 1만 건" 같은 제약은 없다(`AssetHoldingsSnapshotFetcher`의 `MAX_PAGES=1000`은 페이지네이션 안전장치일 뿐 투자자 수 상한이 아님, 코드로 확인). 그래서 "1만 건이 곧 최악 케이스"라고 쓰지 않는다 — 대신 **"이번 실험에서 시딩한 최대 규모(자산당 투자자 1만 명)에서 측정했다"**고 쓰고, 실제 운영 규모가 이보다 커질 수 있다는 전제를 결과에 남긴다.
-- **변수 통제(별도 과제 분리)** — `reWriteBatchedInserts` 미설정은 저장 시간을 줄일 수 있는 후속 개선 후보지만, 이번 측정에는 **섞지 않는다**. 지금 같이 고치면 "timeout 값이 변했다"가 "reWriteBatchedInserts 때문"인지 "원래 분석이 틀려서"인지 구분이 안 된다. 타임아웃 근거를 먼저 확정하고, 그 다음에 별도로 `reWriteBatchedInserts`를 켜서 "저장"이 얼마나 줄어드는지(그리고 timeout을 다시 낮출 수 있는지) 측정하는 걸 후속 과제로 남긴다.
-
-### 숫자 쓰는 규칙 (STAR 작성 시 — "추정"이라는 단어를 쓰지 않기 위해)
-
-모든 숫자를 아래 3층 중 하나로 분류하고, 어느 층인지 출처와 함께 적는다. "약", "~로 보인다", "추정"은 STAR 초안에 한 번도 나오지 않아야 한다 — 다 쓰고 나서 이 세 단어로 검색해 확인한다.
-
-1. **측정** — 로그(A0/A/B/D/C 원본 타임스탬프), `pg_stat_statements`, actuator 지표에서 직접 나온 값. 원본 로그 파일과 `(quiet|congested)-r` 순번을 함께 보관해 "이 값이 몇 번째 실행의 것인지" 언제든 추적 가능해야 한다.
-2. **코드 확인** — 파일과 라인을 인용한다(예: "`hibernate.jdbc.batch_size: 100` — `config-repository/settlement-service.yml:28`", "`DB_POOL_MAX_SIZE: 15` — `infrastructure/docker-compose.yml:351`").
-3. **설계 결정** — 판정 임계값(10초/20초)과 상향 폭(+10초), 시딩 규모(투자자 1만 명)는 측정값이 아니라 **우리가 정한 값**이다. "설계상의 선택"이라고 명시하고 그렇게 정한 이유를 붙인다(시나리오 A에서 "풀 크기 15는 개념증명을 위해 일부러 작게 잡은 값"이라고 밝힌 것과 같은 방식).
-
-최종 timeout 값은 **"측정 n=6(원본 값 전부 보관)과 사전에 커밋한 판정 규칙을 그대로 적용해 정한 값"**이라고 쓴다 — 이러면 추정이 아니라 측정+사전 규칙의 결과라는 게 분명해진다.
-
-### 사전 등록 증거 (로컬 실험 종료 후, EC2 1라운드 전에 커밋)
-
-"판정 기준" 절의 수치와 근거를 **로컬 시계 실험이 끝난 직후, EC2 Phase 1의 1라운드를 트리거하기 전에** git에 커밋해둔다(`docs/portfolio.md` 이 절 자체를 커밋해도 된다) — "측정 시작 전"이 아니라 이 시점인 이유는 위 "판정 기준" 절에 적은 그대로, 기준 지표(A→C인지 B→C인지)가 로컬 실험 결과로만 정해지기 때문이다. **커밋 메시지에 그 결과로 확정한 기준 지표(A→C 또는 B→C)를 적어두면 "왜 이 시점에 커밋했는지" 근거가 커밋 하나로 완결된다.** STAR의 Result에 **"측정 전 커밋 `<해시>`에서 정한 기준을 그대로 적용했다"**고 쓸 수 있게 되고, 이게 "결과 보고 끼워 맞췄다"는 반박을 막는 가장 강한 근거다.
-
-### 기록해둘 것 (STAR 재료)
-
-- **측정 환경표**: 인스턴스 타입, 커밋 해시, `DB_POOL_MAX_SIZE`, `hibernate.jdbc.batch_size`, 트레이싱 샘플링(`TRACING_SAMPLING_PROBABILITY`) 값 — EC2(n=6)와 로컬(시계 실험)을 **환경이 다른 별도 행**으로 표에 분리하고, "로컬 값은 시계 판정에만 쓰고 timeout 수치 산출에는 쓰지 않았다"를 한 줄로 명시.
-- **회차별 A0/A/B/D/C 타임스탬프 원본 + `pg_stat_statements` 결과** — 평온/혼잡 구분, `(quiet|congested)-r` 실행 순서 포함.
-- **로컬 시계 실험 결과** — 풀=2(처음 시도한 풀=1은 Flyway 자기 데드락으로 기동 실패해 2로 조정)·timeout=3·자산 3개(1개 큼+2개 경쟁) 조건에서 실측한 대기/저장 값, 예외가 대기/flush/커밋 중 어디서 났는지.
-- **혼잡이 실제로 걸렸다는 증거** — CPU/처리량 캡처.
-- **판정 기준을 커밋한 해시** — 위 "사전 등록 증거".
-- **실패한 시도와 정정 내역** — "측정 버그 → 원인 → 정정" 과정 자체가 이 항목의 핵심 서사다(배경 절의 "14.2~16.7초 철회"가 그 시작이고, 로컬 시계 실험도 같은 성격의 자기검증이다).
-
-### STAR 구성 방향 (측정 후 작성)
-
-- **Situation**: 20초의 근거(14.2~16.7초)가 로그 타이밍 버그로 무효화됐고, 그 후 시도한 교차검증도 독립적이지 못했다(같은 로그 체계에 의존하거나, 다른 측정값에서 역산한 값이었다).
-- **Task**: 독립된 두 지표(앱 로그 + `pg_stat_statements`)로 "저장"을 flush·커밋으로 쪼개 다시 재고, 그 전에 먼저 "20초 타임아웃이 정확히 무엇을 재는 구간인지"부터 로컬에서 실제로 터뜨려 확인한다. 평온·혼잡 두 조건에서 판정 기준을 측정 전에 커밋해두고 그 기준으로 타임아웃을 정한다.
-- **Result**: 사전에 커밋한 판정 기준(해시 인용) 대비 실측 결과와 최종 timeout 값. 평온과 혼잡의 차이는 숫자로 제시하되, 표본 수와 그로 인한 한계를 같이 적는다.
-- **Learn**: 측정 도구 자체도 검증 대상이다 — 같은 로그 하나로 스스로를 검증하지 말고, 반드시 독립된 지표로 교차검증해야 "측정 버그"를 또 반복하지 않는다. 숫자는 측정/코드확인/설계결정 세 층으로 구분해서 쓴다.
-
-**분량 — STAR 본문에 이 설계 문서를 그대로 옮기지 않는다.** 그러면 인덱스 항목(시나리오 0)의 절반도 안 되게 압축해야 한다. 로컬 시계 실험과 EC2 6회 라운드를 다 돌려도 STAR엔 "시계가 무엇을 재는지 로컬에서 확인, 기준을 사전 커밋, 결과 X초로 Y 판정" 세 문장 정도만 들어간다. STAR 본문은 이 세 가지(시계 결론, 판정 기준 커밋 해시, 최종 숫자)에만 집중하고, 나머지 절차 디테일은 이 설계 문서를 부록으로 가리킨다.
-
-- **결과가 "20초 유지"로 나올 때**: Result에 "관측 최댓값 X초 < 사전 기준 10초라 유지"라고 쓰고, Learn에 "값은 그대로여도 근거가 측정 버그가 있던 값에서 실측값으로 바뀌었다"를 넣는다 — 값이 안 바뀐 게 약점이 아니라 서사의 일부가 된다.
-- **결과가 "상향"으로 나올 때**: 기존 20초가 혼잡 상황에서 실제로 위험했다는 발견이 되므로, 이 경우 서사가 더 강해진다.
-
-### 실행 직전 마지막 점검 체크리스트
-
-- [ ] 코드의 로그 메시지(A0/A/B/D/C)와 4)·6번·로컬 실험의 grep 패턴이 글자 단위로 일치하는가.
-- [ ] 시딩 스크립트(`docs/seed-settlement-timeout-assets.sql`)의 투자자 UUID 공식과 JMeter CSV 생성 공식이 같은가 — 투자자 1명으로 `GET /dividends/me`를 직접 호출해 빈 결과가 아닌지 확인.
-- [ ] 명시적 `flush()`가 들어간 빌드(D 로그 포함)로 쟀다는 사실을 측정 환경표에 기록했는가.
-
-### 현재 상태
-
-설계를 리뷰 5회(실행 절차 허점 → 구간 정의/통계 해석 허점 → EC2 Phase 0의 논리·순서·데이터 허점 → 문서 내부 수치 불일치·실패 처리 공백 → 실험 규모의 과잉)를 거쳐 다음 상태로 수렴했다:
-- 진단 로그를 A/B/C 3개에서 **A0/A/B/D/C 5개로 확장**(코드 반영 완료: `SettlementCommandService.java`, `SettlementBatchWriter.java`) — 홀딩스 페이징을 직접 측정하고, "저장"을 flush/커밋으로 쪼갰다.
-- "시계가 대기를 포함하는가"는 **EC2 Phase 0(풀 축소+동시 트리거, 자산 25개)가 아니라 로컬 미니 실험(풀=2, timeout=3, 자산 3개)으로 대체**했다 — 같은 결론을 훨씬 적은 비용으로, EC2 재배포 없이 얻는다. 처음엔 풀=1·자산 2개로 설계했다가, 실제로 로컬에 띄워보니 **풀=1에서 Flyway가 기동 시점에 자기 자신과 데드락**한다는 게 실측으로 드러나(소스 추론으로는 안 나왔을 문제) 풀=2·자산 3개(큰 것 1 + 경쟁용 2)로 조정했다 — 이 과정 자체가 "실제로 돌려봐야 검증이 된다"는 이 항목의 핵심 주장을 한 번 더 증명한 셈이다.
-- `/actuator/metrics/*`(settlement-service 전용으로만 노출 확대)·`DB_POOL_MAX_SIZE`(compose 하드코딩 제거) 등 실행 전에 걸렸을 코드·설정 버그를 코드로 직접 확인해 고쳤다.
-- **평온+혼잡을 5+5에서 3+3(n=6)으로 줄였다** — 혼잡 조건에서의 분포가 이 항목의 핵심 가치이므로 n=1~2까지는 줄이지 않았고, 대신 EC2 쪽에서 비용이 큰 CPU 크레딧 기록·스케줄러 소음 표시를 "상시 수행"에서 "값이 이상할 때만 확인하는 보조 절차"로 낮췄다. 시딩도 25개에서 10개로 줄었다.
-- 판정 기준의 커밋 시점을 "로컬 실험 종료 후"로 명확히 하고, 실패 처리 규칙·숫자 3계층 구분 규칙·STAR 분량 가이드를 그대로 유지했다.
-
-**로컬 시계 실험을 2026-10-05 실제로 실행해 완료했다** — 자산 2가 HikariCP `connection-timeout`과 정확히 일치하는 30.003초를 대기한 뒤에도 `timeout=3`에 걸리지 않고 성공해, **기준 지표가 B→C로 확정**됐다(위 "로컬 시계 실험 — 결과" 참고). 로컬 코드(`timeout=20`)·`.env`(`DB_POOL_MAX_SIZE`)는 원복하고 재배포해 `{"status":"UP"}`으로 확인했다.
-
-다음 단계는 "판정 기준" 절을 이 확정된 기준(B→C)으로 다시 다듬어 커밋해 사전 등록 증거를 남긴 뒤, EC2 Phase 1(1~7)을 순서대로 실행하는 것이다. 측정 결과가 나오면 이 절을 위 STAR 방향대로, "추정" 표현 없이 완결된 항목으로 다시 정리한다.
+가설 하나로 증상이 풀리지 않을 때, 로그로 실패 지점을 좁혀 원인을 분리하는 과정의 중요성을 체감
 
 ---
+
+## 정산 저장 트랜잭션 timeout(20초)을 재측정하다: 측정 도구부터 검증
+
+**Situation**
+
+SettlementBatchWriter.persist()의 @Transactional(REQUIRES_NEW, timeout=20)은 진단 로그로 잰 14.2~16.7초에 마진을 더해 정한 값이었는데, 그 로그가 flush·commit 이전 시점에 찍히고 있었다는 측정 버그가 드러나 근거가 무효화됨
+이후 시도한 교차검증도 같은 로그 체계에 기대거나 총 소요시간에서 역산한 값이라 독립적이지 못함
+
+**Task**
+
+값을 다시 정하기 전에 20초 시계가 커넥션 대기를 포함하는지 먼저 확인
+앱 로그와 pg_stat_statements 두 독립 지표로 저장 구간을 flush·commit으로 쪼개 평온·혼잡 조건에서 재측정, 판정 기준은 측정 전에 커밋해 결과에 끼워 맞추지 못하게 함
+
+**Action**
+
+로그를 5줄(페이징 시작·완료, persist 진입, flush 완료, 저장 종료)로 확장해 구간을 직접 측정
+로컬에서 풀 2·timeout 3으로 낮춰 자산 3개를 동시 호출 — 대기 30초 넘긴 요청이 timeout 3에도 성공하고, 5만 건 요청은 persist 진입 3.09초 뒤 타임아웃으로 롤백되는 걸 확인해 시계가 대기를 포함하지 않고 persist 진입(B)부터 돈다는 걸 확정(기준 지표 B→C). 풀 1은 Flyway가 기동 시점에 자기 자신과 데드락해 쓸 수 없다는 것도 실행해서 확인
+판정 기준(구간별 조치, 실패 집계 규칙 — transaction timeout expired만 실패로 집계하고 Connection is not available은 풀 고갈로 별도 기록)을 결과를 보기 전에 커밋(`6ee4ffc`, `555cc3c`)
+EC2(t3a.large, 풀 15, 투자자 1만 명)에서 평온·혼잡(JMeter 30스레드, 부하 60초 안정화 후 트리거)을 번갈아 측정, 트리거마다 로그·pg_stat_statements·롤백 여부를 기록
+첫 혼잡 라운드에서 컨테이너가 재시작해 그 라운드를 무효 처리(사후 판정 규칙임을 별도 표시), docker events·5초 간격 자원 기록을 추가해 재측정
+
+**Result**
+
+평온 2회: B→C 11.54초(flush 11.45+commit 0.089) / 5.91초(flush 5.89+commit 0.019) — 둘 다 20초 안에 완료. pg_stat_statements 기준 INSERT 실행 합계는 2.57초/1.71초로 flush 시간의 일부에 불과해, 저장 시간 대부분이 DB 실행이 아니라 DB 밖(JVM)에서 쓰였음을 확인(어디인지는 미규명)
+혼잡 2회: 둘 다 B+20.1초 근처에서 transaction timeout expired로 롤백(0건 확인된 하한값), JMeter는 각 10만 건 이상을 에러 0건으로 처리. 혼잡 2/2 실패·평온 2/2 성공이라는 관측 그 이상은 아니다 — 운영에서 조회 부하와 회차 개시가 실제로 얼마나 자주·얼마나 겹치는지는 측정하지 않았다
+사전 규칙을 그대로 적용하면 실패 1건 이상이므로 "20초 이상" 구간 — X+10초(30초) 상향 + flush 비용 절감 착수가 기계적으로 산출됨(끼워 맞춘 숫자 아님)
+단, 혼잡 라운드 중 컨테이너 메모리가 한도(512MiB)의 93~99%였고 같은 환경에서 OOM(`docker events`의 oom→die(exitCode=137)로 확인, 직전 저장 완료 1.4초 뒤라 그 측정값 자체엔 영향 없음)이 발생해, 실패가 혼잡 때문인지 메모리 한도 때문인지는 분리하지 못함(CPU 크레딧은 측정 전후 864로 동일해 스로틀링은 배제)
+트랜잭션 밖 홀딩스 페이징(A0→A)은 평온 17.22초·13.61초, 혼잡 107.64초·109.34초였다. 혼잡 라운드에서는 timeout 실패 시 이 구간이 함께 버려진다(이 역시 메모리 한도 근접 환경이라는 같은 교란에서 자유롭지 않은 보조 관측이지, 혼잡이 원인이라는 걸 확정하는 증거는 아니다)
+
+**Learn**
+
+측정 도구도 검증 대상이다 — 같은 로그 하나로 스스로를 검증하다 틀렸던 경험을, 독립 지표와 측정 전에 커밋한 판정 기준으로 바로잡았다
+환경도 변수다 — 메모리 한도 근처에서 잰 값은 "20초가 부족하다"와 "환경이 좁다"를 구분하지 못했다. 평온 조건에서는 20초가 충분함을 확인했지만, 혼잡 조건에서의 부족은 메모리 한도를 올린 환경에서 재측정하기 전까지는 원인을 확정할 수 없다 — 그래서 사전 규칙상 상향값(30초)과 flush 비용 절감은 착수하되, "혼잡이 원인"이라고 단정하지 않는다
+
+---
+
+## 부록 — 메모리 한도를 올린 환경에서 재측정 설계 (혼잡 실패 원인 분리: 혼잡 vs 메모리)
+
+### 배경
+
+혼잡 2회 모두 B+20.1초 근처에서 `transaction timeout expired`로 실패했는데, 같은 시점 컨테이너 메모리가 한도(512MiB)의 93~99%였고 OOM도 한 번 확인됐다. **바꾼 변수가 "혼잡(JMeter 부하)" 하나가 아니라 "혼잡+메모리 한도 근접" 두 개가 같이 끼어 있어서, 20초 부족의 원인을 분리하지 못했다.** 이걸 풀려면 메모리 한도만 큰 폭으로 올리고 나머지(풀 15, 투자자 1만 명, JMeter 설정)는 전부 그대로 둔 채 같은 프로토콜로 다시 잰다 — "한 번에 변수 하나만 바꾼다"는 이 문서 전체가 지켜온 원칙 그대로다.
+
+### 사전 준비 (코드 — 이미 반영, 커밋·푸시 필요)
+
+`infrastructure/docker-compose.yml`의 `settlement-service`에 메모리 한도를 변수로 오버라이드할 수 있게 추가했다(기존 `DB_POOL_MAX_SIZE`와 같은 문제 — 공통 anchor `x-app-common`의 `mem_limit: 512m`가 리터럴이라 셸 변수로 못 덮어썼었다):
+```yaml
+mem_limit: ${SETTLEMENT_MEM_LIMIT:-512m}
+```
+`docker compose config`로 기본값(536870912바이트=512MiB)과 `SETTLEMENT_MEM_LIMIT=2048m` 오버라이드(2147483648바이트=2048MiB) 둘 다 로컬에서 확인했다.
+
+⚠️ **이 라운드의 이름을 "20초 설정의 재현"이 아니라 "저장 시간의 실측"으로 구분한다.** 아래에서 `timeout`을 90으로 풀기 때문에, 이번 라운드는 "20초에서 실패하는지 재현"하는 게 아니라 **cutoff 없이 B→C의 실제 값을 직접 관찰**하는 것이다. 메모리 한도와 timeout, 두 변수를 동시에 바꾸는 셈이지만 — "20초 이내 완료했는가"는 timeout=90에서 관찰한 B→C 값으로도 그대로 판정 가능하므로 "변수 하나만 바꾼다" 원칙은 깨지지 않는다. 다만 혼동하지 않도록 라운드 이름 자체를 구분해서 기록한다.
+
+**커밋 순서**: `infrastructure/docker-compose.yml` 변경 + 아래 "판정 기준"(빈 구간을 채운 최종본)을 **하나의 커밋**으로 묶어 측정 시작 전에 push한다. 측정 결과를 본 뒤에 커밋하면 사전 등록이 아니게 된다.
+```bash
+git add infrastructure/docker-compose.yml docs/portfolio.md
+git commit -m "chore: settlement-service 메모리 한도 환경변수로 변경 + 재측정 판정 기준 사전 등록"
+git push origin settlement-mvp
+```
+(브랜치명은 지금까지 써온 `settlement-mvp` 기준이다. 별도 측정용 브랜치를 쓰고 있다면 그 이름으로 바꿔서 실행한다.)
+
+**이번 재측정에서만** `SettlementBatchWriter.java`의 `timeout = 20`을 `timeout = 90`으로 임시로 올린다(`// 메모리 한도 재측정 전용, 측정 후 원복` 주석). 이유: 지난 혼잡 2회는 20초에서 강제로 끊겨 "하한값"만 남았다 — 이번엔 컷오프 자체를 넉넉히 풀어서 혼잡 조건의 **진짜 저장 시간**을 하한값이 아니라 실측값으로 직접 관찰한다. **이 변경은 commit하지 않는다** — EC2에서 `git pull`로 위 커밋을 받은 뒤, 빌드 직전에만 로컬로 수정하고 측정 후 `git checkout`으로 되돌린다(로컬 시계 실험과 같은 방식). 빌드 해시만 기록하면 "해시가 가리키는 코드"와 "실제로 돈 코드"가 달라지므로, 환경표에는 반드시 **"빌드 해시 `<hash>` + timeout=90 로컬 임시 수정"**을 함께 적는다.
+
+### 판정 기준 (측정 전 확정)
+
+지표: **메모리 피크(한도 대비 %, 5초 간격 샘플의 최댓값 — 두 샘플 사이의 순간 피크는 못 잡을 수 있다는 한계 포함)** + **혼잡 B→C(또는 실패 여부)**.
+
+⚠️ **"메모리 한도를 올려서 결과가 달라졌다"와 "메모리(OOM)가 원인이었다"는 같은 말이 아니다.** `mem_limit`은 컨테이너 전체 한도이고, JVM 힙은 `MaxRAMPercentage=65`로 그 한도의 65%를 쓴다 — 한도를 512MiB→2048MiB로 올리면 **힙도 같이 333MB→1332MB로 늘어난다.** 그러면 "OOM 근접을 피해서 좋아졌다"와 "힙이 커져서 GC 부담이 줄어 좋아졌다"가 같은 레버(한도) 안에 섞여 있어 분리되지 않는다. 그래서 결론은 **"한도를 올리니 결과가 달라졌다/안 달라졌다"까지만** 말하고, "메모리가 원인이다"처럼 기전까지 확정하는 말은 쓰지 않는다.
+
+- 메모리 피크 < 80%이고 혼잡 B→C가 20초 이내 → **한도를 올리니 20초 안에 들어왔다**고 결론. production의 메모리 한도도 같이 점검해야 한다는 걸 별도 이슈로 남긴다(지금 timeout을 30초로 올리는 것만으로는 production에서 같은 OOM이 재발할 수 있음).
+- 메모리 피크 < 80%인데도 혼잡 B→C가 20초를 넘김 → **한도를 올려도 저장이 20초를 넘긴다**는 게 확정된다. 이번에 cutoff 없이 관찰한 실제 저장 시간 + margin으로 최종 timeout을 다시 계산한다("30초"는 폐기하고 실측값으로 교체).
+- **메모리 피크 ≥ 80%인데 이번엔 OOM/재시작 없이 B→C가 완료(20초 이내든 초과든 무관)** → 환경이 여전히 빡빡해 결론을 내릴 수 없다. "성공했다"로 치지 말고 한도를 더 올려(예: 4096m) 재시도한다.
+- **메모리 피크 ≥ 80%이고 OOM/재시작이 다시 발생** → 1차 측정과 같은 처리(그 라운드 무효 처리, 파일 보존, 원인 메모)를 적용한다. 단 이번엔 **이 규칙 자체를 측정 전에 미리 정해뒀으므로** 사후 판정이 아니라 사전 등록된 규칙이다 — 1차 때와 달리 이 부분은 "끼워 맞춘 것 아니냐"는 반박이 성립하지 않는다.
+
+이 기준을 측정 전에 이 절 자체로 커밋해 사전 등록한다(기존 `6ee4ffc`/`555cc3c`와 같은 방식, 위 "커밋 순서" 참고).
+
+### 실행 절차
+
+1. 위 커밋(docker-compose.yml + 판정 기준)이 origin에 있는지 EC2에서 `git fetch`로 확인 후 pull.
+2. EC2 `.env`에 `SETTLEMENT_MEM_LIMIT=2048m` 추가.
+3. `SettlementBatchWriter.java`의 `timeout`을 90으로 로컬 수정(커밋 안 함) 후 재빌드·재배포. 빌드 직전 커밋 해시를 `git rev-parse HEAD`로 따로 기록(환경표에 "해시 + timeout=90 로컬 수정" 같이 적을 것).
+4. 새 한도가 실제 반영됐는지 확인:
+   ```bash
+   docker inspect money-town-settlement-service-1 --format '{{.HostConfig.Memory}}'   # 2147483648이어야 함
+   ```
+5. 자산 11~20을 새로 시딩한다(1~10은 1차 측정에서 이미 소모돼 재사용 안 함; 평온3+혼잡3엔 6개면 충분하지만 재시도 여유분까지 10개를 미리 확보한다 — 1차 때와 같은 이유):
+   ```bash
+   docker compose --env-file .env -f infrastructure/docker-compose.yml exec -T postgres \
+     psql -U moneytown -d asset_db -v asset_count=20 -v investor_count=10000 -f - \
+     < docs/seed-settlement-timeout-assets.sql
+   ```
+6. 평온 3 + 혼잡 3을 번갈아 재측정("저장 시간 실측" 라운드로 명명) — A0/A/B/D/C 로그, `pg_stat_statements` 교차검증, `docker events`·5초 간격 자원 기록(메모리/CPU)은 **이번엔 라운드 1번부터 상시 켜둔다**(1차 때는 사후에 추가했던 것 — 이번엔 판정 기준 자체가 메모리 피크를 보는 거라 전 구간 기록이 필수다).
+7. 혼잡 라운드마다 메모리 피크(5초 샘플 최댓값, %)를 기록하고, 위 "판정 기준"의 네 갈래 중 하나에 대입해 결론을 낸다.
+8. 파일은 1차 측정분을 그대로 보관하고, 이번 라운드는 **`r4-` 접두사**로 구분해 저장한다(`r4-quiet-1.log` 등).
+9. 측정이 끝나면 `timeout`을 20(또는 이번 결과로 확정된 최종값)으로 `git checkout`해 되돌린다. `SETTLEMENT_MEM_LIMIT`은 결론에 따라 운영값으로 유지할지 되돌릴지 정한다.
+
+---
+
