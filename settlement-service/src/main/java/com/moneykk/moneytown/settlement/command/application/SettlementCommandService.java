@@ -84,6 +84,7 @@ public class SettlementCommandService {
             throw new BusinessException(SettlementErrorCode.DISTRIBUTABLE_AMOUNT_NOT_POSITIVE);
         }
 
+        log.info("[진단]holdings 페이징 시작 (assetId={}, revenueId={})", assetId, revenueId);
         AssetHoldingsSnapshotFetcher.Aggregated holdingsSnapshot = fetchAndValidateHoldingsSnapshot(assetId, recordDate);
 
         SettlementBatch batch = SettlementBatch.open(assetId, revenueId, recordDate, totalAmount);

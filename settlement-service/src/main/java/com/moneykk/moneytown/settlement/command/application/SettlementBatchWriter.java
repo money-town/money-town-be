@@ -30,12 +30,15 @@ class SettlementBatchWriter {
     private final HoldingSnapshotRepository holdingSnapshotRepository;
     private final DividendPayoutRepository dividendPayoutRepository;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 20)
+    // timeout 20 → 60: 메모리 한도를 올려 재측정한 혼잡 조건 저장시간 최댓값(X) 48.41초 + 10초(사전 등록 규칙, X≥20s → X+10) = 58.41초
+    @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 60)
     public void persist(SettlementBatch batch, HoldingSnapshot snapshot, List<DividendPayout> payouts) {
         log.info("[진단]persist 진입 — 커넥션 획득 완료 (batchId={})", batch.getId());
         saveNewBatch(batch);
         holdingSnapshotRepository.save(snapshot);
         dividendPayoutRepository.saveAll(payouts);
+        dividendPayoutRepository.flush();
+        log.info("[진단]persist flush 완료 — 커밋 대기 (batchId={})", batch.getId());
     }
 
     private void saveNewBatch(SettlementBatch batch) {
